@@ -1,8 +1,8 @@
 import Fastify, { type FastifyBaseLogger } from 'fastify';
-import { getMigrationStatus, type Pool } from '@qigong/database';
+import { checkApiRuntimePreflight, getMigrationStatus, type Pool } from '@qigong/database';
 
-export const minimumMigrationVersion = '0001_platform_baseline.sql';
-export const maximumMigrationVersion = '0002_identity_region_rbac.sql';
+export const minimumMigrationVersion = '0003_runtime_roles_and_rls.sql';
+export const maximumMigrationVersion = '0003_runtime_roles_and_rls.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -11,6 +11,20 @@ interface AppDependencies {
   logger?: FastifyBaseLogger | false;
   serviceVersion?: string;
 }
+
+export const checkStartupReadiness = async (pool: Pool) => {
+  const migration = await getMigrationStatus(
+    pool,
+    minimumMigrationVersion,
+    maximumMigrationVersion
+  );
+  if (!migration.ready)
+    return { ready: false as const, reason: 'schema_version_mismatch', migration };
+  const runtime = await checkApiRuntimePreflight(pool);
+  if (!runtime.ready)
+    return { ready: false as const, reason: 'runtime_role_misconfigured', runtime };
+  return { ready: true as const, migration, runtime };
+};
 
 export const buildApp = ({ pool, logger, serviceVersion = 'development' }: AppDependencies) => {
   const app = Fastify({
@@ -52,15 +66,9 @@ export const buildApp = ({ pool, logger, serviceVersion = 'development' }: AppDe
   app.get('/health/ready', async (_request, reply) => {
     try {
       await pool.query('SELECT 1');
-      const migration = await getMigrationStatus(
-        pool,
-        minimumMigrationVersion,
-        maximumMigrationVersion
-      );
-      if (!migration.ready) {
-        return reply.code(503).send({ ok: false, reason: 'schema_version_mismatch', migration });
-      }
-      return { ok: true, migration };
+      const readiness = await checkStartupReadiness(pool);
+      if (!readiness.ready) return reply.code(503).send({ ok: false, ...readiness });
+      return { ok: true, ...readiness };
     } catch (error) {
       app.log.error({ err: error }, 'readiness check failed');
       return reply.code(503).send({ ok: false, reason: 'database_unavailable' });

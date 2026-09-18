@@ -2,13 +2,43 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Pool } from 'pg';
 import { buildApp, maximumMigrationVersion } from '../src/app.js';
 
-const createPoolMock = (version = maximumMigrationVersion) =>
-  ({
-    query: vi.fn(async (query: string) => {
-      if (query.includes('schema_migrations')) return { rows: [{ version }] };
+const createPoolMock = (version = maximumMigrationVersion, preflightReady = true) => {
+  const query = vi.fn(async (queryText: string) => {
+    if (queryText.includes('schema_migrations')) return { rows: [{ version }] };
+    if (queryText.includes('FROM pg_roles')) {
+      return {
+        rows: [
+          {
+            session_user: 'qigong_api_login',
+            rolsuper: false,
+            rolbypassrls: false,
+            rolcreatedb: false,
+            rolcreaterole: false,
+            rolreplication: false,
+            rolinherit: false
+          }
+        ]
+      };
+    }
+    if (queryText.includes('FROM pg_shdepend')) return { rows: [{ unsafe: false }] };
+    if (queryText.includes('FROM pg_auth_members')) {
+      return { rows: [{ role_name: 'qigong_api_runtime' }] };
+    }
+    if (queryText.includes('SET LOCAL ROLE qigong_api_runtime') && !preflightReady) {
+      throw new Error('permission denied to set role');
+    }
+    if (queryText.includes('identity.people')) return { rows: [], rowCount: 0 };
+    return { rows: [{ '?column?': 1 }] };
+  });
+  const client = { query, release: vi.fn() };
+  return {
+    query: vi.fn(async (queryText: string) => {
+      if (queryText.includes('schema_migrations')) return { rows: [{ version }] };
       return { rows: [{ '?column?': 1 }] };
-    })
-  }) as unknown as Pool;
+    }),
+    connect: vi.fn(async () => client)
+  } as unknown as Pool;
+};
 
 describe('health endpoints', () => {
   it('reports liveness without checking dependencies', async () => {
@@ -48,11 +78,19 @@ describe('health endpoints', () => {
     await app.close();
   });
 
-  it('fails readiness for an old schema', async () => {
-    const app = buildApp({ pool: createPoolMock('0000_old.sql'), logger: false });
+  it('fails readiness before runtime RLS is installed', async () => {
+    const app = buildApp({ pool: createPoolMock('0002_identity_region_rbac.sql'), logger: false });
     const response = await app.inject({ method: 'GET', url: '/health/ready' });
     expect(response.statusCode).toBe(503);
     expect(response.json()).toMatchObject({ reason: 'schema_version_mismatch' });
+    await app.close();
+  });
+
+  it('fails readiness when the login cannot assume the API runtime role', async () => {
+    const app = buildApp({ pool: createPoolMock(maximumMigrationVersion, false), logger: false });
+    const response = await app.inject({ method: 'GET', url: '/health/ready' });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({ reason: 'runtime_role_misconfigured' });
     await app.close();
   });
 });

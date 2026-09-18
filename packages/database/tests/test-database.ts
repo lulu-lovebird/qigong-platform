@@ -24,6 +24,7 @@ export const createIsolatedTestDatabase = async (baseUrl: string) => {
 
   return {
     pool,
+    databaseUrl: testUrl.toString(),
     async dispose() {
       await pool.end();
       await admin.query(

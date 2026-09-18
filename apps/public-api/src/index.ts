@@ -1,6 +1,6 @@
 import { loadEnvironment } from '@qigong/config';
 import { attachPoolErrorHandler, createPool } from '@qigong/database';
-import { buildApp } from './app.js';
+import { buildApp, checkStartupReadiness } from './app.js';
 
 const environment = loadEnvironment();
 const pool = createPool(environment);
@@ -31,6 +31,8 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 }
 
 try {
+  const readiness = await checkStartupReadiness(pool);
+  if (!readiness.ready) throw new Error(`startup readiness failed: ${readiness.reason}`);
   await app.listen({ host: environment.HOST, port: environment.PORT });
 } catch (error) {
   app.log.fatal({ err: error }, 'failed to start public API');

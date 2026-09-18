@@ -18,19 +18,25 @@ describe('migration compatibility', () => {
     expect(isMigrationVersionCompatible(null, '0001_baseline.sql', '0003_expand.sql')).toBe(false);
   });
 
-  it('supports overlapping old and new application ranges during expand deployment', () => {
-    const expandedSchema = '0002_identity_region_rbac.sql';
-    const oldApplicationReady = isMigrationVersionCompatible(
-      expandedSchema,
+  it('uses distinct pre-runtime and runtime-RLS build manifests', () => {
+    const preRuntimeApplicationReady = isMigrationVersionCompatible(
+      '0002_identity_region_rbac.sql',
       '0001_platform_baseline.sql',
       '0002_identity_region_rbac.sql'
     );
-    const newApplicationReady = isMigrationVersionCompatible(
-      expandedSchema,
-      '0001_platform_baseline.sql',
-      '0002_identity_region_rbac.sql'
+    const runtimeApplicationReady = isMigrationVersionCompatible(
+      '0003_runtime_roles_and_rls.sql',
+      '0003_runtime_roles_and_rls.sql',
+      '0003_runtime_roles_and_rls.sql'
     );
-    expect(oldApplicationReady).toBe(true);
-    expect(newApplicationReady).toBe(true);
+    expect(preRuntimeApplicationReady).toBe(true);
+    expect(runtimeApplicationReady).toBe(true);
+    expect(
+      isMigrationVersionCompatible(
+        '0002_identity_region_rbac.sql',
+        '0003_runtime_roles_and_rls.sql',
+        '0003_runtime_roles_and_rls.sql'
+      )
+    ).toBe(false);
   });
 });
