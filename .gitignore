@@ -8,3 +8,6 @@ coverage/
 *.log
 .pnpm-store/
 **/*.tsbuildinfo
+**/tests/*.js
+**/tests/*.js.map
+**/tests/*.d.ts

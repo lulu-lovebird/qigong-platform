@@ -32,15 +32,15 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0001_platform_baseline.sql'
+      '0002_identity_region_rbac.sql'
     );
 
-    expect(first.applied).toEqual(['0001_platform_baseline.sql']);
+    expect(first.applied).toEqual(['0001_platform_baseline.sql', '0002_identity_region_rbac.sql']);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0001_platform_baseline.sql',
+      currentVersion: '0002_identity_region_rbac.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0001_platform_baseline.sql',
+      maximumVersion: '0002_identity_region_rbac.sql',
       ready: true
     });
   });

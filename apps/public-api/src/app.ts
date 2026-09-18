@@ -2,7 +2,7 @@ import Fastify, { type FastifyBaseLogger } from 'fastify';
 import { getMigrationStatus, type Pool } from '@qigong/database';
 
 export const minimumMigrationVersion = '0001_platform_baseline.sql';
-export const maximumMigrationVersion = '0001_platform_baseline.sql';
+export const maximumMigrationVersion = '0002_identity_region_rbac.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

@@ -19,16 +19,16 @@ describe('migration compatibility', () => {
   });
 
   it('supports overlapping old and new application ranges during expand deployment', () => {
-    const expandedSchema = '0002_add_nullable_identity.sql';
+    const expandedSchema = '0002_identity_region_rbac.sql';
     const oldApplicationReady = isMigrationVersionCompatible(
       expandedSchema,
-      '0001_baseline.sql',
-      '0002_add_nullable_identity.sql'
+      '0001_platform_baseline.sql',
+      '0002_identity_region_rbac.sql'
     );
     const newApplicationReady = isMigrationVersionCompatible(
       expandedSchema,
-      '0002_add_nullable_identity.sql',
-      '0003_backfill_identity.sql'
+      '0001_platform_baseline.sql',
+      '0002_identity_region_rbac.sql'
     );
     expect(oldApplicationReady).toBe(true);
     expect(newApplicationReady).toBe(true);

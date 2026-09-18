@@ -31,7 +31,7 @@ This repository is the future authoritative home for the shared domain, database
 
 ## Current Phase
 
-Phase 1: engineering foundation. No production traffic is routed to this repository yet.
+Phase 2: OIDC, identity, region, and authorization foundation. No production traffic is routed to this repository yet.
 
 ## Development Baseline
 

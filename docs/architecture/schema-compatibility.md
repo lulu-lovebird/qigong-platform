@@ -7,6 +7,8 @@ minimum compatible migration
 maximum compatible migration
 ```
 
+The pre-production `0001` to `0002` transition is exempt because no application instance serves production traffic. The expand release sequence is mandatory after the first production deployment.
+
 ## Expand Release
 
 1. Release application `A` whose maximum range includes the planned expand migration.
