@@ -26,10 +26,37 @@ This repository is the future authoritative home for the shared domain, database
 - [Permission Model](docs/architecture/permission-model.md)
 - [Delivery Roadmap](docs/architecture/roadmap.md)
 - [Go/No-Go Gates](docs/architecture/go-no-go-gates.md)
+- [Schema Compatibility Contract](docs/architecture/schema-compatibility.md)
 - [Architecture Decision Records](docs/adr/README.md)
 
 ## Current Phase
 
-Phase 0: architecture contracts and governance decisions. No production traffic is routed to this repository yet.
+Phase 1: engineering foundation. No production traffic is routed to this repository yet.
+
+## Development Baseline
+
+- Node.js 24 LTS
+- pnpm 10 workspaces
+- TypeScript with strict checking
+- Fastify 5
+- PostgreSQL 16
+- Vitest, ESLint, and Prettier
+
+```bash
+pnpm install
+cp .env.example .env
+pnpm --filter @qigong/database migrate
+pnpm verify
+pnpm dev
+```
+
+Health endpoints:
+
+```text
+GET /health/live
+GET /health/ready
+```
+
+Readiness fails when PostgreSQL is unavailable or the migration ledger is not at the expected version.
 
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.

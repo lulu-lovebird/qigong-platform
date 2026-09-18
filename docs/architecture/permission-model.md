@@ -2,18 +2,18 @@
 
 ## Roles
 
-| Role | Default Scope | Purpose |
-| --- | --- | --- |
-| `super_admin` | Global | Full platform administration and emergency access |
-| `global_viewer` | Global | Read-only global reporting without private-note access |
-| `country_admin` | Country descendants | Country operations and region transfer approval |
-| `regional_admin` | Operational Region | Learner operations for the effective region period |
-| `regional_viewer` | Operational Region | Read-only non-sensitive operational data |
-| `coach` | Cohort | Assigned learners and explicitly permitted private notes |
-| `content_admin` | Global or content scope | Methods, tags, campaigns, badge content |
-| `broadcast_admin` | Region/platform scope | Draft provider messages and campaigns |
-| `privacy_admin` | Explicit case scope | Export, deletion, anonymization requests |
-| `auditor` | Global or region scope | Read-only audit access |
+| Role              | Default Scope           | Purpose                                                  |
+| ----------------- | ----------------------- | -------------------------------------------------------- |
+| `super_admin`     | Global                  | Full platform administration and emergency access        |
+| `global_viewer`   | Global                  | Read-only global reporting without private-note access   |
+| `country_admin`   | Country descendants     | Country operations and region transfer approval          |
+| `regional_admin`  | Operational Region      | Learner operations for the effective region period       |
+| `regional_viewer` | Operational Region      | Read-only non-sensitive operational data                 |
+| `coach`           | Cohort                  | Assigned learners and explicitly permitted private notes |
+| `content_admin`   | Global or content scope | Methods, tags, campaigns, badge content                  |
+| `broadcast_admin` | Region/platform scope   | Draft provider messages and campaigns                    |
+| `privacy_admin`   | Explicit case scope     | Export, deletion, anonymization requests                 |
+| `auditor`         | Global or region scope  | Read-only audit access                                   |
 
 ## Actions
 

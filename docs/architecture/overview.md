@@ -20,13 +20,13 @@
 
 ## Runtime Roles
 
-| Role | Responsibility |
-| --- | --- |
-| `public-api` | Website/API sessions, WebApps, provider callback ingress |
-| `admin` | OIDC login, scoped administration, reporting requests |
-| `webhook-worker` | Claims verified provider events and executes domain commands |
-| `delivery-worker` | Sends provider messages with retry and rate limits |
-| `scheduler` | Expands reminders, campaigns, reconciliation, and maintenance jobs |
+| Role              | Responsibility                                                     |
+| ----------------- | ------------------------------------------------------------------ |
+| `public-api`      | Website/API sessions, WebApps, provider callback ingress           |
+| `admin`           | OIDC login, scoped administration, reporting requests              |
+| `webhook-worker`  | Claims verified provider events and executes domain commands       |
+| `delivery-worker` | Sends provider messages with retry and rate limits                 |
+| `scheduler`       | Expands reminders, campaigns, reconciliation, and maintenance jobs |
 
 All roles share domain and database packages but have separate process health, pools, and scaling limits.
 
@@ -63,3 +63,12 @@ Caddy routes paths to the current bot or the unified service by feature flag and
 - Badge awards reference immutable rule versions and triggering check-ins.
 - Region access uses the check-in's effective assignment, not the learner's current region.
 - Platform notification capabilities never define learner identity.
+
+## Schema Compatibility During Blue-Green Deploys
+
+- Every application build declares a minimum and maximum compatible migration version.
+- Expand migrations are applied while both old and new builds remain inside their compatibility ranges.
+- The new build is started and checked before Caddy switches traffic.
+- Contract migrations are applied only after the rollback window closes and old builds are drained.
+- Readiness fails below the minimum or above the maximum, not merely because the schema is newer than the build's preferred version.
+- CI tests versions inside and outside the declared range.
