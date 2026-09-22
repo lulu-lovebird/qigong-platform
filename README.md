@@ -59,4 +59,8 @@ GET /health/ready
 
 Readiness fails when PostgreSQL is unavailable or the migration ledger is not at the expected version.
 
+## 專案署名
+
+本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
+
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
