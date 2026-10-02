@@ -28,6 +28,9 @@ identity.link
 identity.link_override
 identity.revoke
 interaction_channel.switch
+onboarding.review
+enrollment.manage
+method_visibility.manage
 checkin.read
 checkin.read_private_note
 checkin.correct
@@ -77,6 +80,8 @@ audit.read
 6. Audit and alerting.
 
 Admin requests use database transactions and `SET LOCAL` request context. Runtime roles do not own protected tables and do not have `BYPASSRLS`.
+
+Messaging onboarding approval is limited to the requested operational region (or its country/global administrator); unassigned applications require routing. Enrollment and per-person method visibility changes require permissions scoped to the learner's current primary region and an audit reason. A learner's own read access never implies administrative write access.
 
 ## RLS Connection-Pool Contract
 

@@ -3,7 +3,7 @@
 ## Phase 0: Product and Governance Contracts
 
 - Finalize primary IM capability matrix.
-- Finalize website OIDC claim contract.
+- Configure Authgear Cloud OIDC for administrator accounts; defer learner membership integration until its source contract is agreed.
 - Finalize region transfer workflow and historical visibility.
 - Approve private-note and learner-sharing consent text.
 - Approve retention, deletion, and anonymization policy.
@@ -19,7 +19,8 @@
 
 ## Phase 2: OIDC, Identity, Region, and Authorization
 
-- Website OIDC Authorization Code + PKCE integration.
+- Authgear OIDC Authorization Code + PKCE integration, server-side admin sessions, local principal provisioning and verified principal context.
+- Messaging-platform applications, scoped regional approval/rejection with reasons, and explicit website identity linking later.
 - People, platform identities, active interaction-channel history.
 - Regions, dated assignments, cohorts, and memberships.
 - Admin principals, action permissions, scoped grants, RLS, and audit.
@@ -28,6 +29,7 @@
 ## Phase 3: Unified Check-In Domain
 
 - Taxonomy and platform availability.
+- All active platform-available leaf methods visible to approved messaging learners by default; scoped per-person method overrides and course enrollment records.
 - Practice/reminder timezone separation.
 - Device-timezone difference prompt and manual permanent change.
 - Check-in uniqueness and method replacement.
@@ -53,7 +55,7 @@
 
 ## Phase 6: Telegram Learner Pilot
 
-- New website-authenticated learners only.
+- New region-approved messaging learners; admin login requires verified IdP authentication.
 - Telegram primary interaction channel.
 - One small operational region.
 - End-to-end check-in, reminder, badge, history, and admin workflows.

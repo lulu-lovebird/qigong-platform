@@ -6,7 +6,9 @@ Accepted
 
 ## Decision
 
-`people` represents learners. LINE, Telegram, WhatsApp, and website identities are separate `platform_identities` linked only through explicit verification.
+`people` represents learners. A verified LINE, Telegram, or WhatsApp identity can apply without a website account. An application remains pending until an authorized administrator in the requested operational region approves it. Rejection requires a reason. Approval creates the learner, region assignment, verified platform identity, and first active channel atomically; pending and rejected applicants cannot check in. Unassigned applications require explicit routing before approval.
+
+Website OIDC issuer and subject are optional together until the learner later links a verified website identity. Messaging identities remain in `platform_identities`; linking never relies on name, phone, or email matching.
 
 A learner may verify multiple identities but has exactly one active primary interaction channel at a time. The active channel is temporal history, not an overwriteable column.
 

@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
 
 permissions:
@@ -40,4 +39,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Confirm PostgreSQL integration test database
+        run: |
+          test -n "$TEST_DATABASE_URL"
+          node -e 'const u = new URL(process.env.TEST_DATABASE_URL); if (!u.pathname.includes("test")) process.exit(1)'
       - run: pnpm verify

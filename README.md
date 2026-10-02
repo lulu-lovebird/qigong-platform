@@ -16,7 +16,9 @@ This repository is the future authoritative home for the shared domain, database
 - Sanfu and Sanjiu campaigns use the official Asia/Taipei calendar.
 - Practice notes may be shared with authenticated Baiyan Qigong learners. Learners can opt out of sharing; coaches and specifically authorized administrators can still access private notes.
 - Shared notes default to the learner's real name, with an option to use a public nickname.
-- Website membership and authentication will integrate through OpenID Connect / OAuth 2.0. Passwords are not copied into this platform.
+- Learners joining through LINE, Telegram, or WhatsApp enter a regional pending-review queue. Only approved learners can check in; rejection requires a reason.
+- Approved messaging learners initially see every active method available on their platform. Regional administrators can record course enrollments and adjust individual method visibility; visibility is not proof of course completion or permission for AI to recommend a method.
+- Administrator login will use Authgear Cloud via OpenID Connect; this platform alone controls administrator provisioning, scoped roles, and learner approval. The Baiyan membership database contains learner accounts and course history, not administrator accounts. Learner membership integration details remain open; passwords are not copied into this platform.
 - Initial travel behavior only detects a time-zone difference and offers a manual permanent change. Temporary travel mode is deferred.
 
 ## Documents
@@ -31,7 +33,7 @@ This repository is the future authoritative home for the shared domain, database
 
 ## Current Phase
 
-Phase 2: OIDC, identity, region, and authorization foundation. No production traffic is routed to this repository yet.
+Phase 2: identity, region, authorization, and messaging onboarding foundation. Authgear administrator OIDC login, database-backed sessions, and regional application-review APIs are implemented. The admin UI, account-provisioning workflow, provider adapters, and learner check-in flow are pending. No production traffic is routed to this repository yet.
 
 ## Development Baseline
 

@@ -32,19 +32,21 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0003_runtime_roles_and_rls.sql'
+      '0005_admin_sessions.sql'
     );
 
     expect(first.applied).toEqual([
       '0001_platform_baseline.sql',
       '0002_identity_region_rbac.sql',
-      '0003_runtime_roles_and_rls.sql'
+      '0003_runtime_roles_and_rls.sql',
+      '0004_messaging_onboarding.sql',
+      '0005_admin_sessions.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0003_runtime_roles_and_rls.sql',
+      currentVersion: '0005_admin_sessions.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0003_runtime_roles_and_rls.sql',
+      maximumVersion: '0005_admin_sessions.sql',
       ready: true
     });
   });

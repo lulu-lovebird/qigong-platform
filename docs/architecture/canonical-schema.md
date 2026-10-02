@@ -8,9 +8,10 @@ This is a logical contract, not an executable migration. Physical types, enum st
 
 ```text
 id UUID PK
-website_subject TEXT UNIQUE NOT NULL
+website_issuer TEXT NULL
+website_subject TEXT NULL
 membership_id TEXT UNIQUE NULL
-legal_name TEXT NOT NULL
+legal_name TEXT NULL
 preferred_name TEXT NULL
 public_nickname TEXT NULL
 preferred_locale TEXT NOT NULL
@@ -23,7 +24,11 @@ updated_at TIMESTAMPTZ NOT NULL
 anonymized_at TIMESTAMPTZ NULL
 ```
 
-`website_subject` is the immutable OIDC `sub`. Email is mutable metadata and is not an identity key.
+For messaging-first enrollment, both website identity fields remain null and the verified platform identity is recorded separately. Once a website identity is explicitly linked, `(website_issuer, website_subject)` identifies its immutable OIDC `sub`. Email is mutable metadata and is not an identity key. A missing legal name is not filled with an unverified messaging display name.
+
+### `onboarding_applications`
+
+One `(platform, external_subject_id)` application is pending until a scoped administrator approves it or rejects it with a reason. Approval atomically creates a person, primary operational-region assignment, verified platform identity, and active interaction channel. An application without a region cannot be approved until explicitly routed.
 
 ### `platform_identities`
 
@@ -128,6 +133,8 @@ PRIMARY KEY(practice_method_id, platform)
 ```
 
 New check-ins store active leaf methods only. Inactive methods remain available to historical reads.
+
+Approved messaging learners see all active, platform-available leaf methods unless an administrator records a per-person visibility override. `courses`, `course_methods`, and `person_course_enrollments` record course enrollment separately; method visibility and enrollment do not establish completion or AI recommendation eligibility.
 
 ## Check-Ins
 

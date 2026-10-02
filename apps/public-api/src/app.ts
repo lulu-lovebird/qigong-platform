@@ -1,8 +1,9 @@
 import Fastify, { type FastifyBaseLogger } from 'fastify';
 import { checkApiRuntimePreflight, getMigrationStatus, type Pool } from '@qigong/database';
+import { registerAdminRoutes, type AdminAuthProvider } from './admin-auth.js';
 
-export const minimumMigrationVersion = '0003_runtime_roles_and_rls.sql';
-export const maximumMigrationVersion = '0003_runtime_roles_and_rls.sql';
+export const minimumMigrationVersion = '0005_admin_sessions.sql';
+export const maximumMigrationVersion = '0005_admin_sessions.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -10,6 +11,7 @@ interface AppDependencies {
   pool: Pool;
   logger?: FastifyBaseLogger | false;
   serviceVersion?: string;
+  adminAuth?: AdminAuthProvider;
 }
 
 export const checkStartupReadiness = async (pool: Pool) => {
@@ -26,7 +28,12 @@ export const checkStartupReadiness = async (pool: Pool) => {
   return { ready: true as const, migration, runtime };
 };
 
-export const buildApp = ({ pool, logger, serviceVersion = 'development' }: AppDependencies) => {
+export const buildApp = ({
+  pool,
+  logger,
+  serviceVersion = 'development',
+  adminAuth
+}: AppDependencies) => {
   const app = Fastify({
     logger:
       logger === false
@@ -74,6 +81,8 @@ export const buildApp = ({ pool, logger, serviceVersion = 'development' }: AppDe
       return reply.code(503).send({ ok: false, reason: 'database_unavailable' });
     }
   });
+
+  if (adminAuth) registerAdminRoutes(app, pool, adminAuth);
 
   return app;
 };

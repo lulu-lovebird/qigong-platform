@@ -48,7 +48,7 @@ describe('health endpoints', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ ok: true, version: 'test' });
     expect(response.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
-    expect(pool.query).not.toHaveBeenCalled();
+    expect(Reflect.get(pool, 'query')).not.toHaveBeenCalled();
     await app.close();
   });
 

@@ -27,10 +27,6 @@ export const createIsolatedTestDatabase = async (baseUrl: string) => {
     databaseUrl: testUrl.toString(),
     async dispose() {
       await pool.end();
-      await admin.query(
-        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
-        [databaseName]
-      );
       await admin.query(`DROP DATABASE ${databaseName}`);
       await admin.end();
     }
