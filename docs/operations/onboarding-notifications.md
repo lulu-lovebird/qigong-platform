@@ -1,0 +1,9 @@
+# Onboarding Decision Notifications
+
+Migration `0009_onboarding_notifications.sql` enqueues one notification in the same transaction that changes an application from pending to approved or rejected. The API never waits for Telegram. Successful/failed messages are claimed by a dedicated `qigong_worker_runtime` login and delivered by the **new platform** Telegram bot; legacy bots are not involved.
+
+On the Droplet, create a dedicated `qigong-notifier` OS account and a peer-authenticated PostgreSQL login role of the same name. Grant it only `qigong_worker_runtime` membership (no direct schema/table privileges). Put `DATABASE_URL=postgresql://qigong-notifier@localhost/qigong_platform?host=/var/run/postgresql` and the new bot's `TELEGRAM_ONBOARDING_BOT_TOKEN` in `/etc/qigong-platform/notification-worker.env`, readable by root and the notifier account only. Install `qigong-notification-worker.service` and `.timer` under `/etc/systemd/system`; enable the timer after applying migration 0009 and building the matching app. Verify `systemctl list-timers qigong-notification-worker.timer` and `journalctl -u qigong-notification-worker.service`.
+
+The worker claims at most 10 messages each run, with a two-minute lease. Failed sends retry after exponential backoff, capped at one hour; after eight attempts the row remains `failed` for manual review. Inspect counts by `status` in `ops.onboarding_notifications` using the migration administrator. A lease expiring after Telegram accepted a message but before the success acknowledgement may cause a repeat message; Telegram's `sendMessage` does not accept an idempotency key. Do not turn off the timer while decisions are being made unless the queue is monitored and resumed later.
+
+The rejection message does not echo the recorded rejection reason into chat; the learner should contact the regional administrator for details. The canonical reason remains in `identity.onboarding_applications` and the audit record.

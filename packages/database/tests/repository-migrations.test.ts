@@ -32,7 +32,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0008_verified_onboarding_details.sql'
+      '0010_telegram_checkins.sql'
     );
 
     expect(first.applied).toEqual([
@@ -43,13 +43,15 @@ describeWithDatabase('repository migrations', () => {
       '0005_admin_sessions.sql',
       '0006_runtime_migration_visibility.sql',
       '0007_telegram_onboarding.sql',
-      '0008_verified_onboarding_details.sql'
+      '0008_verified_onboarding_details.sql',
+      '0009_onboarding_notifications.sql',
+      '0010_telegram_checkins.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0008_verified_onboarding_details.sql',
+      currentVersion: '0010_telegram_checkins.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0008_verified_onboarding_details.sql',
+      maximumVersion: '0010_telegram_checkins.sql',
       ready: true
     });
   });

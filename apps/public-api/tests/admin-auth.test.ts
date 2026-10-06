@@ -271,6 +271,18 @@ describeWithDatabase('Authgear administrator HTTP boundary', () => {
     expect(audits.rows.map(({ target_id }) => target_id).sort()).toEqual(
       [firstId, secondId].sort()
     );
+    const notifications = await pool.query<{ application_id: string; status: string }>(
+      `SELECT application_id, status FROM ops.onboarding_notifications
+       WHERE application_id IN ($1, $2)`,
+      [firstId, secondId]
+    );
+    expect(
+      notifications.rows
+        .map(({ application_id, status }) => ({ application_id, status }))
+        .sort((a, b) => a.application_id.localeCompare(b.application_id))
+    ).toEqual(
+      [firstId, secondId].sort().map((application_id) => ({ application_id, status: 'pending' }))
+    );
     await app.close();
   });
 });

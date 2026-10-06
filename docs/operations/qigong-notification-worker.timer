@@ -1,0 +1,10 @@
+[Unit]
+Description=Retry qigong-platform onboarding notifications
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=1m
+Unit=qigong-notification-worker.service
+
+[Install]
+WantedBy=timers.target

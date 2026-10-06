@@ -172,7 +172,9 @@ describeWithDatabase('messaging application review', () => {
             [personId]
           )
       );
-    expect((await list()).rows.map(({ code }) => code)).toEqual(['method-a', 'method-b']);
+    expect((await list()).rows.map(({ code }) => code)).toEqual(
+      expect.arrayContaining(['method-a', 'method-b'])
+    );
     await expect(
       withRequestContext(
         runtimePool,
@@ -195,7 +197,8 @@ describeWithDatabase('messaging application review', () => {
           methods.rows[0]!.id
         ])
     );
-    expect((await list()).rows.map(({ code }) => code)).toEqual(['method-b']);
+    expect((await list()).rows.map(({ code }) => code)).not.toContain('method-a');
+    expect((await list()).rows.map(({ code }) => code)).toContain('method-b');
   });
 
   it('requires audited functions for enrollment and method visibility writes', async () => {

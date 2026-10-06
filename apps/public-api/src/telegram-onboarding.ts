@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
 import { telegramApplicationPage } from './telegram-application-page.js';
+import { telegramCheckinPage } from './telegram-checkin-page.js';
 
 const telegramUpdate = z.object({
   update_id: z.number().int().nonnegative().safe(),
@@ -51,6 +52,17 @@ export const registerTelegramOnboarding = (
       .type('text/html; charset=utf-8')
       .send(telegramApplicationPage)
   );
+  app.get('/telegram/checkin', async (_request, reply) =>
+    reply
+      .header('cache-control', 'no-store')
+      .header('referrer-policy', 'no-referrer')
+      .header(
+        'content-security-policy',
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+      )
+      .type('text/html; charset=utf-8')
+      .send(telegramCheckinPage)
+  );
   const sendMessage =
     config.sendMessage ??
     (async (chatId: number, text: string) => {
@@ -81,7 +93,8 @@ export const registerTelegramOnboarding = (
     ) {
       return { ok: true };
     }
-    if (!/^\/(start|apply)(?:@\w+)?(?:\s|$)/i.test(message.text ?? '')) {
+    const isCheckin = /^\/checkin(?:@\w+)?(?:\s|$)/i.test(message.text ?? '');
+    if (!isCheckin && !/^\/(start|apply)(?:@\w+)?(?:\s|$)/i.test(message.text ?? '')) {
       return { ok: true };
     }
 
@@ -89,6 +102,24 @@ export const registerTelegramOnboarding = (
       .update(`${parsed.data.update_id}:${message.from.id}`)
       .digest('base64url');
     try {
+      if (isCheckin) {
+        const result = await withRequestContext(
+          pool,
+          'qigong_api_runtime',
+          { requestId: request.id },
+          (client) =>
+            client.query<{ status: string }>(
+              'SELECT platform.begin_telegram_checkin($1, $2) AS status',
+              [String(message.from.id), linkToken]
+            )
+        );
+        const text =
+          result.rows[0]?.status === 'ready'
+            ? `請在 15 分鐘內開啟打卡表單：\nhttps://checkin.baiyinqigong.org/telegram/checkin#${linkToken}\n請勿轉傳連結。`
+            : '尚未通過加入審核，或目前不是你的主要打卡管道。';
+        await sendMessage(message.chat.id, text);
+        return { ok: true };
+      }
       const result = await withRequestContext(
         pool,
         'qigong_api_runtime',
@@ -155,6 +186,75 @@ export const registerTelegramOnboarding = (
       }
       app.log.error({ err: error }, 'application submission failed');
       return reply.code(503).send({ error: 'application_submission_failed' });
+    }
+  });
+
+  const checkinToken = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) });
+  const checkinSubmission = checkinToken.extend({
+    methods: z.array(z.string().min(1).max(64)).min(1).max(30),
+    makeup: z.boolean()
+  });
+  const checkOrigin = (origin: unknown, contentType: unknown) =>
+    origin === 'https://checkin.baiyinqigong.org' &&
+    typeof contentType === 'string' &&
+    contentType.startsWith('application/json');
+
+  app.post('/telegram/checkin/methods', { bodyLimit: 4096 }, async (request, reply) => {
+    if (!checkOrigin(request.headers.origin, request.headers['content-type'])) {
+      return reply.code(403).send({ error: 'invalid_origin' });
+    }
+    const parsed = checkinToken.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_checkin_token' });
+    const result = await withRequestContext(
+      pool,
+      'qigong_api_runtime',
+      { requestId: request.id },
+      (client) =>
+        client.query<{ code: string; name_zh_tw: string; sort_order: number }>(
+          'SELECT * FROM platform.telegram_checkin_methods($1)',
+          [parsed.data.token]
+        )
+    );
+    if (!result.rows.length) return reply.code(403).send({ error: 'checkin_unavailable' });
+    return reply.header('cache-control', 'no-store').send({ methods: result.rows });
+  });
+
+  app.post('/telegram/checkin/submit', { bodyLimit: 4096 }, async (request, reply) => {
+    if (!checkOrigin(request.headers.origin, request.headers['content-type'])) {
+      return reply.code(403).send({ error: 'invalid_origin' });
+    }
+    const parsed = checkinSubmission.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_checkin_submission' });
+    try {
+      const result = await withRequestContext(
+        pool,
+        'qigong_api_runtime',
+        { requestId: request.id },
+        (client) =>
+          client.query<{ checkin_id: string; practice_date: string; entry_kind: string }>(
+            'SELECT checkin_id, practice_date::text AS practice_date, entry_kind FROM platform.submit_telegram_checkin($1, $2, $3)',
+            [parsed.data.token, parsed.data.methods, parsed.data.makeup]
+          )
+      );
+      const checkin = result.rows[0];
+      if (!checkin) throw new Error('Checkin write returned no result');
+      return {
+        checkinId: checkin.checkin_id,
+        practiceDate: checkin.practice_date,
+        entryKind: checkin.entry_kind
+      };
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (/^(checkin link expired or used|checkin identity not approved or active|makeup deadline passed|practice date has no region assignment|invalid or duplicate practice method)$/.test(
+          error.message
+        ) ||
+          ('code' in error && error.code === '23505'))
+      ) {
+        return reply.code(409).send({ error: 'checkin_conflict' });
+      }
+      app.log.error({ err: error }, 'telegram checkin failed');
+      return reply.code(503).send({ error: 'checkin_unavailable' });
     }
   });
 };

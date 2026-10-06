@@ -253,4 +253,216 @@ describeWithDatabase('separate Telegram onboarding webhook', () => {
     expect(Number(afterCollision.rows[0]!.count)).toBe(1);
     await app.close();
   });
+
+  it('permits only approved active Telegram learners to check in once per practice date', async () => {
+    const app = buildApp({
+      pool: runtimePool,
+      logger: false,
+      telegramOnboarding: {
+        botToken: '123456:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        webhookSecret: secret,
+        regionCode: 'tw-general',
+        sendMessage
+      }
+    });
+    const signed = { 'x-telegram-bot-api-secret-token': secret };
+    const webhook = '/telegram/onboarding/webhook';
+    const attempt = await app.inject({
+      method: 'POST',
+      url: webhook,
+      headers: signed,
+      payload: update(200, 54321, 'private', '/checkin')
+    });
+    expect(attempt.statusCode).toBe(200);
+    expect(sendMessage.mock.calls.at(-1)?.[1]).toContain('尚未通過');
+
+    const reviewer = await pool.query<{ id: string }>(
+      `INSERT INTO admin.principals (oidc_issuer, oidc_subject, display_name)
+       VALUES ('https://admin.example.com', 'checkin-reviewer', 'Reviewer') RETURNING id`
+    );
+    const person = await pool.query<{ id: string }>(
+      `INSERT INTO identity.people (preferred_name, membership_status)
+       VALUES ('Test Learner', 'pending') RETURNING id`
+    );
+    const identity = await pool.query<{ id: string }>(
+      `INSERT INTO identity.platform_identities (person_id, platform, external_subject_id, display_name)
+       VALUES ($1, 'telegram', '54321', 'Test Learner') RETURNING id`,
+      [person.rows[0]!.id]
+    );
+    await pool.query(
+      `INSERT INTO core.person_region_assignments
+       (person_id, region_id, assignment_type, valid_from, assigned_by_principal_id)
+       VALUES ($1, $2, 'primary', CURRENT_DATE - 1, $3)`,
+      [person.rows[0]!.id, regionId, reviewer.rows[0]!.id]
+    );
+    await pool.query(
+      `INSERT INTO identity.person_interaction_channels
+       (person_id, platform_identity_id, activation_source, activated_by_principal_id)
+       VALUES ($1, $2, 'onboarding', $3)`,
+      [person.rows[0]!.id, identity.rows[0]!.id, reviewer.rows[0]!.id]
+    );
+    const application = await pool.query<{ id: string }>(
+      `INSERT INTO identity.onboarding_applications
+       (platform, external_subject_id, display_name, requested_region_id, learner_name,
+        website_email, phone_e164)
+       VALUES ('telegram', '54321', 'Test Learner', $1, 'Test Learner', 'learner@example.com', '+886912345678') RETURNING id`,
+      [regionId]
+    );
+    await pool.query(
+      `UPDATE identity.onboarding_applications SET status = 'approved', person_id = $1,
+       decided_by_principal_id = $2, decided_at = CURRENT_TIMESTAMP WHERE id = $3`,
+      [person.rows[0]!.id, reviewer.rows[0]!.id, application.rows[0]!.id]
+    );
+
+    const ready = await app.inject({
+      method: 'POST',
+      url: webhook,
+      headers: signed,
+      payload: update(201, 54321, 'private', '/checkin')
+    });
+    expect(ready.statusCode).toBe(200);
+    const link = sendMessage.mock.calls.at(-1)?.[1] ?? '';
+    const token = link.match(/\/telegram\/checkin#([A-Za-z0-9_-]{43})/)?.[1];
+    expect(token).toBeTruthy();
+    const headers = { origin: 'https://checkin.baiyinqigong.org' };
+    const methods = await app.inject({
+      method: 'POST',
+      url: '/telegram/checkin/methods',
+      headers,
+      payload: { token }
+    });
+    expect(methods.statusCode).toBe(200);
+    expect(methods.json().methods.length).toBeGreaterThan(0);
+    const submit = (methodCodes: string[]) =>
+      app.inject({
+        method: 'POST',
+        url: '/telegram/checkin/submit',
+        headers,
+        payload: { token, methods: methodCodes, makeup: false }
+      });
+    expect((await submit(['unknown-method'])).statusCode).toBe(409);
+    const completed = await submit(['dayan_chu']);
+    expect(completed.statusCode, completed.body).toBe(200);
+    expect(completed.json().entryKind).toBe('regular');
+    expect((await submit(['dayan_chu'])).statusCode).toBe(409);
+    const anotherLink = await app.inject({
+      method: 'POST',
+      url: webhook,
+      headers: signed,
+      payload: update(202, 54321, 'private', '/checkin')
+    });
+    expect(anotherLink.statusCode).toBe(200);
+    const secondToken = sendMessage.mock.calls
+      .at(-1)?.[1]
+      .match(/\/telegram\/checkin#([A-Za-z0-9_-]{43})/)?.[1];
+    expect(secondToken).toBeTruthy();
+    const duplicateDay = await app.inject({
+      method: 'POST',
+      url: '/telegram/checkin/submit',
+      headers,
+      payload: { token: secondToken, methods: ['dayan_gao'], makeup: false }
+    });
+    expect(duplicateDay.statusCode).toBe(409);
+    await pool.query(
+      'UPDATE identity.person_interaction_channels SET valid_to = CURRENT_TIMESTAMP WHERE person_id = $1',
+      [person.rows[0]!.id]
+    );
+    const inactiveChannel = await app.inject({
+      method: 'POST',
+      url: webhook,
+      headers: signed,
+      payload: update(203, 54321, 'private', '/checkin')
+    });
+    expect(inactiveChannel.statusCode).toBe(200);
+    expect(sendMessage.mock.calls.at(-1)?.[1]).toContain('主要打卡管道');
+    const saved = await pool.query<{ code: string }>(
+      `SELECT method.code FROM core.checkins checkin
+       JOIN core.checkin_method_selections selection ON selection.checkin_id = checkin.id
+       JOIN core.practice_methods method ON method.id = selection.practice_method_id
+       WHERE checkin.person_id = $1`,
+      [person.rows[0]!.id]
+    );
+    expect(saved.rows).toEqual([{ code: 'dayan_chu' }]);
+    await app.close();
+  });
+
+  it('uses the learner practice timezone to enforce the noon makeup deadline', async () => {
+    const app = buildApp({
+      pool: runtimePool,
+      logger: false,
+      telegramOnboarding: {
+        botToken: '123456:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        webhookSecret: secret,
+        regionCode: 'tw-general',
+        sendMessage
+      }
+    });
+    const principal = await pool.query<{ id: string }>(
+      `SELECT id FROM admin.principals WHERE oidc_subject = 'checkin-reviewer'`
+    );
+    const person = await pool.query<{ id: string }>(
+      `INSERT INTO identity.people (preferred_name, practice_timezone, membership_status)
+       VALUES ('Timezone Learner', 'Pacific/Honolulu', 'pending') RETURNING id`
+    );
+    const identity = await pool.query<{ id: string }>(
+      `INSERT INTO identity.platform_identities (person_id, platform, external_subject_id)
+       VALUES ($1, 'telegram', '54322') RETURNING id`,
+      [person.rows[0]!.id]
+    );
+    await pool.query(
+      `INSERT INTO core.person_region_assignments
+       (person_id, region_id, assignment_type, valid_from, assigned_by_principal_id)
+       VALUES ($1, $2, 'primary', CURRENT_DATE - 3, $3)`,
+      [person.rows[0]!.id, regionId, principal.rows[0]!.id]
+    );
+    await pool.query(
+      `INSERT INTO identity.person_interaction_channels
+       (person_id, platform_identity_id, activation_source, activated_by_principal_id)
+       VALUES ($1, $2, 'onboarding', $3)`,
+      [person.rows[0]!.id, identity.rows[0]!.id, principal.rows[0]!.id]
+    );
+    const application = await pool.query<{ id: string }>(
+      `INSERT INTO identity.onboarding_applications
+       (platform, external_subject_id, display_name, requested_region_id, learner_name,
+        website_email, phone_e164)
+       VALUES ('telegram', '54322', 'Timezone Learner', $1, 'Timezone Learner', 'tz@example.com', '+886912345680') RETURNING id`,
+      [regionId]
+    );
+    await pool.query(
+      `UPDATE identity.onboarding_applications SET status = 'approved', person_id = $1,
+       decided_by_principal_id = $2, decided_at = CURRENT_TIMESTAMP WHERE id = $3`,
+      [person.rows[0]!.id, principal.rows[0]!.id, application.rows[0]!.id]
+    );
+    const signed = { 'x-telegram-bot-api-secret-token': secret };
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/telegram/onboarding/webhook',
+          headers: signed,
+          payload: update(204, 54322, 'private', '/checkin')
+        })
+      ).statusCode
+    ).toBe(200);
+    const token = sendMessage.mock.calls
+      .at(-1)?.[1]
+      .match(/\/telegram\/checkin#([A-Za-z0-9_-]{43})/)?.[1];
+    const response = await app.inject({
+      method: 'POST',
+      url: '/telegram/checkin/submit',
+      headers: { origin: 'https://checkin.baiyinqigong.org' },
+      payload: { token, methods: ['dayan_chu'], makeup: true }
+    });
+    const clock = await pool.query<{ before_noon: boolean; expected_date: string }>(
+      `SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Pacific/Honolulu')::time < TIME '12:00' AS before_noon,
+              ((CURRENT_TIMESTAMP AT TIME ZONE 'Pacific/Honolulu')::date - 1)::text AS expected_date`
+    );
+    if (clock.rows[0]!.before_noon) {
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json().practiceDate).toBe(clock.rows[0]!.expected_date);
+    } else {
+      expect(response.statusCode).toBe(409);
+    }
+    await app.close();
+  });
 });

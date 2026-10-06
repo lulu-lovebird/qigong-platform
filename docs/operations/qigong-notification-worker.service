@@ -1,0 +1,19 @@
+[Unit]
+Description=Deliver qigong-platform onboarding notifications
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=qigong-notifier
+Group=qigong-notifier
+WorkingDirectory=/opt/qigong-platform/current
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/qigong-platform/notification-worker.env
+ExecStart=/usr/bin/node apps/public-api/dist/notification-worker.js
+TimeoutStartSec=60
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

@@ -6,8 +6,8 @@ import {
   type TelegramOnboardingConfig
 } from './telegram-onboarding.js';
 
-export const minimumMigrationVersion = '0008_verified_onboarding_details.sql';
-export const maximumMigrationVersion = '0008_verified_onboarding_details.sql';
+export const minimumMigrationVersion = '0010_telegram_checkins.sql';
+export const maximumMigrationVersion = '0010_telegram_checkins.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
