@@ -1,0 +1,3 @@
+checkin.baiyinqigong.org {
+	respond "Qigong platform HTTPS gateway is ready" 200
+}

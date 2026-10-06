@@ -17,12 +17,12 @@ describe('Authgear administrator identity contract', () => {
   const adminEnvironment = loadAdminOidcEnvironment({
     ADMIN_OIDC_ISSUER_URL: 'https://administrators.authgear.cloud',
     ADMIN_OIDC_CLIENT_ID: 'platform-admin',
-    ADMIN_OIDC_CLIENT_SECRET: '0123456789abcdef',
     ADMIN_OIDC_REDIRECT_URI: 'https://platform.example.com/admin/auth/callback'
   });
 
   it('uses a separate issuer and immutable administrator subject', () => {
     expect(adminEnvironment.ADMIN_OIDC_SCOPES).toBe('openid profile email');
+    expect('ADMIN_OIDC_CLIENT_SECRET' in adminEnvironment).toBe(false);
     expect(
       validateVerifiedAdminClaims(
         {

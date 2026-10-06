@@ -36,7 +36,6 @@ export const loadOidcEnvironment = (source: NodeJS.ProcessEnv = process.env): Oi
 export const adminOidcEnvironmentSchema = z.object({
   ADMIN_OIDC_ISSUER_URL: oidcUrl,
   ADMIN_OIDC_CLIENT_ID: z.string().min(1),
-  ADMIN_OIDC_CLIENT_SECRET: z.string().min(16),
   ADMIN_OIDC_REDIRECT_URI: oidcUrl,
   ADMIN_OIDC_POST_LOGOUT_REDIRECT_URI: oidcUrl.optional(),
   ADMIN_OIDC_SCOPES: z

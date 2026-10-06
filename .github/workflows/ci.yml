@@ -43,4 +43,5 @@ jobs:
         run: |
           test -n "$TEST_DATABASE_URL"
           node -e 'const u = new URL(process.env.TEST_DATABASE_URL); if (!u.pathname.includes("test")) process.exit(1)'
+      - run: pnpm build
       - run: pnpm verify

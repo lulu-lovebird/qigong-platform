@@ -1,9 +1,13 @@
 import Fastify, { type FastifyBaseLogger } from 'fastify';
 import { checkApiRuntimePreflight, getMigrationStatus, type Pool } from '@qigong/database';
 import { registerAdminRoutes, type AdminAuthProvider } from './admin-auth.js';
+import {
+  registerTelegramOnboarding,
+  type TelegramOnboardingConfig
+} from './telegram-onboarding.js';
 
-export const minimumMigrationVersion = '0005_admin_sessions.sql';
-export const maximumMigrationVersion = '0005_admin_sessions.sql';
+export const minimumMigrationVersion = '0008_verified_onboarding_details.sql';
+export const maximumMigrationVersion = '0008_verified_onboarding_details.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -12,13 +16,15 @@ interface AppDependencies {
   logger?: FastifyBaseLogger | false;
   serviceVersion?: string;
   adminAuth?: AdminAuthProvider;
+  telegramOnboarding?: TelegramOnboardingConfig;
 }
 
 export const checkStartupReadiness = async (pool: Pool) => {
   const migration = await getMigrationStatus(
     pool,
     minimumMigrationVersion,
-    maximumMigrationVersion
+    maximumMigrationVersion,
+    'qigong_api_runtime'
   );
   if (!migration.ready)
     return { ready: false as const, reason: 'schema_version_mismatch', migration };
@@ -32,7 +38,8 @@ export const buildApp = ({
   pool,
   logger,
   serviceVersion = 'development',
-  adminAuth
+  adminAuth,
+  telegramOnboarding
 }: AppDependencies) => {
   const app = Fastify({
     logger:
@@ -46,6 +53,7 @@ export const buildApp = ({
                 'req.headers.cookie',
                 'req.headers.x-line-access-token',
                 'req.headers.x-telegram-init-data',
+                'req.headers.x-telegram-bot-api-secret-token',
                 'res.headers.set-cookie'
               ],
               censor: '[REDACTED]'
@@ -83,6 +91,7 @@ export const buildApp = ({
   });
 
   if (adminAuth) registerAdminRoutes(app, pool, adminAuth);
+  if (telegramOnboarding) registerTelegramOnboarding(app, pool, telegramOnboarding);
 
   return app;
 };

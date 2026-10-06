@@ -2,6 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
+import { reviewPage } from './admin-pages.js';
 
 export interface AdminAuthProvider {
   begin(verifier: string, state: string, nonce: string): Promise<URL>;
@@ -99,7 +100,7 @@ export const registerAdminRoutes = (
           cookie(sessionCookie, session, 28800),
           cookie(csrfCookie, csrf, 28800, false)
         ])
-        .redirect('/admin/auth/me');
+        .redirect('/admin/');
     } catch (error) {
       app.log.warn({ err: error }, 'admin OIDC callback rejected');
       return reply.code(400).send({ error: 'invalid_login_callback' });
@@ -128,17 +129,36 @@ export const registerAdminRoutes = (
     return { principalId };
   });
 
+  app.get('/admin/', async (request, reply) => {
+    if (!(await principalFor(request))) return reply.redirect('/admin/auth/login');
+    return reply
+      .header('cache-control', 'no-store')
+      .header(
+        'content-security-policy',
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+      )
+      .type('text/html; charset=utf-8')
+      .send(reviewPage);
+  });
+
   app.get('/admin/api/applications', async (request, reply) => {
     const principalId = await principalFor(request);
     if (!principalId) return reply.code(401).send({ error: 'unauthenticated' });
+    void reply.header('cache-control', 'no-store');
     const result = await withRequestContext(
       pool,
       'qigong_api_runtime',
       { requestId: request.id, principalId },
       (client) =>
         client.query(
-          `SELECT id, platform, display_name, requested_region_id, status, created_at
-         FROM identity.onboarding_applications WHERE status = 'pending' ORDER BY created_at, id LIMIT 100`
+          `SELECT application.id, application.platform, application.display_name, application.learner_name,
+                  application.website_email, application.phone_e164, application.requested_region_id,
+                  region.name_zh_tw AS region_name, application.status, application.created_at
+           FROM identity.onboarding_applications application
+           LEFT JOIN core.regions region ON region.id = application.requested_region_id
+           WHERE application.status = 'pending' AND application.learner_name IS NOT NULL
+             AND application.website_email IS NOT NULL AND application.phone_e164 IS NOT NULL
+           ORDER BY application.created_at, application.id LIMIT 100`
         )
     );
     return { applications: result.rows };
@@ -148,6 +168,49 @@ export const registerAdminRoutes = (
     decision: z.enum(['approved', 'rejected']),
     reason: z.string().trim().min(1).max(1000).optional()
   });
+  const validReviewConflict = (error: unknown) =>
+    error instanceof Error &&
+    /^(application is not pending|onboarding review permission denied|rejection reason required|region and display name required for approval|invalid review decision|application identity details required before approval)$/.test(
+      error.message
+    );
+
+  const batchSchema = z
+    .object({ ids: z.array(z.uuid()).min(1).max(100) })
+    .refine(({ ids }) => new Set(ids).size === ids.length, 'duplicate application IDs');
+  app.post('/admin/api/applications/batch-approve', async (request, reply) => {
+    const principalId = await principalFor(request);
+    if (!principalId) return reply.code(401).send({ error: 'unauthenticated' });
+    const values = cookies(request);
+    const csrf = request.headers['x-csrf-token'];
+    if (
+      typeof csrf !== 'string' ||
+      !values[csrfCookie] ||
+      !timingSafeEqual(sha256(csrf), sha256(values[csrfCookie]))
+    ) {
+      return reply.code(403).send({ error: 'invalid_csrf' });
+    }
+    const parsed = batchSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_batch' });
+
+    const results: Array<{ id: string; status: 'approved' | 'conflict' | 'unavailable' }> = [];
+    for (const id of parsed.data.ids) {
+      try {
+        await withRequestContext(
+          pool,
+          'qigong_api_runtime',
+          { requestId: request.id, principalId },
+          (client) =>
+            client.query('SELECT identity.decide_application($1, $2, $3)', [id, 'approved', null])
+        );
+        results.push({ id, status: 'approved' });
+      } catch (error) {
+        app.log.warn({ err: error, applicationId: id }, 'batch application review rejected');
+        results.push({ id, status: validReviewConflict(error) ? 'conflict' : 'unavailable' });
+      }
+    }
+    return { results };
+  });
+
   app.post('/admin/api/applications/:id/decision', async (request, reply) => {
     const principalId = await principalFor(request);
     if (!principalId) return reply.code(401).send({ error: 'unauthenticated' });
@@ -183,7 +246,10 @@ export const registerAdminRoutes = (
       return { status: parsed.data.decision, personId: result.rows[0]?.person_id ?? null };
     } catch (error) {
       app.log.warn({ err: error }, 'application review rejected');
-      return reply.code(409).send({ error: 'application_review_rejected' });
+      if (validReviewConflict(error)) {
+        return reply.code(409).send({ error: 'application_review_rejected' });
+      }
+      return reply.code(503).send({ error: 'application_review_unavailable' });
     }
   });
 

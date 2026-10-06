@@ -5,8 +5,8 @@ Authgear Cloud authenticates platform administrators only. Baiyan's learner memb
 ## Authgear setup
 
 1. Create one Authgear project for platform administrators and configure MFA for administrator sign-in.
-2. In Authgear Applications, add an **OIDC Client Application** for the administration backend. Register the exact HTTPS callback URI used by the platform (`ADMIN_OIDC_REDIRECT_URI`).
-3. Record the application's issuer, client ID, and client secret in the platform's secret configuration. Configure `ADMIN_OIDC_ISSUER_URL`, `ADMIN_OIDC_CLIENT_ID`, `ADMIN_OIDC_CLIENT_SECRET`, `ADMIN_OIDC_REDIRECT_URI`, and `ADMIN_OIDC_SCOPES`. Do not use the Baiyan learner IdP values for these fields.
+2. In Authgear Applications, add a **public OIDC Client Application** for the administration backend. Register the exact HTTPS callback URI used by the platform (`ADMIN_OIDC_REDIRECT_URI`); for production this is `https://checkin.baiyinqigong.org/admin/auth/callback`.
+3. Configure the Authgear issuer and client ID using `ADMIN_OIDC_ISSUER_URL` and `ADMIN_OIDC_CLIENT_ID`, plus `ADMIN_OIDC_REDIRECT_URI` and `ADMIN_OIDC_SCOPES`. This public client has no client secret. The backend exchanges authorization codes using PKCE S256 and `token_endpoint_auth_method=none`. Do not use the Baiyan learner IdP values for these fields.
 4. Limit Authgear portal administrator seats to IAM operators. Regional administrators log in as application users, then receive explicitly provisioned regional roles in `admin.principals` and `admin.role_grants`.
 
 ## Platform authorization boundary

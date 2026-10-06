@@ -103,6 +103,15 @@ describeWithDatabase('messaging application review', () => {
         )
     );
 
+  const completeApplication = async (id: string) => {
+    await pool.query(
+      `UPDATE identity.onboarding_applications
+       SET learner_name = 'Test Learner', website_email = 'learner@example.com', phone_e164 = '+886912345678'
+       WHERE id = $1`,
+      [id]
+    );
+  };
+
   it('deduplicates requests, restricts region access and requires a rejection reason', async () => {
     const id = await submit('subject-reject');
     expect(await submit('subject-reject')).toBe(id);
@@ -119,6 +128,8 @@ describeWithDatabase('messaging application review', () => {
 
   it('atomically activates only approved learners with a primary channel and audit event', async () => {
     const id = await submit('subject-approve');
+    await expect(review(id, reviewerId, 'approved')).rejects.toThrow('identity details required');
+    await completeApplication(id);
     const approved = await review(id, reviewerId, 'approved');
     const personId = approved.rows[0]!.person_id;
     expect(personId).toBeTruthy();
@@ -143,6 +154,7 @@ describeWithDatabase('messaging application review', () => {
 
   it('shows all active leaf methods by default and applies scoped personal visibility', async () => {
     const id = await submit('subject-methods');
+    await completeApplication(id);
     const personId = (await review(id, reviewerId, 'approved')).rows[0]!.person_id!;
     const methods = await pool.query<{ id: string }>(
       `INSERT INTO core.practice_methods (code, method_type, name_zh_tw, name_en)
@@ -187,8 +199,9 @@ describeWithDatabase('messaging application review', () => {
   });
 
   it('requires audited functions for enrollment and method visibility writes', async () => {
-    const personId = (await review(await submit('subject-direct-write'), reviewerId, 'approved'))
-      .rows[0]!.person_id!;
+    const id = await submit('subject-direct-write');
+    await completeApplication(id);
+    const personId = (await review(id, reviewerId, 'approved')).rows[0]!.person_id!;
     const method = await pool.query<{ id: string }>(
       `INSERT INTO core.practice_methods (code, method_type, name_zh_tw, name_en)
        VALUES ('restricted-method', 'leaf', '限制功法', 'Restricted') RETURNING id`

@@ -90,7 +90,7 @@ describe('health endpoints', () => {
     const app = buildApp({ pool: createPoolMock(maximumMigrationVersion, false), logger: false });
     const response = await app.inject({ method: 'GET', url: '/health/ready' });
     expect(response.statusCode).toBe(503);
-    expect(response.json()).toMatchObject({ reason: 'runtime_role_misconfigured' });
+    expect(response.json()).toMatchObject({ reason: 'database_unavailable' });
     await app.close();
   });
 });

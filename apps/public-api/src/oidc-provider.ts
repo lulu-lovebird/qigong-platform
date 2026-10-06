@@ -7,7 +7,8 @@ export const createAdminOidcProvider = async (): Promise<AdminAuthProvider> => {
   const configuration = await oidc.discovery(
     new URL(environment.ADMIN_OIDC_ISSUER_URL),
     environment.ADMIN_OIDC_CLIENT_ID,
-    environment.ADMIN_OIDC_CLIENT_SECRET
+    undefined,
+    oidc.None()
   );
   return {
     callbackUrl: environment.ADMIN_OIDC_REDIRECT_URI,

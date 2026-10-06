@@ -83,6 +83,11 @@ describeWithDatabase('Authgear administrator HTTP boundary', () => {
           ])
       );
     }
+    await pool.query(
+      `UPDATE identity.onboarding_applications
+       SET learner_name = 'Test Learner', website_email = 'learner@example.com', phone_e164 = '+886912345678'
+       WHERE platform = 'line'`
+    );
   });
 
   afterAll(async () => {
@@ -98,6 +103,9 @@ describeWithDatabase('Authgear administrator HTTP boundary', () => {
 
   it('requires login and CSRF, then limits review to the assigned region', async () => {
     const app = buildApp({ pool: runtimePool, adminAuth: provider, logger: false });
+    const guestPage = await app.inject({ method: 'GET', url: '/admin/' });
+    expect(guestPage.statusCode).toBe(302);
+    expect(guestPage.headers.location).toBe('/admin/auth/login');
     expect((await app.inject({ method: 'GET', url: '/admin/api/applications' })).statusCode).toBe(
       401
     );
@@ -110,10 +118,15 @@ describeWithDatabase('Authgear administrator HTTP boundary', () => {
       headers: { cookie: `__Host-qigong-admin-state=${state}` }
     });
     expect(callback.statusCode).toBe(302);
+    expect(callback.headers.location).toBe('/admin/');
     const issued = callback.headers['set-cookie'];
     expect(Array.isArray(issued)).toBe(true);
     const values = (issued as string[]).map((header) => header.split(';')[0]!).join('; ');
     const csrf = values.match(/__Host-qigong-admin-csrf=([^;]+)/)?.[1];
+    const page = await app.inject({ method: 'GET', url: '/admin/', headers: { cookie: values } });
+    expect(page.statusCode).toBe(200);
+    expect(page.headers['cache-control']).toBe('no-store');
+    expect(page.body).toContain('待審核學員');
     const list = await app.inject({
       method: 'GET',
       url: '/admin/api/applications',
@@ -146,6 +159,12 @@ describeWithDatabase('Authgear administrator HTTP boundary', () => {
       ).statusCode
     ).toBe(409);
     const own = list.json().applications[0].id as string;
+    await pool.query(
+      `UPDATE identity.onboarding_applications
+       SET learner_name = 'Test Learner', website_email = 'learner@example.com', phone_e164 = '+886912345678'
+       WHERE id = $1`,
+      [own]
+    );
     const approved = await app.inject({
       method: 'POST',
       url: `/admin/api/applications/${own}/decision`,
@@ -167,6 +186,91 @@ describeWithDatabase('Authgear administrator HTTP boundary', () => {
       (await app.inject({ method: 'GET', url: '/admin/auth/me', headers: { cookie: values } }))
         .statusCode
     ).toBe(401);
+    expect(
+      (await app.inject({ method: 'GET', url: '/admin/', headers: { cookie: values } })).statusCode
+    ).toBe(302);
+    await app.close();
+  });
+
+  it('batch-approves only scoped pending applications and reports partial failures', async () => {
+    const app = buildApp({ pool: runtimePool, adminAuth: provider, logger: false });
+    const login = await app.inject({ method: 'GET', url: '/admin/auth/login' });
+    const state = new URL(login.headers.location!).searchParams.get('state')!;
+    const callback = await app.inject({
+      method: 'GET',
+      url: `/admin/auth/callback?state=${state}&code=fake-code`,
+      headers: { cookie: `__Host-qigong-admin-state=${state}` }
+    });
+    const values = (callback.headers['set-cookie'] as string[])
+      .map((header) => header.split(';')[0]!)
+      .join('; ');
+    const csrf = values.match(/__Host-qigong-admin-csrf=([^;]+)/)![1]!;
+    const region = await pool.query<{ id: string }>(
+      `SELECT id FROM core.regions WHERE code = 'http-a'`
+    );
+    const inserted = await pool.query<{ id: string }>(
+      `INSERT INTO identity.onboarding_applications
+       (platform, external_subject_id, display_name, requested_region_id,
+        learner_name, website_email, phone_e164)
+       VALUES ('telegram', 'batch-a', 'Batch A', $1, 'Batch A', 'a@example.com', '+886912345678'),
+              ('telegram', 'batch-b', 'Batch B', $1, 'Batch B', 'b@example.com', '+886912345679')
+       RETURNING id`,
+      [region.rows[0]!.id]
+    );
+    const [firstId, secondId] = inserted.rows.map(({ id }) => id);
+    const crossRegion = await pool.query<{ id: string }>(
+      `SELECT id FROM identity.onboarding_applications WHERE external_subject_id = 'learner-b'`
+    );
+    const url = '/admin/api/applications/batch-approve';
+    const headers = { cookie: values, 'x-csrf-token': csrf };
+    expect(
+      (await app.inject({ method: 'POST', url, payload: { ids: [firstId] } })).statusCode
+    ).toBe(401);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url,
+          headers: { cookie: values },
+          payload: { ids: [firstId] }
+        })
+      ).statusCode
+    ).toBe(403);
+    for (const ids of [[], [firstId, firstId], Array.from({ length: 101 }, () => randomUUID())]) {
+      expect(
+        (await app.inject({ method: 'POST', url, headers, payload: { ids } })).statusCode
+      ).toBe(400);
+    }
+    const response = await app.inject({
+      method: 'POST',
+      url,
+      headers,
+      payload: { ids: [firstId, crossRegion.rows[0]!.id, secondId, randomUUID()] }
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().results.map(({ status }: { status: string }) => status)).toEqual([
+      'approved',
+      'conflict',
+      'approved',
+      'conflict'
+    ]);
+    const approved = await pool.query<{ external_subject_id: string; status: string }>(
+      `SELECT external_subject_id, status FROM identity.onboarding_applications
+       WHERE external_subject_id IN ('batch-a', 'batch-b', 'learner-b') ORDER BY external_subject_id`
+    );
+    expect(approved.rows).toEqual([
+      { external_subject_id: 'batch-a', status: 'approved' },
+      { external_subject_id: 'batch-b', status: 'approved' },
+      { external_subject_id: 'learner-b', status: 'pending' }
+    ]);
+    const audits = await pool.query<{ target_id: string }>(
+      `SELECT target_id FROM audit.events WHERE action = 'onboarding.approved'
+       AND target_id IN ($1, $2)`,
+      [firstId, secondId]
+    );
+    expect(audits.rows.map(({ target_id }) => target_id).sort()).toEqual(
+      [firstId, secondId].sort()
+    );
     await app.close();
   });
 });

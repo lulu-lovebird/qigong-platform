@@ -2,8 +2,29 @@ import { loadEnvironment } from '@qigong/config';
 import { attachPoolErrorHandler, createPool } from '@qigong/database';
 import { buildApp, checkStartupReadiness } from './app.js';
 import { createAdminOidcProvider } from './oidc-provider.js';
+import { z } from 'zod';
 
 const environment = loadEnvironment();
+const telegramValues = [
+  process.env.TELEGRAM_ONBOARDING_BOT_TOKEN,
+  process.env.TELEGRAM_ONBOARDING_WEBHOOK_SECRET
+];
+if (telegramValues.some(Boolean) && !telegramValues.every(Boolean)) {
+  throw new Error('Telegram onboarding token and webhook secret must be configured together');
+}
+const telegramOnboarding = telegramValues.every(Boolean)
+  ? z
+      .object({
+        botToken: z.string().regex(/^\d+:[A-Za-z0-9_-]{35,}$/),
+        webhookSecret: z.string().regex(/^[A-Za-z0-9_-]{32,256}$/),
+        regionCode: z.string().min(1)
+      })
+      .parse({
+        botToken: process.env.TELEGRAM_ONBOARDING_BOT_TOKEN,
+        webhookSecret: process.env.TELEGRAM_ONBOARDING_WEBHOOK_SECRET,
+        regionCode: process.env.TELEGRAM_ONBOARDING_REGION_CODE
+      })
+  : undefined;
 const pool = createPool(environment);
 let adminAuth: Awaited<ReturnType<typeof createAdminOidcProvider>>;
 try {
@@ -16,6 +37,7 @@ try {
 const app = buildApp({
   pool,
   adminAuth,
+  ...(telegramOnboarding ? { telegramOnboarding } : {}),
   serviceVersion: process.env.SERVICE_VERSION || 'development'
 });
 

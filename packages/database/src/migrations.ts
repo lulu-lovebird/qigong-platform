@@ -111,11 +111,27 @@ export const runMigrations = async (
 export const getMigrationStatus = async (
   pool: Pool,
   minimumVersion: string,
-  maximumVersion: string
+  maximumVersion: string,
+  runtimeRole?: 'qigong_api_runtime'
 ) => {
-  const result = await pool.query<{ version: string }>(
-    `SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`
-  );
+  const query = 'SELECT version FROM public.schema_migrations ORDER BY version DESC LIMIT 1';
+  let result: { rows: { version: string }[] };
+  if (runtimeRole) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE qigong_api_runtime');
+      result = await client.query<{ version: string }>(query);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  } else {
+    result = await pool.query<{ version: string }>(query);
+  }
   const currentVersion = result.rows[0]?.version ?? null;
   const ready = isMigrationVersionCompatible(currentVersion, minimumVersion, maximumVersion);
   return { currentVersion, minimumVersion, maximumVersion, ready };

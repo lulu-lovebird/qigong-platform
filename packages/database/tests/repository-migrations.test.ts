@@ -32,7 +32,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0005_admin_sessions.sql'
+      '0008_verified_onboarding_details.sql'
     );
 
     expect(first.applied).toEqual([
@@ -40,13 +40,16 @@ describeWithDatabase('repository migrations', () => {
       '0002_identity_region_rbac.sql',
       '0003_runtime_roles_and_rls.sql',
       '0004_messaging_onboarding.sql',
-      '0005_admin_sessions.sql'
+      '0005_admin_sessions.sql',
+      '0006_runtime_migration_visibility.sql',
+      '0007_telegram_onboarding.sql',
+      '0008_verified_onboarding_details.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0005_admin_sessions.sql',
+      currentVersion: '0008_verified_onboarding_details.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0005_admin_sessions.sql',
+      maximumVersion: '0008_verified_onboarding_details.sql',
       ready: true
     });
   });

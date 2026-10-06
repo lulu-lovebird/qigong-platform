@@ -1,0 +1,25 @@
+[Unit]
+Description=Qigong Platform Public API
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=qigong-api
+Group=qigong-api
+WorkingDirectory=/opt/qigong-platform/current
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3100
+EnvironmentFile=/etc/qigong-platform/api.env
+ExecStart=/usr/bin/node apps/public-api/dist/index.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
