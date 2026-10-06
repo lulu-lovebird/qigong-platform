@@ -32,7 +32,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0010_telegram_checkins.sql'
+      '0012_telegram_method_hierarchy.sql'
     );
 
     expect(first.applied).toEqual([
@@ -45,13 +45,15 @@ describeWithDatabase('repository migrations', () => {
       '0007_telegram_onboarding.sql',
       '0008_verified_onboarding_details.sql',
       '0009_onboarding_notifications.sql',
-      '0010_telegram_checkins.sql'
+      '0010_telegram_checkins.sql',
+      '0011_telegram_checkin_history.sql',
+      '0012_telegram_method_hierarchy.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0010_telegram_checkins.sql',
+      currentVersion: '0012_telegram_method_hierarchy.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0010_telegram_checkins.sql',
+      maximumVersion: '0012_telegram_method_hierarchy.sql',
       ready: true
     });
   });

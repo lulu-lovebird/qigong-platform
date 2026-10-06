@@ -210,13 +210,81 @@ export const registerTelegramOnboarding = (
       'qigong_api_runtime',
       { requestId: request.id },
       (client) =>
-        client.query<{ code: string; name_zh_tw: string; sort_order: number }>(
-          'SELECT * FROM platform.telegram_checkin_methods($1)',
-          [parsed.data.token]
-        )
+        client.query<{
+          code: string;
+          name_zh_tw: string;
+          sort_order: number;
+          parent_code: string | null;
+          parent_name_zh_tw: string | null;
+          parent_sort_order: number | null;
+        }>('SELECT * FROM platform.telegram_checkin_method_tree($1)', [parsed.data.token])
     );
     if (!result.rows.length) return reply.code(403).send({ error: 'checkin_unavailable' });
     return reply.header('cache-control', 'no-store').send({ methods: result.rows });
+  });
+
+  app.post('/telegram/checkin/history', { bodyLimit: 4096 }, async (request, reply) => {
+    if (!checkOrigin(request.headers.origin, request.headers['content-type'])) {
+      return reply.code(403).send({ error: 'invalid_origin' });
+    }
+    const parsed = checkinToken.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_checkin_token' });
+    try {
+      const result = await withRequestContext(
+        pool,
+        'qigong_api_runtime',
+        { requestId: request.id },
+        (client) =>
+          client.query<{ history: unknown }>(
+            'SELECT platform.telegram_checkin_history($1) AS history',
+            [parsed.data.token]
+          )
+      );
+      return reply.header('cache-control', 'no-store').send(result.rows[0]?.history);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === 'checkin link expired or identity unavailable'
+      ) {
+        return reply.code(403).send({ error: 'checkin_unavailable' });
+      }
+      app.log.error({ err: error }, 'telegram checkin history failed');
+      return reply.code(503).send({ error: 'checkin_unavailable' });
+    }
+  });
+
+  app.post('/telegram/checkin/correct', { bodyLimit: 4096 }, async (request, reply) => {
+    if (!checkOrigin(request.headers.origin, request.headers['content-type'])) {
+      return reply.code(403).send({ error: 'invalid_origin' });
+    }
+    const parsed = checkinSubmission
+      .omit({ makeup: true })
+      .extend({
+        checkinId: z.uuid()
+      })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_checkin_correction' });
+    try {
+      await withRequestContext(pool, 'qigong_api_runtime', { requestId: request.id }, (client) =>
+        client.query('SELECT platform.correct_telegram_checkin($1, $2, $3)', [
+          parsed.data.token,
+          parsed.data.checkinId,
+          parsed.data.methods
+        ])
+      );
+      return reply.header('cache-control', 'no-store').send({ ok: true });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        /^(checkin link expired or identity unavailable|checkin correction unavailable|invalid or duplicate practice method)$/.test(
+          error.message
+        )
+      ) {
+        return reply.code(409).send({ error: 'checkin_conflict' });
+      }
+      app.log.error({ err: error }, 'telegram checkin correction failed');
+      return reply.code(503).send({ error: 'checkin_unavailable' });
+    }
   });
 
   app.post('/telegram/checkin/submit', { bodyLimit: 4096 }, async (request, reply) => {

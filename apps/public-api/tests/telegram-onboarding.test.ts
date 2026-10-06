@@ -332,7 +332,40 @@ describeWithDatabase('separate Telegram onboarding webhook', () => {
       payload: { token }
     });
     expect(methods.statusCode).toBe(200);
-    expect(methods.json().methods.length).toBeGreaterThan(0);
+    expect(methods.json().methods).toHaveLength(22);
+    const methodRows = methods.json().methods as Array<{
+      code: string;
+      parent_code: string | null;
+      parent_name_zh_tw: string | null;
+    }>;
+    const families: Record<string, string[]> = {
+      dayan: ['dayan_chu', 'dayan_gao'],
+      wuqinxi: ['wuqinxi_he', 'wuqinxi_yuan', 'wuqinxi_hu', 'wuqinxi_xiong', 'wuqinxi_lu'],
+      huichun: ['huichun_chu', 'huichun_zhong'],
+      guishou: ['guishou_bagua', 'guishou_qiankun', 'guishou_fengxiang_guishuo'],
+      zhengyang: ['zhengyang_morning', 'zhengyang_night'],
+      jinggong: ['jinggong_zhoutian', 'jinggong_qixing', 'jinggong_songjing']
+    };
+    for (const [parent, children] of Object.entries(families)) {
+      expect(methodRows.filter((row) => row.parent_code === parent).map((row) => row.code)).toEqual(
+        children
+      );
+      expect(methodRows.find((row) => row.parent_code === parent)?.parent_name_zh_tw).toBeTruthy();
+    }
+    expect(methodRows.filter((row) => row.parent_code === null)).toHaveLength(5);
+    const history = (value: string | undefined) =>
+      app.inject({
+        method: 'POST',
+        url: '/telegram/checkin/history',
+        headers,
+        payload: { token: value }
+      });
+    expect((await history(undefined)).statusCode).toBe(400);
+    expect((await history('a'.repeat(43))).statusCode).toBe(403);
+    const initial = await history(token);
+    expect(initial.statusCode, initial.body).toBe(200);
+    expect(initial.json().entries).toEqual([]);
+    expect(initial.json().currentStreak).toBe(0);
     const submit = (methodCodes: string[]) =>
       app.inject({
         method: 'POST',
@@ -345,6 +378,26 @@ describeWithDatabase('separate Telegram onboarding webhook', () => {
     expect(completed.statusCode, completed.body).toBe(200);
     expect(completed.json().entryKind).toBe('regular');
     expect((await submit(['dayan_chu'])).statusCode).toBe(409);
+    const recorded = await history(token);
+    expect(recorded.statusCode, recorded.body).toBe(200);
+    expect(recorded.json().entries[0].method_codes).toEqual(['dayan_chu']);
+    expect(recorded.json().entries[0].editable).toBe(true);
+    expect(recorded.json().currentStreak).toBe(1);
+    expect(recorded.json().totalDays).toBe(1);
+    const checkinId: string = recorded.json().entries[0].id;
+    const correct = (value: string | undefined, id: string, codes: string[]) =>
+      app.inject({
+        method: 'POST',
+        url: '/telegram/checkin/correct',
+        headers,
+        payload: { token: value, checkinId: id, methods: codes }
+      });
+    expect((await correct('a'.repeat(43), checkinId, ['dayan_gao'])).statusCode).toBe(409);
+    expect((await correct(token, randomUUID(), ['dayan_gao'])).statusCode).toBe(409);
+    expect((await correct(token, checkinId, ['dayan_gao', 'dayan_gao'])).statusCode).toBe(409);
+    expect((await history(token)).json().entries[0].method_codes).toEqual(['dayan_chu']);
+    expect((await correct(token, checkinId, ['dayan_gao'])).statusCode).toBe(200);
+    expect((await history(token)).json().entries[0].method_codes).toEqual(['dayan_gao']);
     const anotherLink = await app.inject({
       method: 'POST',
       url: webhook,
@@ -363,6 +416,21 @@ describeWithDatabase('separate Telegram onboarding webhook', () => {
       payload: { token: secondToken, methods: ['dayan_gao'], makeup: false }
     });
     expect(duplicateDay.statusCode).toBe(409);
+    expect((await correct(secondToken, checkinId, ['dayan_chu'])).statusCode).toBe(200);
+    await pool.query(
+      `UPDATE core.checkins SET practice_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Taipei')::date - 2
+       WHERE id = $1`,
+      [checkinId]
+    );
+    expect((await correct(secondToken, checkinId, ['dayan_gao'])).statusCode).toBe(409);
+    const stale = await history(secondToken);
+    expect(stale.json().entries[0].editable).toBe(false);
+    expect(stale.json().currentStreak).toBe(0);
+    await pool.query(
+      `UPDATE core.checkins SET practice_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Taipei')::date
+       WHERE id = $1`,
+      [checkinId]
+    );
     await pool.query(
       'UPDATE identity.person_interaction_channels SET valid_to = CURRENT_TIMESTAMP WHERE person_id = $1',
       [person.rows[0]!.id]
@@ -375,6 +443,8 @@ describeWithDatabase('separate Telegram onboarding webhook', () => {
     });
     expect(inactiveChannel.statusCode).toBe(200);
     expect(sendMessage.mock.calls.at(-1)?.[1]).toContain('主要打卡管道');
+    expect((await history(secondToken)).statusCode).toBe(403);
+    expect((await correct(secondToken, checkinId, ['dayan_gao'])).statusCode).toBe(409);
     const saved = await pool.query<{ code: string }>(
       `SELECT method.code FROM core.checkins checkin
        JOIN core.checkin_method_selections selection ON selection.checkin_id = checkin.id
@@ -447,6 +517,18 @@ describeWithDatabase('separate Telegram onboarding webhook', () => {
     const token = sendMessage.mock.calls
       .at(-1)?.[1]
       .match(/\/telegram\/checkin#([A-Za-z0-9_-]{43})/)?.[1];
+    const someoneElse = await pool.query<{ id: string }>(
+      `SELECT id FROM core.checkins WHERE person_id <> $1 LIMIT 1`,
+      [person.rows[0]!.id]
+    );
+    expect(someoneElse.rows).toHaveLength(1);
+    const otherCorrection = await app.inject({
+      method: 'POST',
+      url: '/telegram/checkin/correct',
+      headers: { origin: 'https://checkin.baiyinqigong.org' },
+      payload: { token, checkinId: someoneElse.rows[0]!.id, methods: ['dayan_gao'] }
+    });
+    expect(otherCorrection.statusCode).toBe(409);
     const response = await app.inject({
       method: 'POST',
       url: '/telegram/checkin/submit',
