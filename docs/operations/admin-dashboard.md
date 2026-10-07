@@ -2,9 +2,9 @@
 
 ## 狀態與來源
 
-從舊 `qigong-line-bot` 的 `adminPages.ts`、`adminApi.ts`、`adminStats.ts`、`methodStats.ts` 與 EJS 管理頁移植操作流程／統計功能，重新接到新平台的 person、check-in、功法目錄與權限。**僅本機完成，未部署正式站**；舊 Bot、登入、資料庫、部署設定皆未修改。不載入舊版 Bootstrap／Chart.js CDN、不新增依賴，使用自有響應式版型與原生 SVG 趨勢圖。
+從舊 `qigong-line-bot` 的 `adminPages.ts`、`adminApi.ts`、`adminStats.ts`、`methodStats.ts` 與 EJS 管理頁移植操作流程／統計功能，重新接到新平台的 person、check-in、功法目錄與權限。**已於2026-10-07 經核准的維護窗口部署正式站**，程式 release 為 `269555c`、schema 為 `0017_admin_reporting.sql`；舊 Bot、舊登入、舊資料庫及舊部署設定皆未修改。不載入舊版 Bootstrap／Chart.js CDN、不新增依賴，使用自有響應式版型與原生 SVG 趨勢圖。
 
-後台已補齊繁體中文／英文與右上角切換；Telegram／WhatsApp 的學員雙語偏好與通知語言不受影響。LINE／WhatsApp 新官方帳號尚未完成設定，也不阻擋這批後台的本機驗證。
+後台已補齊繁體中文／英文與右上角切換；Telegram／WhatsApp 的學員雙語偏好與通知語言不受影響。LINE／WhatsApp 新官方帳號尚未完成設定，不阻擋這批後台上線；新管道仍未配置／啟用。
 
 | 網址                                     | 功能                                                             |
 | ---------------------------------------- | ---------------------------------------------------------------- |
@@ -44,7 +44,16 @@
 - `0017_admin_reporting.sql` 新增 check-in／selection **唯讀** RLS 權限與索引，沒有新增 runtime 寫入權限，也不改核准／學員寫入／歷史 migration。SQL 查詢以參數化篩選，不使用 browser 提供的 subject/principal 或 SQL 欄位名。
 - 頁面與新 API 設 `no-store`；頁面沿用限制外部資源／嵌入的 CSP（目前 scripts／styles 仍允許 inline）、`no-referrer`、`nosniff`。姓名／功法等動態文字透過 `textContent`／DOM 插入，不經 `innerHTML`。分頁／數量、UUID、日曆日期、timezone、搜尋長度與合法期間皆驗證；`%`／`_` 搜尋視為字面文字。
 - 非授權／不存在的學員 ID 統一回404，不透露是否存在。錯誤不記錄搜尋姓名／完整 SQL 內容。最新篩選結果優先，過期的前端 request 不覆寫新畫面。
-- **目前 API 最小／最大版本均為 `0017_admin_reporting.sql`**，必須隨同完整 `0001–0017` chain 與同版 worker。`0016` 不足以啟用新 API，即使 WhatsApp 未設定。正式 `0012` 狀態只來自先前交接，這批沒有重新查正式環境。
+- **目前 API 最小／最大版本均為 `0017_admin_reporting.sql`**，必須隨同完整 `0001–0017` chain 與同版 worker。`0016` 不足以啟用新 API，即使 WhatsApp 未設定。部署前已重新核對正式 `0012`，停機後完整升至 `0017`；目前公開 readiness 與 runtime preflight 皆通過。
+
+## 已完成的部署驗證
+
+- 程式 commit／push 與 GitHub CI 成功，本機 `pnpm verify` 150項通過、無 skip；不改依賴或既有 migration。
+- 版本化 release 保存 API／worker／完整遷移及 checksums；`current` symlink 指向 `269555c`，舊目錄保留。受限 env 未覆寫；API drop-in 僅以 ExecStart 標記公開 service version。
+- 隔離 PostgreSQL16 演練升級、中途失敗 gate、續跑與備份還原；編譯後程式以受限 runtime／mock OIDC 驗證8個雙語頁面、12個報表、CSRF 邊界與 Telegram，未送真實測試訊息。
+- 維護窗口取得 DB／roles／平台 env 與 systemd 備份，站外 AES-256-GCM 加密副本實際還原至隔離 cluster；舊 binary 在還原的 `0012` readiness 通過。
+- 正式 `0013–0017` 完整套用且重跑零新增，31張既有表筆數／資料雜湊不變；API 與通知 timer 恢復，停機15秒。公開 HTTPS 的19項煙霧測試通過，包括未登入／無效 callback 邊界、雙語 Telegram 頁面及新管道404。
+- 未冒用真人管理員、未審核正式學員作為測試；Authgear 真人登入、桌機／手機視覺及實際帳號跨 scope 驗收仍待進行。操作與回復限制見 repo 根目錄 `Handoff.md`。
 
 ## 本機與後續驗收
 
@@ -64,7 +73,7 @@
 5. 桌機／手機確認側欄轉為頂部導覽、表格可水平捲動、鍵盤導覽／狀態提示與SVG；慢網路／連續換篩選不顯示舊資料。
 6. 兩種語言重做上述流程；右上切換可保留已套用條件／學員，跨選單與重新登入沿用偏好。審核切換的取消／確認皆不得誤送；姓名／理由維持原文，功法／地區改用對應名稱。
 
-本機通過不等於已核准上線。正式站需另外核准發佈、版本化 artifact 與隔離升級／備份還原演練；舊0012與新0017無相容重疊，不能直接 in-place 切換或以舊 binary 充當 migration 回滾。參考 [LINE pilot](line-pilot.md) 的失敗邊界。
+本次發佈已取得核准並完成版本化部署及隔離升級／還原演練；這不取代真人驗收，也不構成後續管道啟用或新發佈的授權。舊0012與新0017無相容重疊，不能以舊 binary 充當 migration 回滾；恢復舊版須配合還原 DB／舊 release／service drop-in。重開流量後還原會丟失後續寫入，須另行核准並處理差異。參考 [LINE pilot](line-pilot.md) 的失敗邊界。
 
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 
