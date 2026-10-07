@@ -333,6 +333,9 @@ describeWithDatabase('separate Telegram onboarding webhook', () => {
     });
     expect(methods.statusCode).toBe(200);
     expect(methods.json().methods).toHaveLength(22);
+    expect(
+      methods.json().methods.find((method: { code: string }) => method.code === 'dayan_chu')
+    ).toMatchObject({ name_en: expect.any(String), parent_name_en: 'Dayan Qigong' });
     const methodRows = methods.json().methods as Array<{
       code: string;
       parent_code: string | null;
@@ -384,6 +387,16 @@ describeWithDatabase('separate Telegram onboarding webhook', () => {
     expect(recorded.json().entries[0].editable).toBe(true);
     expect(recorded.json().currentStreak).toBe(1);
     expect(recorded.json().totalDays).toBe(1);
+    const englishHistory = await app.inject({
+      method: 'POST',
+      url: '/telegram/checkin/history',
+      headers,
+      payload: { token, locale: 'en' }
+    });
+    const englishName = await pool.query<{ name_en: string }>(
+      "SELECT name_en FROM core.practice_methods WHERE code='dayan_chu'"
+    );
+    expect(englishHistory.json().entries[0].method_names).toEqual([englishName.rows[0]!.name_en]);
     const checkinId: string = recorded.json().entries[0].id;
     const correct = (value: string | undefined, id: string, codes: string[]) =>
       app.inject({
@@ -454,6 +467,96 @@ describeWithDatabase('separate Telegram onboarding webhook', () => {
     );
     expect(saved.rows).toEqual([{ code: 'dayan_chu' }]);
     await app.close();
+  });
+
+  it('persists private Telegram language choices and requires a valid identity-bound link for page changes', async () => {
+    const replies = vi.fn<(chatId: number, text: string) => Promise<void>>(async () => {});
+    const app = buildApp({
+      pool: runtimePool,
+      logger: false,
+      telegramOnboarding: {
+        botToken: '123456:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        webhookSecret: secret,
+        regionCode: 'tw-general',
+        sendMessage: replies
+      }
+    });
+    try {
+      const webhook = (
+        id: number,
+        text: string,
+        headers = { 'x-telegram-bot-api-secret-token': secret },
+        chatType = 'private'
+      ) =>
+        app.inject({
+          method: 'POST',
+          url: '/telegram/onboarding/webhook',
+          headers,
+          payload: update(id, 77777, chatType, text)
+        });
+      expect(
+        (await webhook(300, '/language en', { 'x-telegram-bot-api-secret-token': 'wrong' }))
+          .statusCode
+      ).toBe(401);
+      expect((await webhook(301, '/language en', undefined, 'group')).statusCode).toBe(200);
+      expect(
+        (
+          await pool.query(
+            "SELECT * FROM platform.identity_preferences WHERE external_subject_id='77777'"
+          )
+        ).rowCount
+      ).toBe(0);
+      expect((await webhook(302, '/language en')).statusCode).toBe(200);
+      expect(replies.mock.calls.at(-1)?.[1]).toContain('Language set to English');
+      expect((await webhook(303, '/start')).statusCode).toBe(200);
+      const text = replies.mock.calls.at(-1)?.[1] ?? '';
+      expect(text).toContain('Within 30 minutes');
+      const token = text.match(/apply\?lang=en#([A-Za-z0-9_-]{43})/)?.[1];
+      expect(token).toBeTruthy();
+      const preference = (
+        value: string | undefined,
+        locale: string,
+        origin = 'https://checkin.baiyinqigong.org'
+      ) =>
+        app.inject({
+          method: 'POST',
+          url: '/telegram/preferences/language',
+          headers: { origin },
+          payload: { token: value, locale }
+        });
+      expect((await preference(token, 'zh_TW', 'https://attacker.example')).statusCode).toBe(403);
+      expect((await preference(token, 'fr')).statusCode).toBe(400);
+      expect((await preference('x'.repeat(43), 'zh_TW')).statusCode).toBe(403);
+      expect((await preference(token, 'zh_TW')).statusCode).toBe(200);
+      const replyCount = replies.mock.calls.length;
+      expect((await webhook(302, '/language en')).statusCode).toBe(200);
+      expect(replies.mock.calls).toHaveLength(replyCount);
+      expect(
+        (
+          await pool.query<{ locale: string }>(
+            "SELECT locale FROM platform.identity_preferences WHERE platform='telegram' AND external_subject_id='77777'"
+          )
+        ).rows
+      ).toEqual([{ locale: 'zh_TW' }]);
+      await pool.query(
+        "UPDATE platform.telegram_application_links SET expires_at=CURRENT_TIMESTAMP-INTERVAL '1 second' WHERE telegram_user_id='77777'"
+      );
+      expect((await preference(token, 'en')).statusCode).toBe(403);
+      expect((await app.inject({ method: 'GET', url: '/telegram/apply?lang=en' })).body).toContain(
+        '<html lang="en">'
+      );
+      expect(
+        (await app.inject({ method: 'GET', url: '/telegram/checkin?lang=en' })).body
+      ).toContain('Practice check-in');
+      expect(
+        (await app.inject({ method: 'GET', url: '/telegram/checkin?lang=fr' })).body
+      ).toContain('<html lang="zh-Hant">');
+      await expect(
+        runtimePool.query('SELECT * FROM platform.identity_preferences')
+      ).rejects.toThrow('permission denied');
+    } finally {
+      await app.close();
+    }
   });
 
   it('uses the learner practice timezone to enforce the noon makeup deadline', async () => {

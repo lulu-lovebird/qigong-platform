@@ -3,6 +3,7 @@ import { attachPoolErrorHandler, createPool } from '@qigong/database';
 import { buildApp, checkStartupReadiness } from './app.js';
 import { createAdminOidcProvider } from './oidc-provider.js';
 import { z } from 'zod';
+import { loadWhatsAppConfig } from './whatsapp-onboarding.js';
 
 const environment = loadEnvironment();
 const telegramValues = [
@@ -25,6 +26,32 @@ const telegramOnboarding = telegramValues.every(Boolean)
         regionCode: process.env.TELEGRAM_ONBOARDING_REGION_CODE
       })
   : undefined;
+const lineValues = [
+  process.env.LINE_CHANNEL_SECRET,
+  process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  process.env.LINE_LOGIN_CHANNEL_ID,
+  process.env.LINE_LIFF_ID
+];
+if (lineValues.some(Boolean) && !lineValues.every(Boolean))
+  throw new Error(
+    'LINE channel secret, access token, login channel ID and LIFF ID must be configured together'
+  );
+const line = lineValues.every(Boolean)
+  ? z
+      .object({
+        channelSecret: z.string().min(16),
+        channelAccessToken: z.string().min(20),
+        loginChannelId: z.string().regex(/^\d+$/),
+        liffId: z.string().regex(/^\d+-[A-Za-z0-9]+$/)
+      })
+      .parse({
+        channelSecret: process.env.LINE_CHANNEL_SECRET,
+        channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+        loginChannelId: process.env.LINE_LOGIN_CHANNEL_ID,
+        liffId: process.env.LINE_LIFF_ID
+      })
+  : undefined;
+const whatsapp = loadWhatsAppConfig(process.env);
 const pool = createPool(environment);
 let adminAuth: Awaited<ReturnType<typeof createAdminOidcProvider>>;
 try {
@@ -38,6 +65,8 @@ const app = buildApp({
   pool,
   adminAuth,
   ...(telegramOnboarding ? { telegramOnboarding } : {}),
+  ...(line ? { line } : {}),
+  ...(whatsapp ? { whatsapp } : {}),
   serviceVersion: process.env.SERVICE_VERSION || 'development'
 });
 

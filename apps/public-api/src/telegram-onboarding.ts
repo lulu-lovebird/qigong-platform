@@ -2,8 +2,14 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
-import { telegramApplicationPage } from './telegram-application-page.js';
-import { telegramCheckinPage } from './telegram-checkin-page.js';
+import { renderApplicationPage } from './application-page.js';
+import { renderCheckinPage } from './checkin-page.js';
+import { learnerLocale, learnerTexts, localeQuery } from './learner-locale.js';
+
+const queryLocale = (query: unknown) => {
+  const parsed = z.object({ lang: z.string().optional() }).safeParse(query);
+  return learnerLocale(parsed.success ? parsed.data.lang : undefined);
+};
 
 const telegramUpdate = z.object({
   update_id: z.number().int().nonnegative().safe(),
@@ -41,7 +47,7 @@ export const registerTelegramOnboarding = (
   pool: Pool,
   config: TelegramOnboardingConfig
 ) => {
-  app.get('/telegram/apply', async (_request, reply) =>
+  app.get('/telegram/apply', async (request, reply) =>
     reply
       .header('cache-control', 'no-store')
       .header('referrer-policy', 'no-referrer')
@@ -50,9 +56,9 @@ export const registerTelegramOnboarding = (
         "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
       )
       .type('text/html; charset=utf-8')
-      .send(telegramApplicationPage)
+      .send(renderApplicationPage({ platform: 'telegram', locale: queryLocale(request.query) }))
   );
-  app.get('/telegram/checkin', async (_request, reply) =>
+  app.get('/telegram/checkin', async (request, reply) =>
     reply
       .header('cache-control', 'no-store')
       .header('referrer-policy', 'no-referrer')
@@ -61,7 +67,7 @@ export const registerTelegramOnboarding = (
         "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
       )
       .type('text/html; charset=utf-8')
-      .send(telegramCheckinPage)
+      .send(renderCheckinPage({ platform: 'telegram', locale: queryLocale(request.query) }))
   );
   const sendMessage =
     config.sendMessage ??
@@ -94,7 +100,12 @@ export const registerTelegramOnboarding = (
       return { ok: true };
     }
     const isCheckin = /^\/checkin(?:@\w+)?(?:\s|$)/i.test(message.text ?? '');
-    if (!isCheckin && !/^\/(start|apply)(?:@\w+)?(?:\s|$)/i.test(message.text ?? '')) {
+    const languageCommand = /^\/language(?:@\w+)?(?:\s+(\S+))?\s*$/i.exec(message.text ?? '');
+    if (
+      !isCheckin &&
+      !languageCommand &&
+      !/^\/(start|apply)(?:@\w+)?(?:\s|$)/i.test(message.text ?? '')
+    ) {
       return { ok: true };
     }
 
@@ -102,6 +113,38 @@ export const registerTelegramOnboarding = (
       .update(`${parsed.data.update_id}:${message.from.id}`)
       .digest('base64url');
     try {
+      const localeResult = await withRequestContext(
+        pool,
+        'qigong_api_runtime',
+        { requestId: request.id },
+        (client) =>
+          client.query<{ locale: string }>(
+            "SELECT platform.get_identity_locale('telegram',$1) AS locale",
+            [String(message.from.id)]
+          )
+      );
+      const locale = learnerLocale(localeResult.rows[0]?.locale);
+      const texts = learnerTexts(locale);
+      if (languageCommand) {
+        const selected = languageCommand[1];
+        if (selected !== 'en' && selected !== 'zh_TW') {
+          await sendMessage(message.chat.id, texts.languageHelp);
+        } else {
+          const change = await withRequestContext(
+            pool,
+            'qigong_api_runtime',
+            { requestId: request.id },
+            (client) =>
+              client.query<{ changed: boolean }>(
+                'SELECT platform.set_telegram_locale_from_update($1,$2,$3) AS changed',
+                [parsed.data.update_id, String(message.from.id), selected]
+              )
+          );
+          if (!change.rows[0]?.changed) return { ok: true };
+          await sendMessage(message.chat.id, learnerTexts(selected).languageSaved);
+        }
+        return { ok: true };
+      }
       if (isCheckin) {
         const result = await withRequestContext(
           pool,
@@ -115,8 +158,8 @@ export const registerTelegramOnboarding = (
         );
         const text =
           result.rows[0]?.status === 'ready'
-            ? `請在 15 分鐘內開啟打卡表單：\nhttps://checkin.baiyinqigong.org/telegram/checkin#${linkToken}\n請勿轉傳連結。`
-            : '尚未通過加入審核，或目前不是你的主要打卡管道。';
+            ? `${texts.checkinLink}\nhttps://checkin.baiyinqigong.org/telegram/checkin${localeQuery(locale)}#${linkToken}\n${texts.privateLink}`
+            : texts.notApproved;
         await sendMessage(message.chat.id, text);
         return { ok: true };
       }
@@ -139,14 +182,14 @@ export const registerTelegramOnboarding = (
       }
       const text =
         status === 'approved'
-          ? '你已通過氣功小幫手的加入審核。打卡功能將在新平台開放後通知你。'
+          ? texts.approved
           : status === 'rejected'
-            ? '你的申請目前未獲核准。如有疑問，請聯絡地區管理員。'
+            ? texts.rejected
             : status === 'pending'
-              ? '你的加入申請已送審，請等待地區管理員核對。審核前尚無法打卡。'
+              ? texts.pending
               : status === 'link_pending'
-                ? '先前的申請連結仍有效，請使用上一則訊息的連結填寫資料；若連結已過期，請在 30 分鐘後重新輸入 /start。'
-                : `請在 30 分鐘內填寫姓名、官網註冊 Email、含國碼電話與地區，填妥後才會送審：\nhttps://checkin.baiyinqigong.org/telegram/apply#${linkToken}\n請勿將連結轉傳他人。`;
+                ? texts.linkPending
+                : `${texts.applicationLink}\nhttps://checkin.baiyinqigong.org/telegram/apply${localeQuery(locale)}#${linkToken}\n${texts.privateLink}`;
       await sendMessage(message.chat.id, text);
       return { ok: true };
     } catch (error) {
@@ -189,7 +232,10 @@ export const registerTelegramOnboarding = (
     }
   });
 
-  const checkinToken = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) });
+  const checkinToken = z.object({
+    token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+    locale: z.enum(['zh_TW', 'en']).default('zh_TW')
+  });
   const checkinSubmission = checkinToken.extend({
     methods: z.array(z.string().min(1).max(64)).min(1).max(30),
     makeup: z.boolean()
@@ -198,6 +244,27 @@ export const registerTelegramOnboarding = (
     origin === 'https://checkin.baiyinqigong.org' &&
     typeof contentType === 'string' &&
     contentType.startsWith('application/json');
+
+  app.post('/telegram/preferences/language', { bodyLimit: 4096 }, async (request, reply) => {
+    if (!checkOrigin(request.headers.origin, request.headers['content-type']))
+      return reply.code(403).send({ error: 'invalid_origin' });
+    const parsed = checkinToken.extend({ locale: z.enum(['zh_TW', 'en']) }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_language' });
+    try {
+      await withRequestContext(pool, 'qigong_api_runtime', { requestId: request.id }, (client) =>
+        client.query('SELECT platform.set_telegram_locale_by_token($1,$2)', [
+          parsed.data.token,
+          parsed.data.locale
+        ])
+      );
+      return reply.header('cache-control', 'no-store').send({ locale: parsed.data.locale });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'invalid language link')
+        return reply.code(403).send({ error: 'invalid_language_link' });
+      app.log.error({ err: error }, 'Telegram language preference failed');
+      return reply.code(503).send({ error: 'language_unavailable' });
+    }
+  });
 
   app.post('/telegram/checkin/methods', { bodyLimit: 4096 }, async (request, reply) => {
     if (!checkOrigin(request.headers.origin, request.headers['content-type'])) {
@@ -217,7 +284,7 @@ export const registerTelegramOnboarding = (
           parent_code: string | null;
           parent_name_zh_tw: string | null;
           parent_sort_order: number | null;
-        }>('SELECT * FROM platform.telegram_checkin_method_tree($1)', [parsed.data.token])
+        }>('SELECT * FROM platform.telegram_localized_methods($1)', [parsed.data.token])
     );
     if (!result.rows.length) return reply.code(403).send({ error: 'checkin_unavailable' });
     return reply.header('cache-control', 'no-store').send({ methods: result.rows });
@@ -236,8 +303,8 @@ export const registerTelegramOnboarding = (
         { requestId: request.id },
         (client) =>
           client.query<{ history: unknown }>(
-            'SELECT platform.telegram_checkin_history($1) AS history',
-            [parsed.data.token]
+            'SELECT platform.telegram_checkin_history($1,$2) AS history',
+            [parsed.data.token, parsed.data.locale]
           )
       );
       return reply.header('cache-control', 'no-store').send(result.rows[0]?.history);

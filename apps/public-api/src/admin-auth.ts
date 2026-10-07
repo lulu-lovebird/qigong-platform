@@ -2,7 +2,20 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
-import { reviewPage } from './admin-pages.js';
+import { renderReviewPage } from './admin-pages.js';
+import {
+  adminLocaleCookie,
+  adminNameColumn,
+  adminTexts,
+  resolveAdminLocale
+} from './admin-locale.js';
+import { renderAdminDashboard, renderAdminShell } from './admin-dashboard.js';
+import {
+  getAdminReport,
+  ReportError,
+  reportQuerySchema,
+  reportViewSchema
+} from './admin-reporting.js';
 
 export interface AdminAuthProvider {
   begin(verifier: string, state: string, nonce: string): Promise<URL>;
@@ -129,22 +142,94 @@ export const registerAdminRoutes = (
     return { principalId };
   });
 
-  app.get('/admin/', async (request, reply) => {
-    if (!(await principalFor(request))) return reply.redirect('/admin/auth/login');
-    return reply
-      .header('cache-control', 'no-store')
-      .header(
-        'content-security-policy',
-        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-      )
-      .type('text/html; charset=utf-8')
-      .send(reviewPage);
+  app.get('/admin', async (request, reply) =>
+    reply.redirect('/admin/' + new URL(request.url, 'http://localhost').search)
+  );
+  for (const [path, page] of [
+    ['/admin/', 'overview'],
+    ['/admin/leaderboard', 'leaderboard'],
+    ['/admin/method-analysis', 'methods'],
+    ['/admin/applications', 'review']
+  ] as const) {
+    app.get(path, async (request, reply) => {
+      const locale = resolveAdminLocale(request.query, request.headers.cookie);
+      void reply.header('set-cookie', cookie(adminLocaleCookie, locale, 31536000, false));
+      const principalId = await principalFor(request);
+      if (!principalId)
+        return reply.header('cache-control', 'no-store').redirect('/admin/auth/login');
+      let html: string;
+      if (page === 'review') html = renderReviewPage(locale);
+      else {
+        const permission = await withRequestContext(
+          pool,
+          'qigong_api_runtime',
+          { requestId: request.id, principalId },
+          (client) =>
+            client.query<{ allowed: boolean }>(
+              "SELECT admin.has_permission('stats.read') AND admin.has_permission('learner.read') AND admin.has_permission('checkin.read') AS allowed"
+            )
+        );
+        if (permission.rows[0]?.allowed) html = renderAdminDashboard(page, locale);
+        else {
+          void reply.code(403);
+          html = renderAdminShell(
+            page,
+            '<p id="status" role="status">' + adminTexts(locale).reportDenied + '</p>',
+            '',
+            locale
+          );
+        }
+      }
+      return reply
+        .header('cache-control', 'no-store')
+        .header('referrer-policy', 'no-referrer')
+        .header('x-content-type-options', 'nosniff')
+        .header(
+          'content-security-policy',
+          "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        )
+        .type('text/html; charset=utf-8')
+        .send(html);
+    });
+  }
+
+  app.get('/admin/api/reports/:view', async (request, reply) => {
+    void reply.header('cache-control', 'no-store');
+    const principalId = await principalFor(request);
+    if (!principalId) return reply.code(401).send({ error: 'unauthenticated' });
+    const params = z.object({ view: reportViewSchema }).safeParse(request.params);
+    const query = reportQuerySchema.safeParse(request.query);
+    if (!params.success || !query.success)
+      return reply.code(400).send({ error: 'invalid_report_query' });
+    try {
+      return await withRequestContext(
+        pool,
+        'qigong_api_runtime',
+        { requestId: request.id, principalId },
+        (client) =>
+          getAdminReport(client, params.data.view, {
+            ...query.data,
+            lang: query.data.lang ?? resolveAdminLocale({}, request.headers.cookie)
+          })
+      );
+    } catch (error) {
+      if (error instanceof ReportError)
+        return reply.code(error.status).send({ error: error.message });
+      app.log.error({ requestId: request.id }, 'admin report unavailable');
+      return reply.code(503).send({ error: 'report_unavailable' });
+    }
   });
 
   app.get('/admin/api/applications', async (request, reply) => {
     const principalId = await principalFor(request);
     if (!principalId) return reply.code(401).send({ error: 'unauthenticated' });
     void reply.header('cache-control', 'no-store');
+    const language = z
+      .object({ lang: z.enum(['zh_TW', 'en']).optional() })
+      .strict()
+      .safeParse(request.query);
+    if (!language.success) return reply.code(400).send({ error: 'invalid_language' });
+    const locale = language.data.lang ?? resolveAdminLocale({}, request.headers.cookie);
     const result = await withRequestContext(
       pool,
       'qigong_api_runtime',
@@ -153,7 +238,7 @@ export const registerAdminRoutes = (
         client.query(
           `SELECT application.id, application.platform, application.display_name, application.learner_name,
                   application.website_email, application.phone_e164, application.requested_region_id,
-                  region.name_zh_tw AS region_name, application.status, application.created_at
+                  region.${adminNameColumn(locale)} AS region_name, application.status, application.created_at
            FROM identity.onboarding_applications application
            LEFT JOIN core.regions region ON region.id = application.requested_region_id
            WHERE application.status = 'pending' AND application.learner_name IS NOT NULL

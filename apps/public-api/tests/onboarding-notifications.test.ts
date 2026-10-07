@@ -100,6 +100,17 @@ describeWithDatabase('onboarding notification delivery', () => {
         ])
     );
 
+  it('delivers Telegram decisions using the saved channel locale', async () => {
+    const id = await makeApplication('88888');
+    await withRequestContext(pool, 'qigong_api_runtime', { requestId: randomUUID() }, (client) =>
+      client.query("SELECT platform.set_identity_locale('telegram','88888','en')")
+    );
+    await decide(id, 'approved');
+    const sender = vi.fn(async () => {});
+    expect(await deliverOnboardingNotifications(workerPool, sender, () => undefined)).toBe(1);
+    expect(sender).toHaveBeenCalledWith('88888', 'approved', 'en');
+  });
+
   it('queues once per decision, retries failed sends, and never resends a delivered notification', async () => {
     const approvedId = await makeApplication('notify-approved');
     const rejectedId = await makeApplication('notify-rejected');
@@ -107,7 +118,7 @@ describeWithDatabase('onboarding notification delivery', () => {
     await decide(rejectedId, 'rejected', 'Not eligible');
     await expect(decide(approvedId, 'approved')).rejects.toThrow('not pending');
     const queued = await pool.query<{ decision: string; status: string }>(
-      `SELECT decision, status FROM ops.onboarding_notifications ORDER BY decision`
+      `SELECT decision, status FROM ops.onboarding_notifications WHERE external_subject_id LIKE 'notify-%' ORDER BY decision`
     );
     expect(queued.rows).toEqual([
       { decision: 'approved', status: 'pending' },
@@ -130,7 +141,7 @@ describeWithDatabase('onboarding notification delivery', () => {
     ).toBe(2);
     expect(errors).toHaveLength(1);
     const firstPass = await pool.query<{ decision: string; status: string; attempts: number }>(
-      `SELECT decision, status, attempts FROM ops.onboarding_notifications ORDER BY decision`
+      `SELECT decision, status, attempts FROM ops.onboarding_notifications WHERE external_subject_id LIKE 'notify-%' ORDER BY decision`
     );
     expect(firstPass.rows).toEqual([
       { decision: 'approved', status: 'delivered', attempts: 1 },
@@ -151,5 +162,22 @@ describeWithDatabase('onboarding notification delivery', () => {
       `SELECT status, attempts FROM ops.onboarding_notifications WHERE decision = 'rejected'`
     );
     expect(final.rows).toEqual([{ status: 'delivered', attempts: 2 }]);
+    const lineApplication = await pool.query<{ id: string }>(
+      `INSERT INTO identity.onboarding_applications
+       (platform, external_subject_id, display_name, requested_region_id,
+        learner_name, website_email, phone_e164)
+       VALUES ('line', $1, 'LINE Learner', $2, 'LINE Learner', 'line@example.com', '+886912345679') RETURNING id`,
+      ['U' + 'b'.repeat(32), regionId]
+    );
+    await decide(lineApplication.rows[0]!.id, 'approved');
+    const sendLine = vi.fn(async (recipient: string, decision: string) => {
+      expect(recipient).toBeTruthy();
+      expect(decision).toBe('approved');
+    });
+    expect(
+      await deliverOnboardingNotifications(workerPool, retry, () => undefined, 10, sendLine)
+    ).toBe(1);
+    expect(sendLine).toHaveBeenCalledWith('U' + 'b'.repeat(32), 'approved');
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 });

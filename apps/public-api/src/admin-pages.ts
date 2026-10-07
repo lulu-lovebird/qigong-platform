@@ -1,37 +1,19 @@
-export const reviewPage = `<!doctype html>
-<html lang="zh-Hant">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="robots" content="noindex, nofollow">
-  <title>待審核學員｜氣功小幫手</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; color: #203027; background: #f8faf8; }
-    header, article { background: white; padding: 1rem 1.5rem; margin-bottom: 1rem; border-radius: .7rem; border: 1px solid #dae5db; }
-    header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
-    h1 { font-size: 1.6rem; } h2 { font-size: 1.15rem; }
-    button { cursor: pointer; padding: .55rem .9rem; border-radius: .4rem; border: 1px solid #51745b; background: #285c3b; color: white; }
-    button:disabled { opacity: .5; cursor: wait; }
-    button.reject { background: white; color: #82352f; border-color: #82352f; }
-    input { padding: .5rem; width: min(25rem, 100%); box-sizing: border-box; }
-    .actions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
-    #status { min-height: 1.5rem; } .meta { color: #516557; }
-    .batch { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; margin-bottom: 1rem; }
-    .batch label { display: inline-flex; align-items: center; gap: .4rem; }
-    .batch input, .select-application { width: auto; }
-    .select-application { margin-right: .5rem; }
-  </style>
-</head>
-<body>
-  <header><h1>待審核學員</h1><button id="logout" type="button">登出</button></header>
-  <p id="status" role="status" aria-live="polite">載入中…</p>
+import { renderAdminShell } from './admin-dashboard.js';
+import { adminLocaleScript, adminTexts, type AdminLocale } from './admin-locale.js';
+
+export const renderReviewPage = (locale: AdminLocale = 'zh_TW') => {
+  const text = adminTexts(locale);
+  return renderAdminShell(
+    'review',
+    `  <p id="status" role="status" aria-live="polite">${text.loading}</p>
   <div class="batch">
-    <label><input id="select-all" type="checkbox"> 全選目前顯示</label>
-    <button id="approve-selected" type="button" disabled>核准已選（0）</button>
+    <label><input id="select-all" type="checkbox"> ${text.selectAll}</label>
+    <button id="approve-selected" type="button" disabled>${text.approveSelected.replace('{count}', '0')}</button>
   </div>
   <main id="applications"></main>
-  <footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer>
-  <script>
+`,
+    `
+    ${adminLocaleScript(locale)}
     const list = document.getElementById('applications');
     const status = document.getElementById('status');
     const selectAll = document.getElementById('select-all');
@@ -40,7 +22,7 @@ export const reviewPage = `<!doctype html>
     const csrf = () => document.cookie.split('; ').find(part => part.startsWith('__Host-qigong-admin-csrf='))?.split('=')[1];
     function updateSelection() {
       const checked = [...selections.values()].filter(box => box.checked).length;
-      approveSelected.textContent = '核准已選（' + checked + '）';
+      approveSelected.textContent = message('approveSelected',{count:checked});
       approveSelected.disabled = checked === 0;
       selectAll.checked = selections.size > 0 && checked === selections.size;
       selectAll.indeterminate = checked > 0 && checked < selections.size;
@@ -52,72 +34,72 @@ export const reviewPage = `<!doctype html>
     });
     approveSelected.addEventListener('click', async () => {
       const ids = [...selections].filter(([, box]) => box.checked).map(([id]) => id);
-      if (!ids.length || !confirm('確定核准已勾選的 ' + ids.length + ' 筆申請？請先逐筆核對學員資料。')) return;
+      if (!ids.length || !confirm(message('batchConfirm',{count:ids.length}))) return;
       approveSelected.disabled = true;
-      status.textContent = '批次核准處理中…';
+      status.textContent = t.batchProcessing;
       try {
         const response = await fetch('/admin/api/applications/batch-approve', {
           method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-csrf-token': csrf() || '' },
           body: JSON.stringify({ ids })
-        });
+        }).catch(()=>{throw new Error(t.batchFailed);});
         if (response.status === 401) { location.assign('/admin/auth/login'); return; }
-        if (!response.ok) throw new Error('批次核准失敗，請稍後重試。');
-        const { results } = await response.json();
+        if (!response.ok) throw new Error(t.batchFailed);
+        const { results } = await response.json().catch(()=>{throw new Error(t.batchFailed);});
         await load();
         const approved = results.filter(item => item.status === 'approved').length;
         const failed = results.filter(item => item.status !== 'approved');
-        status.textContent = '已核准 ' + approved + ' 筆；失敗 ' + failed.length + ' 筆。' +
-          (failed.length ? '失敗申請 ID：' + failed.map(item => item.id + '（' + (item.status === 'conflict' ? '狀態或權限變更' : '服務暫時不可用') + '）').join('、') : '');
-      } catch (error) { status.textContent = error.message; updateSelection(); }
+        status.textContent = message('batchResult',{approved,failed:failed.length}) +
+          (failed.length ? t.failedIds + failed.map(item => item.id + (locale === 'en' ? ' (' : '（') + (item.status === 'conflict' ? t.reviewConflict : t.unavailable) + (locale === 'en' ? ')' : '）')).join(t.listSeparator) : '');
+      } catch (error) { status.textContent = localizedFailure(error,t.batchFailed); updateSelection(); }
     });
     async function load() {
-      const response = await fetch('/admin/api/applications', { credentials: 'same-origin', cache: 'no-store' });
+      const response = await fetch('/admin/api/applications?lang='+locale, { credentials: 'same-origin', cache: 'no-store' }).catch(()=>{throw new Error(t.applicationsFailed);});
       if (response.status === 401) { location.assign('/admin/auth/login'); return; }
-      if (!response.ok) throw new Error('無法載入待審名單，請稍後重試。');
-      const { applications } = await response.json();
+      if (!response.ok) throw new Error(t.applicationsFailed);
+      const { applications } = await response.json().catch(()=>{throw new Error(t.applicationsFailed);});
       list.replaceChildren();
       selections.clear();
-      status.textContent = applications.length ? '待審核：' + applications.length + ' 筆（最多顯示 100 筆）' : '目前沒有待審核申請。';
+      status.textContent = applications.length ? message('pendingCount',{count:applications.length}) : t.noApplications;
       for (const application of applications) {
         const card = document.createElement('article');
         const select = document.createElement('input');
         select.type = 'checkbox';
         select.className = 'select-application';
-        select.setAttribute('aria-label', '選取 ' + (application.learner_name || application.display_name || '申請'));
+        select.setAttribute('aria-label', message('selectApplication',{name:application.learner_name || application.display_name || t.application}));
         select.addEventListener('change', updateSelection);
         selections.set(application.id, select);
         const title = document.createElement('h2');
-        title.textContent = application.display_name || '未提供名稱';
+        title.textContent = application.display_name || t.noName;
         const meta = document.createElement('p');
         meta.className = 'meta';
-        meta.textContent = '平台：' + application.platform + ' / 地區：' + (application.region_name || '未分派') + ' / 申請時間：' + new Date(application.created_at).toLocaleString('zh-TW');
+        meta.textContent = message('applicationMeta',{platform:application.platform,region:application.region_name || t.unassigned,date:new Date(application.created_at).toLocaleString(locale === 'en' ? 'en' : 'zh-TW')});
         const identity = document.createElement('p');
-        identity.textContent = '學員姓名：' + (application.learner_name || '未填寫') + ' / 官網 Email：' + (application.website_email || '未填寫') + ' / 含國碼電話：' + (application.phone_e164 || '未填寫');
+        identity.textContent = message('identityDetails',{name:application.learner_name || t.notProvided,email:application.website_email || t.notProvided,phone:application.phone_e164 || t.notProvided});
         const actions = document.createElement('div');
         actions.className = 'actions';
         const approve = document.createElement('button');
         approve.type = 'button';
-        approve.textContent = '核准';
+        approve.textContent = t.approve;
         const reason = document.createElement('input');
-        reason.placeholder = '拒絕理由（必填）';
-        reason.setAttribute('aria-label', '拒絕理由');
+        reason.placeholder = t.rejectionPlaceholder;
+        reason.setAttribute('aria-label', t.rejectionReason);
         reason.maxLength = 1000;
         const reject = document.createElement('button');
         reject.type = 'button';
         reject.className = 'reject';
-        reject.textContent = '拒絕';
+        reject.textContent = t.reject;
         async function decide(decision) {
-          if (decision === 'rejected' && !reason.value.trim()) { status.textContent = '請填寫拒絕理由。'; reason.focus(); return; }
+          if (decision === 'rejected' && !reason.value.trim()) { status.textContent = t.reasonRequired; reason.focus(); return; }
           approve.disabled = reject.disabled = true;
           try {
             const response = await fetch('/admin/api/applications/' + encodeURIComponent(application.id) + '/decision', {
               method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-csrf-token': csrf() || '' },
               body: JSON.stringify({ decision, ...(decision === 'rejected' ? { reason: reason.value.trim() } : {}) })
-            });
+            }).catch(()=>{throw new Error(t.decisionFailed);});
             if (response.status === 401) { location.assign('/admin/auth/login'); return; }
-            if (!response.ok) throw new Error(response.status === 409 ? '申請狀態或權限已變更，請重新整理。' : '操作失敗，請稍後重試。');
+            if (!response.ok) throw new Error(response.status === 409 ? t.decisionConflict : t.decisionFailed);
             await load();
-          } catch (error) { status.textContent = error.message; approve.disabled = reject.disabled = false; }
+          } catch (error) { status.textContent = localizedFailure(error,t.decisionFailed); approve.disabled = reject.disabled = false; }
         }
         approve.addEventListener('click', () => decide('approved'));
         reject.addEventListener('click', () => decide('rejected'));
@@ -127,12 +109,10 @@ export const reviewPage = `<!doctype html>
       }
       updateSelection();
     }
-    document.getElementById('logout').addEventListener('click', async () => {
-      const response = await fetch('/admin/auth/logout', { method: 'POST', credentials: 'same-origin', headers: { 'x-csrf-token': csrf() || '' } });
-      if (response.ok) location.assign('/admin/auth/login');
-      else status.textContent = '登出失敗，請稍後重試。';
-    });
-    load().catch(error => { status.textContent = error.message; });
-  </script>
-</body>
-</html>`;
+    load().catch(error => { status.textContent = localizedFailure(error,t.applicationsFailed); });
+`,
+    locale
+  );
+};
+
+export const reviewPage = renderReviewPage();

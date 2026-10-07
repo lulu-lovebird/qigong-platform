@@ -5,9 +5,11 @@ import {
   registerTelegramOnboarding,
   type TelegramOnboardingConfig
 } from './telegram-onboarding.js';
+import { registerLineOnboarding, type LineConfig } from './line-onboarding.js';
+import { registerWhatsAppOnboarding, type WhatsAppConfig } from './whatsapp-onboarding.js';
 
-export const minimumMigrationVersion = '0012_telegram_method_hierarchy.sql';
-export const maximumMigrationVersion = '0012_telegram_method_hierarchy.sql';
+export const minimumMigrationVersion = '0017_admin_reporting.sql';
+export const maximumMigrationVersion = '0017_admin_reporting.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -17,6 +19,8 @@ interface AppDependencies {
   serviceVersion?: string;
   adminAuth?: AdminAuthProvider;
   telegramOnboarding?: TelegramOnboardingConfig;
+  line?: LineConfig;
+  whatsapp?: WhatsAppConfig;
 }
 
 export const checkStartupReadiness = async (pool: Pool) => {
@@ -39,7 +43,9 @@ export const buildApp = ({
   logger,
   serviceVersion = 'development',
   adminAuth,
-  telegramOnboarding
+  telegramOnboarding,
+  line,
+  whatsapp
 }: AppDependencies) => {
   const app = Fastify({
     logger:
@@ -92,6 +98,8 @@ export const buildApp = ({
 
   if (adminAuth) registerAdminRoutes(app, pool, adminAuth);
   if (telegramOnboarding) registerTelegramOnboarding(app, pool, telegramOnboarding);
+  if (line) registerLineOnboarding(app, pool, line);
+  if (whatsapp) registerWhatsAppOnboarding(app, pool, whatsapp);
 
   return app;
 };
