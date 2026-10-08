@@ -2,13 +2,13 @@
 
 ## 狀態與範圍
 
-**目前完成部分已依使用者另行核准，於2026-10-08 部署 release `b271ede`／schema `0018`，維護15秒。新管道啟用仍未核准；其餘第二批功能未完成。** 已新增 `0018_private_practice_notes_and_tags.sql`、三平台心得與感受卡片及提交／更正／歷史整合，文字與 tag 分開儲存、保留私密權限與歷史名稱快照。側欄語言切換亦已部署。管理端心得查詢 SQL／TypeScript helper 已有，但心得／tag 管理頁面與 HTTP 路由尚未完成。後續使用者核准 Telegram 四個學員頁一起實作：成就模型、耐久評估／reconciliation 已於本機 `0021_telegram_learner_workspace.sql` 完成，尚未提交／部署；管理端成就榜 UI 仍未實作。實際規則、驗證與發佈邊界見 [Telegram workspace](telegram-workspace.md)。
+**私密心得基礎最初依使用者另行核准，於2026-10-08 部署 release `b271ede`／schema `0018`，維護15秒。新管道啟用仍未核准；其餘第二批功能未完成。** 已新增 `0018_private_practice_notes_and_tags.sql`、三平台心得與感受卡片及提交／更正／歷史整合，文字與 tag 分開儲存、保留私密權限與歷史名稱快照。側欄語言切換亦已部署。管理端心得查詢 SQL／TypeScript helper 已有，但心得／tag 管理頁面與 HTTP 路由尚未完成。後續使用者核准 Telegram 四個學員頁一起實作：成就模型、耐久評估／reconciliation 已於2026-10-08 18:08:50–18:09:07 UTC 部署 release `0ed750d`／`0021_telegram_learner_workspace.sql`，維護17秒，319項測試及60項公開檢查通過；管理端成就榜 UI 仍未實作。實際規則、驗證與發佈邊界見 [Telegram workspace](telegram-workspace.md)。
 
-已修正 SQL 三值邏輯：心得查詢的範圍授權必須明確為 `TRUE`，功法資訊可見旗標將 `NULL` 轉為 `false`；跨範圍查詢與私密表 RLS 拒絕均有測試。隔離 PostgreSQL16 的完整 `pnpm verify` **173項通過、無 skip**，含格式、lint、source typecheck 與 build。正式 API schema 最小／最大均為 `0018`，程式 commit／CI 為 `b271ede`／[37739536716](https://github.com/lulu-lovebird/qigong-platform/actions/runs/37739536716)。隔離升級、舊版拒絕新 schema、備份還原及受限 runtime／mock OIDC 演練通過；正式既有36張表資料不變，公開23項檢查通過，受限 env 不變，未送真實測試訊息。正式 tag 目錄目前為空，未自行建立標籤；自由心得可使用。未改歷史 migration、依賴、角色授權或舊 Bot；部署／備份／回復詳見根目錄 `Handoff.md`。
+已修正 SQL 三值邏輯：心得查詢的範圍授權必須明確為 `TRUE`，功法資訊可見旗標將 `NULL` 轉為 `false`；跨範圍查詢與私密表 RLS 拒絕均有測試。隔離 PostgreSQL16 的完整 `pnpm verify` **173項通過、無 skip**，含格式、lint、source typecheck 與 build。當時 API schema 最小／最大均為 `0018`，程式 commit／CI 為 `b271ede`／[37739536716](https://github.com/lulu-lovebird/qigong-platform/actions/runs/37739536716)。隔離升級、舊版拒絕新 schema、備份還原及受限 runtime／mock OIDC 演練通過；正式既有36張表資料不變，公開23項檢查通過，受限 env 不變，未送真實測試訊息。正式 tag 目錄目前為空，未自行建立標籤；自由心得可使用。未改歷史 migration、依賴、角色授權或舊 Bot；部署／備份／回復詳見根目錄 `Handoff.md`。
 
 來源為 `/Users/myhsu/Devel/qigong-line-bot` 當前工作目錄，HEAD `7bcd85c`；未 fetch／核對遠端或正式舊站。保留該 repo 既有未提交的文件變更。以下區分舊站實際行為與新平台建議，不把程式存在誤認為真實帳號驗收完成。
 
-**後續版本號註記：** `0019_admin_access_approval.sql` 已部署管理員分級審核（見 `admin-access.md`）；授權名單、編輯及全部撤銷已核准部署 `0020_admin_grant_management.sql`（程式4a0237e／2026-10-08，操作驗證及還原紀錄見交接文件）（見 `admin-grant-management.md`）。徽章與 Telegram 學員 workspace 已在本機使用保留的 `0021`（未部署），下一份新 migration 應接續 `0022`；不覆寫 `0019`、`0020` 或已實作的 `0021`。
+**後續版本號註記：** `0019_admin_access_approval.sql` 已部署管理員分級審核（見 `admin-access.md`）；授權名單、編輯及全部撤銷已核准部署 `0020_admin_grant_management.sql`（程式4a0237e／2026-10-08，操作驗證及還原紀錄見交接文件）（見 `admin-grant-management.md`）。徽章與 Telegram 學員 workspace 已使用保留的 `0021` 並正式部署（見 `telegram-workspace.md`），下一份新 migration 應接續 `0022`；不覆寫 `0019`、`0020` 或已實作的 `0021`。
 
 ## 舊站功能核對
 
