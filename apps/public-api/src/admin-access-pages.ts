@@ -13,7 +13,7 @@ const call=async(url,body)=>{
   if(!response.ok)throw new Error(response.status===409?ui.conflict:response.status===401||response.status===403?ui.denied:ui.failed);
   return response.json();
 };
-const node=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=String(text ?? '');return n;};
+const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=String(text ?? '');if(cls)n.className=cls;return n;};
 let edits=[];
 const track=(...fields)=>{edits.push(...fields.map(field=>({field,value:field.value})));};
 const mayDiscard=message=>!edits.some(({field,value})=>field.value!==value)||confirm(message);
@@ -47,44 +47,71 @@ export const renderAdminAccessPage = (locale: AdminLocale) => {
     `
 (()=>{
 ${commonScript(locale)}
-let page=1;let generation=0;let actor=null;let model=null;
+let page=1;let generation=0;let actor=null;let model=null;let activePanel=null;let busy=false;
 const initial=new URL(location.href);const modes=['pending','authorized','all','draft','approved','rejected','provisioned'];
 let view=modes.includes(initial.searchParams.get('status'))?initial.searchParams.get('status'):'pending';
 const requestedPage=Number(initial.searchParams.get('page'));if(Number.isInteger(requestedPage)&&requestedPage>=1&&requestedPage<=100000)page=requestedPage;
 document.getElementById('access-filter').value=view;
 const permissionLabels={'learner.read':ui.learnerRead,'learner.manage_profile':ui.profileManage,'learner.transfer_request':ui.transferRequest,'checkin.read':ui.checkinRead,'checkin.read_private_note':ui.privateNoteRead,'stats.read':ui.statsRead,'admin_access.manage':ui.accessManage};
-const run=async(url,body,button,message=ui.confirm)=>{if(!confirm(message))return;button.disabled=true;try{await call(url,body);await load();status.textContent=ui.saved;}catch(error){status.textContent=error.message;}finally{button.disabled=false;}};
+const run=async(url,body,button,panel,error,message=ui.confirm)=>{
+ if(busy||!confirm(message))return;busy=true;panel.disabled=true;button.disabled=true;error.textContent='';
+ try{await call(url,body);await load();status.textContent=ui.saved;}catch(failure){error.textContent=failure.message;status.textContent=failure.message;}finally{busy=false;panel.disabled=false;button.disabled=false;}
+};
 const render=()=>{
- const root=document.getElementById('accounts');root.replaceChildren();edits=[];
- for(const account of model.entries){
-  const card=node('article');card.style.overflowWrap='anywhere';card.append(node('h2',account.name+' · '+account.principalId.slice(0,8)),node('p',ui[account.status]+' · '+(ui[account.accountStatus] ?? account.accountStatus)),node('p',account.email ?? ui.emailUnavailable),node('p',ui.identity+': '+account.issuer+' / '+account.subject),node('p',account.scopeDescription ?? ''),node('p',account.applicantReason ?? ''),node('p',account.decisionReason ?? ''));
-  for(const g of account.grants){const grantRegion=model.regions.find(r=>r.id===g.regionId);const scopeName=grantRegion?(locale==='en'?grantRegion.nameEn:grantRegion.nameZhTw):g.scopeName ?? ui[g.scopeType] ?? g.scopeType;const line=node('div');line.append(node('span',(ui[g.role] ?? g.role)+' · '+scopeName+' · '+(g.scheduled?ui.scheduled:g.effective===false?ui.inactive:g.active?g.validFrom:ui.inactive)));
-   if(g.active && g.canRevoke===true && account.principalId!==actor){const revoke=node('button',ui.revoke);revoke.type='button';const reason=node('input');reason.setAttribute('aria-label',ui.decisionReason);revoke.addEventListener('click',()=>{if(!reason.value.trim()){status.textContent=ui.required;return;}run('/admin/api/access/grants/'+g.id+'/revoke',{version:account.grantVersion,reason:reason.value},revoke);});track(reason);line.append(reason,revoke);}
-   if(g.active && g.canEdit===true && account.principalId!==actor){
-    const toggle=node('button',ui.edit);toggle.type='button';const editor=node('fieldset');editor.hidden=true;
-    const role=node('select');role.setAttribute('aria-label',ui.role);for(const {code} of model.roles){const o=node('option',ui[code]);o.value=code;role.append(o);}role.value=g.role;
-    const scope=node('select');scope.setAttribute('aria-label',ui.scope);const summary=node('p');
-    const update=()=>{scope.replaceChildren();scope.value='';scope.hidden=role.value!=='regional_admin';scope.disabled=scope.hidden;const blank=node('option',ui.selectScope);blank.value='';scope.append(blank);if(!scope.hidden)for(const r of model.regions){const o=node('option',locale==='en'?r.nameEn:r.nameZhTw);o.value=r.id;scope.append(o);}summary.textContent=(scope.hidden?ui.scope+': '+ui.global+' · ':'')+ui.permissions+': '+(model.roles.find(r=>r.code===role.value)?.permissions ?? []).map(p=>permissionLabels[p] ?? p).join('、');};role.addEventListener('change',update);update();if(g.regionId&&!scope.hidden)scope.value=g.regionId;
-    const reason=node('input');reason.setAttribute('aria-label',ui.decisionReason);const save=node('button',ui.saveEdit);save.type='button';
-    save.addEventListener('click',()=>{if(!role.value||(role.value==='regional_admin'&&!scope.value)||!reason.value.trim()){status.textContent=ui.required;return;}run('/admin/api/access/grants/'+g.id+'/edit',{version:account.grantVersion,role:role.value,...(role.value==='regional_admin'?{regionId:scope.value}:{}),reason:reason.value},save);});
-    track(role,scope,reason);toggle.addEventListener('click',()=>{editor.hidden=!editor.hidden;});editor.append(role,scope,summary,reason,save);line.append(toggle,editor);
-   }card.append(line);
+ const root=document.getElementById('accounts');root.replaceChildren();edits=[];activePanel=null;let panelIndex=0;
+ const labeled=(text,control)=>{const label=node('label');label.append(node('span',text),control);return label;};
+ const button=(text,cls='secondary')=>{const b=node('button',text,cls);b.type='button';return b;};
+ const panelFor=(parent,options)=>{
+  const trigger=button(options.title,options.danger?'access-danger-button':'secondary');
+  const panel=node('fieldset',undefined,'access-action-panel');panel.hidden=true;panel.id='access-action-'+(++panelIndex);trigger.setAttribute('aria-controls',panel.id);trigger.setAttribute('aria-expanded','false');
+  panel.append(node('legend',options.title),node('p',ui.target+': '+options.target,'access-target'),node('p',options.help,'muted'));
+  let role=null,scope=null,update=null;const controls=[];let baselineRole='',baselineScope='';
+  if(options.withRole){
+   const fields=node('div',undefined,'access-form-grid');role=node('select');role.setAttribute('aria-label',ui.role);role.required=true;
+   for(const {code} of model.roles){const o=node('option',ui[code]);o.value=code;role.append(o);}role.value=options.role ?? 'regional_admin';
+   scope=node('select');scope.setAttribute('aria-label',ui.scope);const scopeLabel=labeled(ui.region,scope);const summary=node('p',undefined,'access-permissions');
+   update=()=>{scope.replaceChildren();scope.value='';scope.hidden=role.value!=='regional_admin';scope.disabled=scope.hidden;scope.required=!scope.hidden;scopeLabel.hidden=scope.hidden;const blank=node('option',ui.selectScope);blank.value='';scope.append(blank);if(!scope.hidden)for(const region of model.regions){const o=node('option',locale==='en'?region.nameEn:region.nameZhTw);o.value=region.id;scope.append(o);}summary.textContent=(scope.hidden?ui.scope+': '+ui.global+' · ':'')+ui.permissions+': '+(model.roles.find(r=>r.code===role.value)?.permissions ?? []).map(p=>permissionLabels[p] ?? p).join('、');};
+   role.addEventListener('change',update);update();if(options.regionId&&!scope.hidden)scope.value=options.regionId;baselineRole=role.value;baselineScope=scope.value;
+   controls.push(role,scope);fields.append(labeled(ui.role,role),scopeLabel);panel.append(fields,summary);
   }
-  if(account.principalId===actor){card.append(node('p',ui.self));root.append(card);continue;}
-  if(account.canManage!==true){card.append(node('p',ui.protected));root.append(card);continue;}
-  if(account.canRevokeAll===true){const reason=node('input');reason.setAttribute('aria-label',ui.decisionReason);const remove=node('button',ui.revokeAll);remove.type='button';remove.addEventListener('click',()=>{if(!reason.value.trim()){status.textContent=ui.required;return;}run('/admin/api/access/accounts/'+account.principalId+'/revoke-all',{version:account.grantVersion,reason:reason.value},remove,ui.revokeAllConfirm+' '+account.name);});track(reason);card.append(reason,remove);}
-  if(account.accountStatus!=='active'){root.append(card);continue;}
-  if(!['pending','approved','provisioned'].includes(account.status)){root.append(card);continue;}
-  const role=node('select');role.setAttribute('aria-label',ui.role);for(const {code} of model.roles){const o=node('option',ui[code]);o.value=code;role.append(o);}role.value=model.roles.some(r=>r.code===account.requestedRole)?account.requestedRole:'regional_admin';
-  const scope=node('select');scope.setAttribute('aria-label',ui.scope);const summary=node('p');
-  const update=()=>{scope.replaceChildren();scope.value='';scope.hidden=role.value!=='regional_admin';scope.disabled=scope.hidden;const blank=node('option',ui.selectScope);blank.value='';scope.append(blank);if(!scope.hidden)for(const entry of model.regions){const o=node('option',locale==='en'?entry.nameEn:entry.nameZhTw);o.value=entry.id;scope.append(o);}summary.textContent=(scope.hidden?ui.scope+': '+ui.global+' · ':'')+ui.permissions+': '+(model.roles.find(r=>r.code===role.value)?.permissions ?? []).map(p=>permissionLabels[p] ?? p).join('、');};role.addEventListener('change',update);update();
-  const reason=node('input');reason.setAttribute('aria-label',ui.decisionReason);
-  const action=node('button',account.status==='pending'?ui.approve:ui.grant);action.type='button';action.addEventListener('click',()=>{
-   if(!role.value||(role.value==='regional_admin'&&!scope.value)||!reason.value.trim()){status.textContent=ui.required;return;}
-   const body={role:role.value,...(role.value==='regional_admin'?{regionId:scope.value}:{}),reason:reason.value};
-   if(account.status==='pending')run('/admin/api/access/accounts/'+account.principalId+'/decision',{...body,version:account.version,decision:'approved'},action);else run('/admin/api/access/accounts/'+account.principalId+'/grants',body,action);
-  });track(role,scope,reason);card.append(role,scope,summary,reason,action);
-  if(account.status==='pending'){const reject=node('button',ui.reject);reject.type='button';reject.addEventListener('click',()=>{if(!reason.value.trim()){status.textContent=ui.required;return;}run('/admin/api/access/accounts/'+account.principalId+'/decision',{version:account.version,decision:'rejected',reason:reason.value},reject);});card.append(reject);}
+  const reason=node('textarea');reason.setAttribute('aria-label',ui.changeReasonLabel);reason.required=true;reason.rows=3;reason.maxLength=1000;reason.placeholder=ui.reasonPlaceholder;
+  const help=node('p',ui.changeReasonHelp,'muted');help.id=panel.id+'-reason-help';reason.setAttribute('aria-describedby',help.id);
+  const error=node('p',undefined,'access-error');error.setAttribute('role','alert');controls.push(reason);track(...controls);panel.append(labeled(ui.changeReasonLabel,reason),help,error);
+  const reset=()=>{if(role){role.value=baselineRole;update();scope.value=baselineScope;}reason.value='';error.textContent='';panel.hidden=true;trigger.setAttribute('aria-expanded','false');};
+  const actions=node('div',undefined,'actions');const cancel=button(ui.cancel);cancel.addEventListener('click',()=>{if(busy)return;if(controls.some(field=>edits.some(e=>e.field===field&&field.value!==e.value))&&!confirm(ui.cancelEditsConfirm))return;reset();activePanel=null;trigger.focus?.();});actions.append(cancel);
+  const submitAction=(label,decision)=>{const save=button(label,options.danger||decision==='rejected'?'access-danger-button':'');save.addEventListener('click',()=>{
+   if(busy||panel.hidden)return;
+   if(!reason.value.trim()||[...reason.value.trim()].length>500||reason.value.includes('\\0')){error.textContent=ui.reasonRequired;status.textContent=ui.reasonRequired;reason.focus?.();return;}
+   if(options.withRole&&decision!=='rejected'&&(!role.value||(role.value==='regional_admin'&&!scope.value))){error.textContent=ui.required;status.textContent=ui.required;(role.value==='regional_admin'?scope:role).focus?.();return;}
+   const selection={reason:reason.value,...(options.withRole&&decision!=='rejected'?{role:role.value,...(role.value==='regional_admin'?{regionId:scope.value}:{})}:{})};
+   run(options.url,options.body(selection,decision),save,panel,error,(options.message ?? ui.confirm)+'\\n'+options.target);
+  });actions.append(save);};
+  submitAction(options.submit,options.decision);if(options.review)submitAction(ui.reject,'rejected');panel.append(actions);
+  trigger.addEventListener('click',()=>{if(busy)return;if(activePanel?.panel===panel){(role ?? reason).focus?.();return;}if(activePanel&&!mayDiscard(ui.actionSwitchConfirm))return;activePanel?.reset();panel.hidden=false;trigger.setAttribute('aria-expanded','true');activePanel={panel,reset};(role ?? reason).focus?.();});
+  parent.append(trigger,panel);
+ };
+ for(const account of model.entries){
+  const card=node('article',undefined,'access-account');const header=node('div',undefined,'access-account-header');
+  const identity=node('div');identity.append(node('h2',account.name+' · '+account.principalId.slice(0,8)),node('p',ui.emailLabel+': '+(account.email ?? ui.emailUnavailable),'access-email'));
+  const states=node('div',undefined,'access-statuses');states.append(node('span',ui.accountStatusLabel+': '+(ui[account.accountStatus] ?? account.accountStatus),'access-badge'),node('span',ui.applicationStatusLabel+': '+(ui[account.status] ?? account.status),'access-badge'));header.append(identity,states);card.append(header);
+  const details=node('details',undefined,'access-details');details.append(node('summary',ui.details));
+  for(const [label,value] of [[ui.identity,account.issuer+' / '+account.subject],[ui.scopeDescription,account.scopeDescription],[ui.reason,account.applicantReason],[ui.decisionReason,account.decisionReason]])if(value)details.append(node('p',label+': '+value));card.append(details);
+  const grants=node('section',undefined,'access-grants');grants.append(node('h3',ui.currentGrants));if(!account.grants.length)grants.append(node('p',ui.noGrants,'muted'));
+  for(const g of account.grants){
+   const region=model.regions.find(r=>r.id===g.regionId);const scopeName=region?(locale==='en'?region.nameEn:region.nameZhTw):g.scopeName ?? ui[g.scopeType] ?? g.scopeType;const context=(ui[g.role] ?? g.role)+' · '+scopeName;const target=account.name+' · '+context;
+   const line=node('div',undefined,'access-grant');const heading=node('div',undefined,'access-grant-header');heading.append(node('strong',context),node('span',g.scheduled?ui.scheduled:g.effective===false||!g.active?ui.inactive:ui.active,'access-badge'));line.append(heading);
+   const dates=node('p',ui.validFrom+': '+g.validFrom+' · '+ui.validTo+': '+(g.validTo ?? ui.noEndDate),'muted');line.append(dates);const actions=node('div',undefined,'access-grant-actions');
+   if(g.active&&g.canEdit===true&&account.principalId!==actor)panelFor(actions,{title:ui.edit,target,help:ui.editHelp,withRole:true,role:g.role,regionId:g.regionId,submit:ui.saveEdit,url:'/admin/api/access/grants/'+g.id+'/edit',body:selection=>({version:account.grantVersion,...selection})});
+   if(g.active&&g.canRevoke===true&&account.principalId!==actor)panelFor(actions,{title:ui.revoke,target,help:ui.removeGrantHelp,danger:true,submit:ui.confirmRemoval,url:'/admin/api/access/grants/'+g.id+'/revoke',body:selection=>({version:account.grantVersion,...selection})});
+   line.append(actions);grants.append(line);
+  }card.append(grants);
+  if(account.principalId===actor){card.append(node('p',ui.self,'access-notice'));root.append(card);continue;}
+  if(account.canManage!==true){card.append(node('p',ui.protected,'access-notice'));root.append(card);continue;}
+  if(account.accountStatus==='active'&&['pending','approved','provisioned'].includes(account.status)){
+   const actions=node('section',undefined,'access-account-actions');const reviewing=account.status==='pending';
+   panelFor(actions,{title:reviewing?ui.reviewRequests:ui.grant,target:account.name,help:reviewing?ui.reviewRequestsHelp:ui.addHelp,withRole:true,role:model.roles.some(r=>r.code===account.requestedRole)?account.requestedRole:'regional_admin',review:reviewing,decision:reviewing?'approved':undefined,submit:reviewing?ui.approve:ui.grant,url:'/admin/api/access/accounts/'+account.principalId+(reviewing?'/decision':'/grants'),body:(selection,decision)=>reviewing?{version:account.version,decision,...selection}:selection});card.append(actions);
+  }
+  if(account.canRevokeAll===true){const danger=node('section',undefined,'access-danger-zone');danger.append(node('h3',ui.dangerTitle),node('p',ui.dangerHelp));panelFor(danger,{title:ui.revokeAll,target:account.name+' · '+ui.currentGrants,help:ui.dangerHelp,danger:true,submit:ui.confirmAllRemoval,message:ui.revokeAllConfirm,url:'/admin/api/access/accounts/'+account.principalId+'/revoke-all',body:selection=>({version:account.grantVersion,...selection})});card.append(danger);}
   root.append(card);
  }
  if(!model.entries.length)root.textContent=ui.empty;
@@ -93,9 +120,9 @@ const render=()=>{
  status.textContent=ui.count+': '+model.total+' · '+page;
 };
 const load=async()=>{const current=++generation;document.getElementById('accounts').replaceChildren();edits=[];try{const response=await call('/admin/api/access/accounts?page='+page+'&status='+view);if(current!==generation)return;model=response;render();if(typeof history!=='undefined'){const u=new URL(location.href);u.searchParams.set('status',view);u.searchParams.set('page',String(page));history.replaceState(null,'',u);}}catch(error){if(current===generation)status.textContent=error.message;}};
-document.getElementById('filter').addEventListener('submit',e=>{e.preventDefault();const filter=document.getElementById('access-filter');if(!mayDiscard(filter.value===view?ui.reloadConfirm:ui.listSwitchConfirm)){filter.value=view;return;}view=filter.value;page=1;load();});
-for(const [id,v] of [['show-pending','pending'],['show-authorized','authorized']])document.getElementById(id).addEventListener('click',()=>{if(view===v)return;if(!mayDiscard(ui.listSwitchConfirm))return;view=v;document.getElementById('access-filter').value=v;page=1;load();});
-for(const [id,delta] of [['previous',-1],['next',1]])document.getElementById(id).addEventListener('click',()=>{if(document.getElementById(id).disabled||!mayDiscard(ui.pageSwitchConfirm))return;page+=delta;load();});
+document.getElementById('filter').addEventListener('submit',e=>{e.preventDefault();if(busy)return;const filter=document.getElementById('access-filter');if(!mayDiscard(filter.value===view?ui.reloadConfirm:ui.listSwitchConfirm)){filter.value=view;return;}view=filter.value;page=1;load();});
+for(const [id,v] of [['show-pending','pending'],['show-authorized','authorized']])document.getElementById(id).addEventListener('click',()=>{if(busy||view===v)return;if(!mayDiscard(ui.listSwitchConfirm))return;view=v;document.getElementById('access-filter').value=v;page=1;load();});
+for(const [id,delta] of [['previous',-1],['next',1]])document.getElementById(id).addEventListener('click',()=>{if(busy||document.getElementById(id).disabled||!mayDiscard(ui.pageSwitchConfirm))return;page+=delta;load();});
 call('/admin/auth/me').then(me=>{actor=me.principalId;return load();}).catch(error=>{status.textContent=error.message;});
 })();`,
     locale,
