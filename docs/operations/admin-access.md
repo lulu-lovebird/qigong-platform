@@ -2,15 +2,17 @@
 
 ## 狀態
 
+最新正式版已於2026-10-08 14:24:10–14:24:28 UTC 核准部署 `4a0237e`／`0020`（18秒）；CI 37791615057、223項本機測試、升級／還原演練及公開 HTTPS41項通過。已授權名單／編輯／全部撤銷與恢復邊界見 [授權異動](admin-grant-management.md)。以下 `0019` 發佈與首次帳號狀態為歷史紀錄，未代表最新 schema 或目前登入權限。
+
 使用者核准提交／推送與部署後，已於 **2026-10-08 13:23:46–13:24:11 UTC** 部署正式站，停機25秒。程式 `79f3e4ce5451a0c0732aca6784478deba4d15cdb`、schema `0019_admin_access_approval.sql`；完整 `0001–0019` 與 API 最小／最大 `0019` 匹配。CI 37783413247 成功；正式快照升級、既有資料校驗、舊程式拒絕新版 schema、最終站外備份實際還原與公開 HTTPS38項均通過。現存授權未改，未啟用新 provider，無真實測試訊息。
 
 指定 super admin 的本人登入／身分核對與正式 bootstrap **尚未完成**；目前指定 Email 沒有對應管理帳號紀錄。新功能已可登入與申請，不代表候選人已取得 super admin。桌機／手機真人視覺驗收仍待完成。
 
 完整隔離 PostgreSQL16 的 `pnpm verify`：**213項通過，無 skip**，含格式、lint、source typecheck 與 build。未改歷史 migration、依賴、正式設定或舊 Bot。新增兩個角色及 `admin_access.manage` permission（配置給 master／super）；未擴張既有 regional_admin／global_viewer／班級 coach 模板，未自動轉換任何既有授權。
 
-## 後續授權名單／編輯（本機候選 `0020`，未部署）
+## 後續授權名單／編輯（已部署 `0020`）
 
-使用者另確認管理員名單、授權編輯與全部撤銷，已在本機實作 `0020_admin_grant_management.sql`，API 最小／最大候選均為 `0020`，完整223項測試無 skip。新增已授權入口、principal 授權 revision、原子替換、單筆及全部撤銷，保留現有角色／自我異動／高權限保護；詳細限制見 [授權異動](admin-grant-management.md)。正式仍維持本文件的 `0019`，未更新正式 grants。
+使用者另核准 commit／push／部署管理員名單、授權編輯與全部撤銷，`0020_admin_grant_management.sql` 已正式上線，API 最小／最大均為 `0020`，完整223項測試無 skip。新增已授權入口、principal 授權 revision、原子替換、單筆及全部撤銷，保留現有角色／自我異動／高權限保護；詳細限制見 [授權異動](admin-grant-management.md)。正式已升級 `0020`，未更新任何既有 grants；詳見該文件的已驗證部署／恢復紀錄。
 
 使用者實際登入後已查到該次帳號具有有效 global super_admin 與正常 session；沒有重複授權或新增 grant。Email 未由 Authgear 記錄提供，先前以 Email 查不到不代表沒有管理權限；本人應核對既知 sub。以下部署時「尚未完成候選帳號 bootstrap」是歷史狀態，不是宣稱目前沒有任何可用 super admin。
 

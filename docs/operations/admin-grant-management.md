@@ -2,7 +2,7 @@
 
 ## 狀態
 
-使用者已確認實作；本機候選 `0020_admin_grant_management.sql`／API 最小及最大 `0020`，**未提交、推送或部署**。正式維持 `79f3e4c`／`0019`，未改任何正式 grants、保護設定、歷史 migration 或依賴。完整隔離 PostgreSQL16 的 `pnpm verify`：223項通過、無 skip，包含格式、lint、source typecheck、tests、build；`git diff --check` 通過。
+使用者核准 commit／push／部署後，已於 **2026-10-08 14:24:10–14:24:28 UTC** 部署（停機18秒）。程式 `4a0237e96d9a6181fea0c1a98f0f475c4bc1acb1`／schema `0020_admin_grant_management.sql`，API 最小及最大均為 `0020`。CI 37791615057 成功，223項完整本機測試無 skip，格式／lint／source typecheck／build／diff check 通過。正式快照升級、舊程式拒絕新版、最終站外備份實際還原及公開 HTTPS41項通過；無真實測試訊息。全部42張既有表原始資料保留（僅新增 revision 欄排除雜湊），既有帳號／授權／session／學員資料未變。未改保護 env、歷史 migration、依賴、舊 Bot 或啟用新 provider。
 
 ## 操作流程
 
@@ -32,7 +32,7 @@
 
 ## 部署與驗收待辦
 
-需要另行核准提交／部署、演練 `0019 → 0020` 及備份還原，完整 matching artifact／API／worker 才能上線。舊 `0019` binary 不相容 `0020`；回復需匹配 `0019` DB＋`79f3e4c` release／drop-in／worker，開流量後還原會失去後續寫入，須另獲核准與對帳。
+已完成核准的 `0019 → 0020` 升級／重跑零新增／matching artifact／API／worker 驗證。最終 DB／roles／平台 env／systemd 的站外 AES-256-GCM 副本核對解密雜湊，DB 實際還原為19並與停機基線一致、舊版 readiness 通過；備份及一次性工具路徑見 `Handoff.md`。舊 `0019` binary 不相容 `0020`；回復需匹配 `0019` DB＋`79f3e4c` release／drop-in／worker，開流量後還原會失去後續寫入，須另獲核准與對帳。
 
 真人 Authgear、桌機／手機瀏覽器驗收仍待完成。心得／tag 管理頁、成就 worker backlog 不因這批完成而消失；下一個未實作的徽章 migration 規劃改接 `0021`。
 

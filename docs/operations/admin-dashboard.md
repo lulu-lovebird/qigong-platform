@@ -20,9 +20,9 @@
 
 使用者另確認側欄單一下拉語言選單、登出置於主要選單下方，申請選項統一為「地區管理員、白雁協會人員、白雁氣功教練、老師（Master）」。已於2026-10-08 13:23:46–13:24:11 UTC 核准部署 `79f3e4c`／`0019`，停機25秒；CI 37783413247、213項本機測試、正式快照升級／最終站外備份還原及公開 HTTPS38項通過。無 provider 測試訊息，舊 Bot／保護設定／既存 grants 未變。指定新 super admin 仍待本人登入與身分核對後 bootstrap。新增 super／master 分級使用的 `/admin/administrators`，可核准首次 Authgear 登入者、指定地區／全域角色、拒絕及撤銷授權；未核准帳號僅進獨立待審頁，不能讀管理資料。白雁協會人員採 `global_viewer`，氣功教練採新 `coach_admin`（全域私密心得及感受唯讀），兩位老師採新 `master_admin`（同樣讀取＋一般管理員授權）；master 不能修改自己、其他 master／super 帳號或 master 申請。正式 migration 為 `0019_admin_access_approval.sql`，API 最小／最大均為 `0019`，未改歷史 migration 或擴張原地區／唯讀／班級 coach 模板，也未自動變更既有 grants。詳細流程、第一位 super admin 的受控 bootstrap、213項本機驗證及部署限制見 [管理員權限審核](admin-access.md)。以下語言與初次發佈章節保留歷史 `0018` 版本說明；最新 `0019` 狀態以上述段落及 `Handoff.md` 為準。
 
-## 已授權使用者與授權編輯（本機未部署）
+## 已授權使用者與授權編輯（已部署 `0020`）
 
-使用者另確認新增「等待核准／已授權使用者」入口、角色／地區編輯、單筆及全部撤銷。候選 migration `0020_admin_grant_management.sql` 已在本機完成，完整223項測試無 skip；授權版本、原子交易、CSRF、舊 session 撤銷及高權限保護都有測試。未提交／推送／部署，正式仍為上段 `79f3e4c`／`0019`。操作及預排／舊角色限制見 [授權異動](admin-grant-management.md)。
+使用者另確認新增「等待核准／已授權使用者」入口、角色／地區編輯、單筆及全部撤銷。已於2026-10-08 14:24:10–14:24:28 UTC 核准部署 `4a0237e`／`0020_admin_grant_management.sql`（18秒），API 最小／最大均為20；CI 37791615057、完整223項無 skip、正式快照升級／最終站外備份實際還原／公開 HTTPS41項均通過。授權版本、原子交易、CSRF、舊 session 撤銷及高權限保護都有測試；既有帳號／grants／session／學員資料與保護設定未變。上段19版本為前次發佈歷史。操作及預排／舊角色限制見 [授權異動](admin-grant-management.md)。
 
 ## 管理介面語言
 

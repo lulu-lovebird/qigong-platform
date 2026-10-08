@@ -8,7 +8,7 @@
 
 來源為 `/Users/myhsu/Devel/qigong-line-bot` 當前工作目錄，HEAD `7bcd85c`；未 fetch／核對遠端或正式舊站。保留該 repo 既有未提交的文件變更。以下區分舊站實際行為與新平台建議，不把程式存在誤認為真實帳號驗收完成。
 
-**後續版本號註記：** `0019_admin_access_approval.sql` 已部署管理員分級審核（見 `admin-access.md`）；本機未提交／部署的授權名單、編輯及全部撤銷候選為 `0020_admin_grant_management.sql`（見 `admin-grant-management.md`）。下列未實作的徽章 migration 規劃接續 `0021`，不覆寫 `0019` 或 `0020`。
+**後續版本號註記：** `0019_admin_access_approval.sql` 已部署管理員分級審核（見 `admin-access.md`）；授權名單、編輯及全部撤銷已核准部署 `0020_admin_grant_management.sql`（程式4a0237e／2026-10-08，操作驗證及還原紀錄見交接文件）（見 `admin-grant-management.md`）。下列未實作的徽章 migration 規劃接續 `0021`，不覆寫 `0019` 或 `0020`。
 
 ## 舊站功能核對
 
