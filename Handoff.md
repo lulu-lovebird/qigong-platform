@@ -1,8 +1,8 @@
 # Qigong Platform — 交接摘要
 
-> 最新正式環境已於 **2026-10-08 15:50:04–15:50:43 UTC** 經使用者核准部署，停機39秒。程式 release 為 `ccd06a9d43fd4c82534b4732f6bb516c4eecfa78`，schema 維持 `0020_admin_grant_management.sql`。管理員卡片／操作表單已重排；沒有正式 migration 或授權異動。本文件保留前次版本的恢復邊界與歷史紀錄，區分部署與真人驗收狀態。
+> 最新正式環境已於 **2026-10-08 18:08:50–18:09:07 UTC** 經使用者核准部署，維護17秒。程式 release 為 `0ed750de5871fddb77acca09ad4d5ca367dbd8b1`，schema `0021_telegram_learner_workspace.sql`。Telegram四個學員頁、耐久私人聊天摘要及成就評估已上線；下方保留前版歷史，不把合成資料驗證當作真人Telegram驗收。
 
-## Telegram 四頁與聊天摘要（本機完成，未提交／未部署）
+## Telegram 四頁與聊天摘要（已部署 `0ed750d`／schema21）
 
 - 使用者核准第一批與第二批一起實作；聊天回覆如舊版，不含心得／感受。參考舊 `qigong-telegram-bot` HEAD `3886b40121326cdbef90233ef0370d6913b02146`，保持舊 repo 唯讀，沒有搬帳號／舊勳章或啟用 LINE／WhatsApp／LLM。
 - 新 `telegram-workspace*.ts`：繁中／英文打卡、同地區遮罩排行榜、30／90天本人功法分析與近期私密心得、成就／每月歷史；Bot 私聊 `/checkin`、`/leaderboard`、`/methodanalysis`、`/achievements` 等回覆四個 WebApp 按鈕。仍以已核准身份的15分鐘平台 capability 授權，並非信任未驗證 initData／瀏覽器 user ID。
@@ -12,7 +12,9 @@
 - 通知 worker 三個獨立 lane：onboarding、Telegram receipts、badge reconciliation；兩個 transport lane 各3筆，遵守既有60秒預算，全部結束才關 pool。10分鐘 lease／8次重試／退避／撤銷取消／送出前重驗；Telegram API 接受不等於裝置送達，也不宣稱 exactly-once／可以撤回在飛行中的訊息。
 - 隔離 PostgreSQL16／Node24 `pnpm verify` **319項、無 skip**；workspace DB15／生成頁26／API與sender18，另有0020升級新測試。20→21／重跑／舊契約拒絕及既有應用表雜湊保留（core metadata 架構標記除外）通過；不是正式快照演練。worker-only login 的 compiled worker 三 lane 零項實際通過，沒有 migration-table SELECT。額外全測試 tsc 仍為10項既有錯誤，沒有本批檔案錯誤。
 - Chrome CDP 合成資料390px四頁／1280px英文打卡與截圖檢查：零橫向溢出／JS exception、官方 SDK、fragment 清除、SDK 快取無 capability、native guard、獨立草稿／儲存／月歷史通過。不是正式 Telegram Android／iOS／Web 真人驗收，零真實訊息。
-- **正式仍是頂部 `ccd06a9`／schema20；本批未 commit／push／部署、未改正式 env／grants。** 新 API／worker 只接受exact0021，不能直接替換20，也不能只退回舊20 binary；正式升級／備份還原演練與發布須另核准，跨schema rollback 必須配對DB與程式／worker並對帳後續寫入。細節／待辦見 `docs/operations/telegram-workspace.md`。本批使用先前保留的徽章 migration21，下一個新 migration 應接22，不改寫0001–0020。
+- 使用者核准commit／push／部署，程式CI [37821306107](https://github.com/lulu-lovebird/qigong-platform/actions/runs/37821306107) 成功。正式快照20→21、重跑零新增、42張既有表雜湊保留通過；metadata architecture_version／updated_at為核准變更且另檢查。停機最終AES-256-GCM站外DB／roles／env／systemd副本逐一解密核對雜湊，DB副本實際還原20、完整資料及metadata與基線一致，舊ccd06a9 readiness通過。正式保留2 people／停機時4 check-ins／grants／sessions，新增9表／49定義／零活動日曆。
+- 正式快照compiled smoke驗證8個雙語Telegram頁／4種report／UUID冪等及stale409／既有後台OIDC與授權交易／私密心得；worker-only login三lane成功，2筆mock摘要不含心得／感受，零真實發送。公開HTTPS60項通過；API active／NRestarts=0／ExecMainStatus=0，timer active／worker Result=success／ExecMainStatus=0，實際三lane為0 onboarding／0 receipts／2 badge jobs。保護env雜湊不變。公開工具首輪有schema檔名assertion筆誤，修正工具後通過，未改正式程式／DB。
+- 新API／worker exact0021，20 binary不能直接指向21。回復需配對最終20 DB＋ccd06a9 release／old-release.conf／同版worker；開流量後須另核准並對帳後續寫入。工具／回復位置見下；下一份migration接22，不改写0001–0021。
 
 ## 管理員卡片與具名操作表單（已部署 `ccd06a9`，同 schema20）
 
@@ -94,7 +96,7 @@ Node.js 24、pnpm 10.15.1 workspace、strict TypeScript、Fastify 5、PostgreSQL
 | `whatsapp-onboarding.ts`、`whatsapp-client.ts`                             | 程式已部署、管道未啟用；專用 WABA／電話、Cloud API／模板／手機待真人驗收。   |
 | `onboarding-notifications.ts`、`notification-worker.ts`                    | 同版通知 worker 已部署；目前僅配置 Telegram sender。                         |
 | `packages/database/src/`、`packages/config/src/`、`packages/identity/src/` | DB／migration／request context、設定驗證及身份契約。                         |
-| `migrations/0001–0018`                                                     | 已完整套用；歷史 migration 不可改寫，API 最小／最大均為 `0018`。             |
+| `migrations/0001–0021`                                                     | 已完整套用；歷史 migration 不可改寫，API 最小／最大均為 `0021`。             |
 | `apps/public-api/tests/`、`packages/database/tests/`                       | API／授權／報表／通知／整合與 migration 測試。                               |
 | `docs/operations/`、`scripts/backup-remote-postgres.sh`                    | 管道試行、後台驗收、systemd、備份／還原文件。                                |
 | `.github/workflows/ci.yml`、`docs/architecture/`、`docs/adr/`              | PostgreSQL 16 CI、架構契約及決策。                                           |
@@ -114,13 +116,11 @@ Node.js 24、pnpm 10.15.1 workspace、strict TypeScript、Fastify 5、PostgreSQL
 
 ## 正式環境與回復邊界
 
-- Singapore `sgp1`、Ubuntu 24.04、`152.42.183.10`；1 vCPU／2 GiB RAM／50 GB 配置磁碟，無 swap。僅小規模單機試行，沒有容量／高可用保證。
-- `/opt/qigong-platform/current` 現為 symlink，指向 `/opt/qigong-platform/releases/b271ede1b6619556ca281ed1c914359e59865ee0`。前版 `269555c3e3bff2c8a380e8c5518da86390460bed` 及更早的 `pre-269555c` 保留；不能僅切回目錄當成 schema 回滾。
-- `qigong-platform-api.service` 以 `qigong-api`、`qigong-notification-worker.timer`／service 以既有 notifier 設定運行；API loopback 為 `127.0.0.1:3100`。API 更新 `90-release.conf` drop-in，僅覆寫 ExecStart 以標記公開的 `SERVICE_VERSION`，不覆寫受限 `api.env`／`notification-worker.env`。
-- root-only 本次操作／備份紀錄位於 `/root/qigong-deploy-b271ede`；站外加密副本位於工作站 `~/.local/share/qigong-platform/backups/deployment-b271ede/`，部署工具位於 repo 外 `/tmp/qigong-release-b271ede/` 及正式主機 `/opt/qigong-platform/deployment-tools/b271ede/`，解密金鑰在獨立受限 `backup-keys/` 目錄。不得複製進 repo、輸出金鑰或把設定備份原文上傳。
-- API 與 schema 緊耦合，本次 `0017` 和 `0018` 無相容重疊，使用者已核准維護窗口升級。中途遷移失敗必須維持維護狀態、向前修復或依核准流程還原 DB；舊 binary 不是 migration 回滾。回復前版必須配合本次 `0017` 備份、`269555c` release、`old-release.conf` 與同版 worker；更早的 `0012` 回復流程僅屬前次歷史。**重開流量後還原會丟失後續寫入，須另核准並處理資料差異。**
-- 此次已實際執行版本化切換／還原演練，但工具為 repo 外的一次性操作腳本；通用 release／upgrade rehearsal scripts、自動部署及藍綠發布仍未建置。
-- 原交接記錄 `ubuntu1` 每日19:20 UTC 拉取備份；本次未重新核對該 cron。`pg_dump` 本身不含主機配置；此次另備份 roles／平台 env／systemd，但完整災復仍需 Caddy／PostgreSQL／OS 設定與定期跨主機復原演練。
+- Singapore `sgp1`、Ubuntu24.04、`152.42.183.10`，1vCPU／2GiB RAM／無swap，單機試行，不宣稱高可用或容量保證。
+- `/opt/qigong-platform/current` → `/opt/qigong-platform/releases/0ed750de5871fddb77acca09ad4d5ca367dbd8b1`，前版ccd06a9／schema20保留。API `qigong-platform-api.service`／qigong-api／127.0.0.1:3100；通知worker timer／service以qigong-notifier運行。僅更新90-release.conf的ExecStart／SERVICE_VERSION，保護api.env／notification-worker.env未變。
+- root操作／最終備份 `/root/qigong-deploy-0ed750d`；工具 `/opt/qigong-platform/deployment-tools/0ed750d`，一次性腳本 `/tmp/qigong-release-0ed750d/`。站外加密副本 `~/.local/share/qigong-platform/backups/deployment-0ed750d/`，key另置受限 `backup-keys/deployment-0ed750d.key`；不輸出原文或放入repo。備份涵蓋DB／roles／env／systemd，並非完整OS／Caddy復原。
+- exact0021的API／worker必須同版。21→20回復需停API／timer、等worker結束，配對還原最終20 DB＋ccd06a9 release／備份old-release.conf及同版worker。**重開流量後DB還原會失去後續寫入，須另核准與對帳，不能像同20 UI-only只切binary。** 最終站外DB已實際隔離還原、舊程式readiness及完整資料核對通過。
+- 正式快照rehearsal cluster已停並清除；root備份／artifact保留。工具仍為一次性腳本，不宣稱通用自動部署；每日19:20UTC既有cron未重新核對，監控／保留與跨主機災復待完成。
 
 ## 已部署功能與限制
 
@@ -137,7 +137,7 @@ Node.js 24、pnpm 10.15.1 workspace、strict TypeScript、Fastify 5、PostgreSQL
 ## 待辦與注意事項
 
 1. 真人以 Authgear 完成後台繁中／英文桌機／手機驗收，確認導航／篩選／個人分析／單筆批次審核及不同地區／班級拒絕；不要拿正式學員當合成測試資料。
-2. 完成管理端心得／tag 頁面與路由、成就模型／評估 worker；已部署的私密心得／tag 基礎不代表完整功能。AI 評語另外審核。
+2. 完成管理端心得／tag／成就榜頁面與路由；Telegram學員成就模型／評估及reconciliation已部署。核准季節日曆及真人Telegram四頁／私人摘要驗收；AI評語另外審核。
 3. 新 LINE／WhatsApp 官方帳號、專用電話及模板由管理者私下設定；依 `line-pilot.md`／`whatsapp-pilot.md` 驗證後另批准啟用。LINE Login Channel ID 不等於 Messaging Channel ID，LIFF fragment／手機行為待驗證；舊 Bot 不變。
 4. 建置可重複、版本化且不含 env 的 release tooling、監控／備份保留與復原排程；維持 schema 相容性 gate，擴大使用前補容量／負載驗證。
 5. 更新過時 README／pilot／ADR 階段描述。資料庫測試須隔離、名稱含 `test` 的 `TEST_DATABASE_URL`；無 URL 的 skip 不能算整合通過，受控共用 roles 的測試避免跨套件 DB 平行衝突。

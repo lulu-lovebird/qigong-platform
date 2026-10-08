@@ -2,7 +2,7 @@
 
 ## 狀態
 
-使用者核准打卡頁與其餘三頁一起實作，並確認聊天摘要**不包含心得或感受**。本批為本機實作／隔離驗證，**尚未 commit／push／正式部署**。正式環境仍為 `ccd06a9`／schema `0020`；不得把本文件當成部署或真人 Telegram 驗收完成的紀錄。
+使用者核准四頁一起實作、聊天摘要**不包含心得或感受**，並另核准commit／push／部署。程式 `0ed750de5871fddb77acca09ad4d5ca367dbd8b1`／schema `0021_telegram_learner_workspace.sql` 已於 **2026-10-08 18:08:50–18:09:07 UTC** 上線，維護17秒；CI [37821306107](https://github.com/lulu-lovebird/qigong-platform/actions/runs/37821306107) 成功。這不是Telegram Android／iOS／Web真人驗收完成紀錄。
 
 來源：唯讀參考 `/Users/myhsu/Devel/qigong-telegram-bot`，HEAD `3886b40121326cdbef90233ef0370d6913b02146` 的 `public/webapp/*.html`、`src/routes/api.ts`、`src/services/chatSummary.ts`、`practiceTimezone.ts`、`stats.ts`、`badges.ts`。沒有修改舊 Bot、搬帳號／舊勳章、改依賴或啟用 LINE／WhatsApp／LLM。
 
@@ -58,10 +58,13 @@
 
 Node24／pnpm10、隔離 PostgreSQL16，完整 `pnpm verify` 319項、無 skip（DB workspace15、生成頁26、API／sender18、schema upgrade新增1）。額外全測試 tsc 仍有四個舊檔的10項既有錯誤，無本批檔案錯誤；不宣稱全測試 typecheck 乾淨。
 
-- 0020→0021、重跑無新增、舊 exact0020 契約拒絕、最新 exact0021 接受；既有應用表資料雜湊不變（core metadata 架構標記除外）。不是正式快照升級／還原演練。
+- 本機及正式快照隔離0020→0021、重跑無新增、舊exact0020程式拒絕、最新exact0021接受。正式42張既有表雜湊保留，metadata architecture_version／updated_at為核准變更且另檢查；2 people／停機時4 check-ins及grants／sessions未變，新增9表／49定義／零活動日曆。
+- 停機最終DB／roles／env／systemd的AES-256-GCM站外副本逐一解密核對雜湊，DB副本實際還原20、資料及metadata與基線相同，舊ccd06a9 readiness通過。正式快照compiled smoke包含雙語四頁、四report、UUID重試／stale409、既有後台OIDC／授權交易及私密心得；worker-only login三lane成功，2個mock摘要不含心得／感受，零真實發送。
+- 正式公開HTTPS60項通過；API active／NRestarts=0／ExecMainStatus=0，timer active／worker Result=success／ExecMainStatus=0，實際三lane執行0 onboarding／0 receipts／2 badge jobs。保護env雜湊不變。公開工具首輪schema assertion檔名筆誤，修正工具後通過，未改正式程式／DB。
 - 受限 **worker-only** login 實際執行 compiled worker，三 lane 零項通過；沒有 migration-table SELECT 權限，schema readiness 用受限 boolean facade。測試全部外部 sender mocked／零真實訊息。
 - 本機 Chrome／官方 SDK 合成資料：390px 四頁、1280px英文打卡、零橫向溢出／JS exception、fragment 清除、SDK快取無平台 capability、native closing guard、日期草稿、儲存及每月歷史；截圖人工檢查。不是實際 Bot／Telegram Android／iOS／Web 的真人驗收。
-- API **min/max 均 exact0021**，worker亦檢查exact0021；不能把新程式直接替換正式schema20，也不能只把舊20程式指向21。正式需另核准 commit／push／部署、停API與worker、備份／snapshot 升級及還原演練、matching artifact／schema／worker切換。21→20 回復須配對DB，不是之前同20 UI-only binary rollback；開流量後要另外對帳後續寫入。
+- API **min/max均exact0021**、worker同樣檢查exact0021。回復20須停API／timer、等待worker，配對最終20 DB＋ccd06a9 binary／old-release.conf／同版worker；不能只退回20程式，開流量後須另核准並對帳後續寫入。
+- root操作／備份 `/root/qigong-deploy-0ed750d`，工具 `/opt/qigong-platform/deployment-tools/0ed750d`，一次性腳本 `/tmp/qigong-release-0ed750d/`；站外 `~/.local/share/qigong-platform/backups/deployment-0ed750d/`，key另置受限 `backup-keys/deployment-0ed750d.key`。rehearsal已停並清除，root備份／matching artifacts保留；不宣稱完整OS／Caddy災復或通用部署工具。
 - 待真人驗收、核准活動日曆、空 feeling tag 目錄管理、durable webhook reply／rate／retention／outbox cleanup；不宣稱已完善所有營運工具。
 
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
