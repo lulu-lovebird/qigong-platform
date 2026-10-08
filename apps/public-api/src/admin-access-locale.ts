@@ -1,6 +1,14 @@
 import type { AdminLocale } from './admin-locale.js';
 const en = {
   active: 'Active',
+  authorized: 'Authorized users',
+  edit: 'Edit authorization',
+  saveEdit: 'Save authorization',
+  revokeAll: 'Remove all administrative access',
+  revokeAllConfirm:
+    'Remove ALL administrative access from this account? This does not delete the Authgear account or learner data.',
+  scheduled: 'Scheduled (requires controlled review before removal)',
+  emailUnavailable: 'Email not provided by Authgear',
   suspended: 'Suspended',
   disabled: 'Disabled',
   super_admin: 'Super admin',
@@ -80,6 +88,13 @@ const en = {
 } as const;
 const zh: Record<keyof typeof en, string> = {
   active: '有效',
+  authorized: '已授權使用者',
+  edit: '編輯授權',
+  saveEdit: '儲存授權',
+  revokeAll: '移除全部管理權限',
+  revokeAllConfirm: '確認移除此帳號的全部管理權限？不會刪除 Authgear 帳號或學員資料。',
+  scheduled: '尚未生效（撤銷須先經受控檢查）',
+  emailUnavailable: 'Authgear 未提供 Email',
   suspended: '停用中',
   disabled: '已停用',
   super_admin: '最高管理員',

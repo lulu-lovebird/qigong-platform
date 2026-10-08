@@ -21,6 +21,11 @@ const validScope = (v: {
     ? v.regionId !== undefined && v.cohortId === undefined
     : v.cohortId === undefined && v.regionId === undefined;
 export const grantSchema = z.object(fields).strict().refine(validScope);
+export const grantEditSchema = z
+  .object({ version, ...fields })
+  .strict()
+  .refine(validScope);
+export const grantRemovalSchema = z.object({ version, reason: text }).strict();
 export const accessRequestSchema = z
   .object({ version, role, scopeDescription: text, reason: text })
   .strict();
@@ -157,7 +162,7 @@ export const registerAdminAccessRoutes = (
       .object({
         page: z.coerce.number().int().min(1).max(100000).default(1),
         status: z
-          .enum(['all', 'draft', 'pending', 'approved', 'rejected', 'provisioned'])
+          .enum(['authorized', 'all', 'draft', 'pending', 'approved', 'rejected', 'provisioned'])
           .default('pending')
       })
       .strict()
@@ -179,10 +184,10 @@ export const registerAdminAccessRoutes = (
       return failure(error, reply, request);
     }
   });
-  for (const action of ['decision', 'grants', 'revoke'] as const) {
+  for (const action of ['decision', 'grants', 'revoke', 'edit', 'revoke-all'] as const) {
     const path =
-      action === 'revoke'
-        ? '/admin/api/access/grants/:id/revoke'
+      action === 'revoke' || action === 'edit'
+        ? '/admin/api/access/grants/:id/' + action
         : '/admin/api/access/accounts/:id/' + action;
     app.post(path, { ...opts, bodyLimit: 16384 }, async (request, reply) => {
       const principalId = await principalFor(request);
@@ -231,14 +236,48 @@ export const registerAdminAccessRoutes = (
           );
           return { ok: true, grantId: result.rows[0]?.grant_id };
         }
-        const parsed = z.object({ reason: text }).strict().safeParse(request.body);
+        if (action === 'edit') {
+          const parsed = grantEditSchema.safeParse(request.body);
+          if (!parsed.success) return reply.code(400).send({ error: 'invalid_admin_edit' });
+          const d = parsed.data;
+          const result = await withRequestContext(
+            pool,
+            'qigong_api_runtime',
+            { requestId: request.id, principalId },
+            (c) =>
+              c.query<{ grant_id: string }>(
+                'SELECT admin.edit_managed_role($1,$2,$3,$4,$5,$6) grant_id',
+                [id.data.id, d.version, d.role, d.regionId ?? null, d.cohortId ?? null, d.reason]
+              )
+          );
+          return { ok: true, grantId: result.rows[0]?.grant_id };
+        }
+        const parsed = grantRemovalSchema.safeParse(request.body);
         if (!parsed.success) return reply.code(400).send({ error: 'invalid_admin_revocation' });
+        if (action === 'revoke-all') {
+          const result = await withRequestContext(
+            pool,
+            'qigong_api_runtime',
+            { requestId: request.id, principalId },
+            (c) =>
+              c.query<{ n: number }>('SELECT admin.revoke_all_managed_roles($1,$2,$3) n', [
+                id.data.id,
+                parsed.data.version,
+                parsed.data.reason
+              ])
+          );
+          return { ok: true, revokedCount: result.rows[0]?.n };
+        }
         await withRequestContext(
           pool,
           'qigong_api_runtime',
           { requestId: request.id, principalId },
           (c) =>
-            c.query('SELECT admin.revoke_managed_role($1,$2)', [id.data.id, parsed.data.reason])
+            c.query('SELECT admin.revoke_managed_role_versioned($1,$2,$3)', [
+              id.data.id,
+              parsed.data.version,
+              parsed.data.reason
+            ])
         );
         return { ok: true };
       } catch (error) {

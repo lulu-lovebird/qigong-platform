@@ -107,14 +107,31 @@ const fixture = (
             email: 'verified@example.com',
             issuer: 'https://auth.example',
             subject: 'opaque-uid',
-            status: 'pending',
+            status: state === 'granted' ? 'approved' : 'pending',
+            grantVersion: 7,
+            canRevokeAll: state === 'granted' && authority !== 'protected',
             canManage: authority !== 'protected',
             accountStatus: 'active',
             version: 2,
             requestedRole: 'regional_admin',
             scopeDescription: 'Request scope',
             applicantReason: 'Applicant text',
-            grants: []
+            grants:
+              state === 'granted'
+                ? [
+                    {
+                      id: cohort,
+                      role: 'regional_admin',
+                      regionId: region,
+                      scopeType: 'region',
+                      active: true,
+                      effective: true,
+                      canEdit: authority !== 'protected',
+                      canRevoke: authority !== 'protected',
+                      validFrom: '2026-10-08'
+                    }
+                  ]
+                : []
           }
         ],
         regions: [{ id: region, nameZhTw: '甲區', nameEn: 'Region A' }],
@@ -135,6 +152,7 @@ const fixture = (
       };
     return new Response(JSON.stringify(data), { status: 200 });
   });
+  const confirmMock = vi.fn<(message: string) => boolean>(() => true);
   const location = {
     href: 'https://platform.example/admin/administrators?lang=' + locale,
     assign: vi.fn()
@@ -145,7 +163,7 @@ const fixture = (
     fetch: fetchMock,
     URL,
     location,
-    confirm: () => true,
+    confirm: confirmMock,
     document: {
       cookie: '__Host-qigong-admin-csrf=csrf-test',
       getElementById: (id: string) => fields.get(id),
@@ -155,7 +173,7 @@ const fixture = (
       }
     }
   });
-  return { fields, fetchMock, location, tags, kind };
+  return { fields, fetchMock, location, tags, kind, confirmMock };
 };
 const event = (n: Node, type: string) => n.listeners.get(type)?.({ preventDefault: () => {} });
 const body = (request: RequestInit | undefined): unknown => {
@@ -279,6 +297,78 @@ describe('administrator access generated browser behavior', () => {
           (n) => n.tag === 'button' || n.tag === 'input' || n.tag === 'select'
         )
       ).toEqual([]);
+    }
+  );
+  it.each(['zh_TW', 'en'] as const)(
+    'edits an existing grant and sends versioned removal with explicit confirmation in %s',
+    async (locale) => {
+      const f = fixture(renderAdminAccessPage(locale), 'manage', locale, 'granted');
+      await settle();
+      const ui = adminAccessTexts(locale);
+      event(f.fields.get('show-authorized')!, 'click');
+      await settle();
+      expect(
+        f.fetchMock.mock.calls.some(
+          ([url]) => typeof url === 'string' && url.includes('status=authorized')
+        )
+      ).toBe(true);
+      expect(f.fields.get('show-authorized')!.attributes['aria-pressed']).toBe('true');
+      const card = f.fields.get('accounts')!;
+      const editor = descendants(card).find((n) => n.tag === 'fieldset')!;
+      expect(editor.hidden).toBe(true);
+      event(
+        descendants(card).find((n) => n.tag === 'button' && n.textContent === ui.edit)!,
+        'click'
+      );
+      expect(editor.hidden).toBe(false);
+      const role = descendants(editor).find(
+        (n) => n.tag === 'select' && n.attributes['aria-label'] === ui.role
+      )!;
+      const scope = descendants(editor).find(
+        (n) => n.tag === 'select' && n.attributes['aria-label'] === ui.scope
+      )!;
+      expect(role.value).toBe('regional_admin');
+      expect(scope.value).toBe(region);
+      role.value = 'coach_admin';
+      event(role, 'change');
+      expect(scope.hidden).toBe(true);
+      descendants(editor).find((n) => n.tag === 'input')!.value = '教練職務核對';
+      event(
+        descendants(editor).find((n) => n.tag === 'button' && n.textContent === ui.saveEdit)!,
+        'click'
+      );
+      await settle();
+      const edited = f.fetchMock.mock.calls.find(
+        ([url]) => typeof url === 'string' && url.endsWith('/edit')
+      );
+      expect(body(edited?.[1])).toEqual({
+        version: 7,
+        role: 'coach_admin',
+        reason: '教練職務核對'
+      });
+      const fresh = f.fields.get('accounts')!;
+      const remove = descendants(fresh).find(
+        (n) => n.tag === 'button' && n.textContent === ui.revokeAll
+      )!;
+      const line = descendants(fresh).find((n) => n.children.includes(remove))!;
+      line.children.find((n) => n.tag === 'input')!.value = '職務結束';
+      f.confirmMock.mockReturnValueOnce(false);
+      event(remove, 'click');
+      await settle();
+      expect(
+        f.fetchMock.mock.calls.some(
+          ([url]) => typeof url === 'string' && url.endsWith('/revoke-all')
+        )
+      ).toBe(false);
+      event(remove, 'click');
+      await settle();
+      const removed = f.fetchMock.mock.calls.find(
+        ([url]) => typeof url === 'string' && url.endsWith('/revoke-all')
+      );
+      expect(body(removed?.[1])).toEqual({ version: 7, reason: '職務結束' });
+      expect(
+        f.confirmMock.mock.calls.some(([message]) => String(message).includes(ui.revokeAllConfirm))
+      ).toBe(true);
     }
   );
   it('approved pending accounts see a fresh-login action rather than an editable form or automatic privilege switch', async () => {

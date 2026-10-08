@@ -40,22 +40,36 @@ export const renderAdminAccessPage = (locale: AdminLocale) => {
   const ui = adminAccessTexts(locale);
   return renderAdminShell(
     'access',
-    `<p>${ui.manageIntro}</p><form id="filter" class="filters"><label>${ui.filter}<select id="access-filter">${(['pending', 'all', 'draft', 'approved', 'rejected', 'provisioned'] as const).map((s) => `<option value="${s}">${ui[s]}</option>`).join('')}</select></label><button>${ui.refresh}</button></form><p id="status" role="status" aria-live="polite"></p><div id="accounts"></div><div class="pager"><button id="previous">${ui.previous}</button><button id="next">${ui.next}</button></div>`,
+    `<p>${ui.manageIntro}</p><div class="filters" role="group" aria-label="${ui.filter}"><button type="button" id="show-pending">${ui.pending}</button><button type="button" id="show-authorized">${ui.authorized}</button></div><form id="filter" class="filters"><label>${ui.filter}<select id="access-filter">${(['pending', 'authorized', 'all', 'draft', 'approved', 'rejected', 'provisioned'] as const).map((s) => `<option value="${s}">${ui[s]}</option>`).join('')}</select></label><button>${ui.refresh}</button></form><p id="status" role="status" aria-live="polite"></p><div id="accounts"></div><div class="pager"><button id="previous">${ui.previous}</button><button id="next">${ui.next}</button></div>`,
     `
 (()=>{
 ${commonScript(locale)}
 let page=1;let generation=0;let actor=null;let model=null;
+const initial=new URL(location.href);const modes=['pending','authorized','all','draft','approved','rejected','provisioned'];
+let view=modes.includes(initial.searchParams.get('status'))?initial.searchParams.get('status'):'pending';
+const requestedPage=Number(initial.searchParams.get('page'));if(Number.isInteger(requestedPage)&&requestedPage>=1&&requestedPage<=100000)page=requestedPage;
+document.getElementById('access-filter').value=view;
 const permissionLabels={'learner.read':ui.learnerRead,'learner.manage_profile':ui.profileManage,'learner.transfer_request':ui.transferRequest,'checkin.read':ui.checkinRead,'checkin.read_private_note':ui.privateNoteRead,'stats.read':ui.statsRead,'admin_access.manage':ui.accessManage};
-const run=async(url,body,button)=>{if(!confirm(ui.confirm))return;button.disabled=true;try{await call(url,body);await load();status.textContent=ui.saved;}catch(error){status.textContent=error.message;}finally{button.disabled=false;}};
+const run=async(url,body,button,message=ui.confirm)=>{if(!confirm(message))return;button.disabled=true;try{await call(url,body);await load();status.textContent=ui.saved;}catch(error){status.textContent=error.message;}finally{button.disabled=false;}};
 const render=()=>{
  const root=document.getElementById('accounts');root.replaceChildren();
  for(const account of model.entries){
-  const card=node('article');card.style.overflowWrap='anywhere';card.append(node('h2',account.name+' · '+account.principalId.slice(0,8)),node('p',ui[account.status]+' · '+(ui[account.accountStatus] ?? account.accountStatus)),node('p',account.email ?? ''),node('p',ui.identity+': '+account.issuer+' / '+account.subject),node('p',account.scopeDescription ?? ''),node('p',account.applicantReason ?? ''),node('p',account.decisionReason ?? ''));
-  for(const g of account.grants){const grantRegion=model.regions.find(r=>r.id===g.regionId);const scopeName=grantRegion?(locale==='en'?grantRegion.nameEn:grantRegion.nameZhTw):g.scopeName ?? ui[g.scopeType] ?? g.scopeType;const line=node('div');line.append(node('span',(ui[g.role] ?? g.role)+' · '+scopeName+' · '+(g.active?g.validFrom:ui.inactive)));
-   if(g.active && g.canRevoke===true && account.principalId!==actor){const revoke=node('button',ui.revoke);revoke.type='button';const reason=node('input');reason.setAttribute('aria-label',ui.decisionReason);revoke.addEventListener('click',()=>{if(!reason.value.trim()){status.textContent=ui.required;return;}run('/admin/api/access/grants/'+g.id+'/revoke',{reason:reason.value},revoke);});line.append(reason,revoke);}card.append(line);
+  const card=node('article');card.style.overflowWrap='anywhere';card.append(node('h2',account.name+' · '+account.principalId.slice(0,8)),node('p',ui[account.status]+' · '+(ui[account.accountStatus] ?? account.accountStatus)),node('p',account.email ?? ui.emailUnavailable),node('p',ui.identity+': '+account.issuer+' / '+account.subject),node('p',account.scopeDescription ?? ''),node('p',account.applicantReason ?? ''),node('p',account.decisionReason ?? ''));
+  for(const g of account.grants){const grantRegion=model.regions.find(r=>r.id===g.regionId);const scopeName=grantRegion?(locale==='en'?grantRegion.nameEn:grantRegion.nameZhTw):g.scopeName ?? ui[g.scopeType] ?? g.scopeType;const line=node('div');line.append(node('span',(ui[g.role] ?? g.role)+' · '+scopeName+' · '+(g.scheduled?ui.scheduled:g.effective===false?ui.inactive:g.active?g.validFrom:ui.inactive)));
+   if(g.active && g.canRevoke===true && account.principalId!==actor){const revoke=node('button',ui.revoke);revoke.type='button';const reason=node('input');reason.setAttribute('aria-label',ui.decisionReason);revoke.addEventListener('click',()=>{if(!reason.value.trim()){status.textContent=ui.required;return;}run('/admin/api/access/grants/'+g.id+'/revoke',{version:account.grantVersion,reason:reason.value},revoke);});line.append(reason,revoke);}
+   if(g.active && g.canEdit===true && account.principalId!==actor){
+    const toggle=node('button',ui.edit);toggle.type='button';const editor=node('fieldset');editor.hidden=true;
+    const role=node('select');role.setAttribute('aria-label',ui.role);for(const {code} of model.roles){const o=node('option',ui[code]);o.value=code;role.append(o);}role.value=g.role;
+    const scope=node('select');scope.setAttribute('aria-label',ui.scope);const summary=node('p');
+    const update=()=>{scope.replaceChildren();scope.value='';scope.hidden=role.value!=='regional_admin';scope.disabled=scope.hidden;const blank=node('option',ui.selectScope);blank.value='';scope.append(blank);if(!scope.hidden)for(const r of model.regions){const o=node('option',locale==='en'?r.nameEn:r.nameZhTw);o.value=r.id;scope.append(o);}summary.textContent=(scope.hidden?ui.scope+': '+ui.global+' · ':'')+ui.permissions+': '+(model.roles.find(r=>r.code===role.value)?.permissions ?? []).map(p=>permissionLabels[p] ?? p).join('、');};role.addEventListener('change',update);update();if(g.regionId&&!scope.hidden)scope.value=g.regionId;
+    const reason=node('input');reason.setAttribute('aria-label',ui.decisionReason);const save=node('button',ui.saveEdit);save.type='button';
+    save.addEventListener('click',()=>{if(!role.value||(role.value==='regional_admin'&&!scope.value)||!reason.value.trim()){status.textContent=ui.required;return;}run('/admin/api/access/grants/'+g.id+'/edit',{version:account.grantVersion,role:role.value,...(role.value==='regional_admin'?{regionId:scope.value}:{}),reason:reason.value},save);});
+    toggle.addEventListener('click',()=>{editor.hidden=!editor.hidden;});editor.append(role,scope,summary,reason,save);line.append(toggle,editor);
+   }card.append(line);
   }
   if(account.principalId===actor){card.append(node('p',ui.self));root.append(card);continue;}
   if(account.canManage!==true){card.append(node('p',ui.protected));root.append(card);continue;}
+  if(account.canRevokeAll===true){const reason=node('input');reason.setAttribute('aria-label',ui.decisionReason);const remove=node('button',ui.revokeAll);remove.type='button';remove.addEventListener('click',()=>{if(!reason.value.trim()){status.textContent=ui.required;return;}run('/admin/api/access/accounts/'+account.principalId+'/revoke-all',{version:account.grantVersion,reason:reason.value},remove,ui.revokeAllConfirm+' '+account.name);});card.append(reason,remove);}
   if(account.accountStatus!=='active'){root.append(card);continue;}
   if(!['pending','approved','provisioned'].includes(account.status)){root.append(card);continue;}
   const role=node('select');role.setAttribute('aria-label',ui.role);for(const {code} of model.roles){const o=node('option',ui[code]);o.value=code;role.append(o);}role.value=model.roles.some(r=>r.code===account.requestedRole)?account.requestedRole:'regional_admin';
@@ -72,10 +86,12 @@ const render=()=>{
  }
  if(!model.entries.length)root.textContent=ui.empty;
  document.getElementById('previous').disabled=page===1;document.getElementById('next').disabled=page*20>=model.total;
+ for(const [id,v] of [['show-pending','pending'],['show-authorized','authorized']])document.getElementById(id).setAttribute('aria-pressed',String(view===v));
  status.textContent=ui.count+': '+model.total+' · '+page;
 };
-const load=async()=>{const current=++generation;document.getElementById('accounts').replaceChildren();try{const response=await call('/admin/api/access/accounts?page='+page+'&status='+document.getElementById('access-filter').value);if(current!==generation)return;model=response;render();}catch(error){if(current===generation)status.textContent=error.message;}};
-document.getElementById('filter').addEventListener('submit',e=>{e.preventDefault();if(!confirm(ui.switchConfirm))return;page=1;load();});
+const load=async()=>{const current=++generation;document.getElementById('accounts').replaceChildren();try{const response=await call('/admin/api/access/accounts?page='+page+'&status='+view);if(current!==generation)return;model=response;render();if(typeof history!=='undefined'){const u=new URL(location.href);u.searchParams.set('status',view);u.searchParams.set('page',String(page));history.replaceState(null,'',u);}}catch(error){if(current===generation)status.textContent=error.message;}};
+document.getElementById('filter').addEventListener('submit',e=>{e.preventDefault();if(!confirm(ui.switchConfirm))return;view=document.getElementById('access-filter').value;page=1;load();});
+for(const [id,v] of [['show-pending','pending'],['show-authorized','authorized']])document.getElementById(id).addEventListener('click',()=>{if(view===v)return;if(!confirm(ui.switchConfirm))return;view=v;document.getElementById('access-filter').value=v;page=1;load();});
 for(const [id,delta] of [['previous',-1],['next',1]])document.getElementById(id).addEventListener('click',()=>{if(!confirm(ui.switchConfirm))return;page+=delta;load();});
 call('/admin/auth/me').then(me=>{actor=me.principalId;return load();}).catch(error=>{status.textContent=error.message;});
 })();`,

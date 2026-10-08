@@ -8,8 +8,8 @@ import {
 import { registerLineOnboarding, type LineConfig } from './line-onboarding.js';
 import { registerWhatsAppOnboarding, type WhatsAppConfig } from './whatsapp-onboarding.js';
 
-export const minimumMigrationVersion = '0019_admin_access_approval.sql';
-export const maximumMigrationVersion = '0019_admin_access_approval.sql';
+export const minimumMigrationVersion = '0020_admin_grant_management.sql';
+export const maximumMigrationVersion = '0020_admin_grant_management.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

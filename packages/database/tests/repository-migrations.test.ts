@@ -36,7 +36,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0019_admin_access_approval.sql'
+      '0020_admin_grant_management.sql'
     );
 
     expect(first.applied).toEqual([
@@ -58,13 +58,14 @@ describeWithDatabase('repository migrations', () => {
       '0016_whatsapp_onboarding.sql',
       '0017_admin_reporting.sql',
       '0018_private_practice_notes_and_tags.sql',
-      '0019_admin_access_approval.sql'
+      '0019_admin_access_approval.sql',
+      '0020_admin_grant_management.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0019_admin_access_approval.sql',
+      currentVersion: '0020_admin_grant_management.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0019_admin_access_approval.sql',
+      maximumVersion: '0020_admin_grant_management.sql',
       ready: true
     });
   });
@@ -142,7 +143,8 @@ describeWithDatabase('repository migrations', () => {
         '0016_whatsapp_onboarding.sql',
         '0017_admin_reporting.sql',
         '0018_private_practice_notes_and_tags.sql',
-        '0019_admin_access_approval.sql'
+        '0019_admin_access_approval.sql',
+        '0020_admin_grant_management.sql'
       ]);
       expect(
         (
@@ -176,8 +178,8 @@ describeWithDatabase('repository migrations', () => {
         (
           await getMigrationStatus(
             database.pool,
-            '0019_admin_access_approval.sql',
-            '0019_admin_access_approval.sql'
+            '0020_admin_grant_management.sql',
+            '0020_admin_grant_management.sql'
           )
         ).ready
       ).toBe(true);

@@ -8,6 +8,12 @@
 
 完整隔離 PostgreSQL16 的 `pnpm verify`：**213項通過，無 skip**，含格式、lint、source typecheck 與 build。未改歷史 migration、依賴、正式設定或舊 Bot。新增兩個角色及 `admin_access.manage` permission（配置給 master／super）；未擴張既有 regional_admin／global_viewer／班級 coach 模板，未自動轉換任何既有授權。
 
+## 後續授權名單／編輯（本機候選 `0020`，未部署）
+
+使用者另確認管理員名單、授權編輯與全部撤銷，已在本機實作 `0020_admin_grant_management.sql`，API 最小／最大候選均為 `0020`，完整223項測試無 skip。新增已授權入口、principal 授權 revision、原子替換、單筆及全部撤銷，保留現有角色／自我異動／高權限保護；詳細限制見 [授權異動](admin-grant-management.md)。正式仍維持本文件的 `0019`，未更新正式 grants。
+
+使用者實際登入後已查到該次帳號具有有效 global super_admin 與正常 session；沒有重複授權或新增 grant。Email 未由 Authgear 記錄提供，先前以 Email 查不到不代表沒有管理權限；本人應核對既知 sub。以下部署時「尚未完成候選帳號 bootstrap」是歷史狀態，不是宣稱目前沒有任何可用 super admin。
+
 ## 介面與流程
 
 - 共用四頁與管理員審核頁：語言下拉選單在側欄品牌下方；登出在主要選單下方，右側不放按鈕。保留 locale cookie、套用的篩選／personId／日期；待審學員與管理員審核頁切換先確認、取消恢復選單值，不自動提交決定。

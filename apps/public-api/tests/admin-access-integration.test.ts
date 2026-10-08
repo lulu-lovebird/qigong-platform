@@ -19,6 +19,8 @@ interface AccountList {
   entries: Array<{
     principalId: string;
     subject: string;
+    grantVersion: number;
+    canRevokeAll: boolean;
     grants: Array<{ id: string; role: string }>;
   }>;
 }
@@ -63,13 +65,20 @@ suite('super admin approval HTTP boundary', () => {
     return { cookie, csrf, location: response.headers.location! };
   };
   const get = (url: string, s: Session) => app.inject({ url, headers: { cookie: s.cookie } });
-  const post = (url: string, s: Session, payload: unknown, csrf = true) =>
+  const post = (url: string, s: Session, payload: Record<string, unknown>, csrf = true) =>
     app.inject({
       method: 'POST',
       url,
       headers: { cookie: s.cookie, ...(csrf ? { 'x-csrf-token': s.csrf } : {}) },
       payload
     });
+  const grantVersion = async (grant: string) =>
+    (
+      await root.query<{ version: number }>(
+        'SELECT p.access_grant_version version FROM admin.principals p JOIN admin.role_grants g ON g.principal_id=p.id WHERE g.id=$1',
+        [grant]
+      )
+    ).rows[0]!.version;
   const request = async (s: Session, role = 'regional_admin') => {
     const status = (await get('/admin/access/status', s)).json<Status>();
     const submitted = await post('/admin/access/request', s, {
@@ -260,6 +269,7 @@ suite('super admin approval HTTP boundary', () => {
       expect(
         (
           await post('/admin/api/access/grants/' + grant + '/revoke', admin, {
+            version: await grantVersion(grant),
             reason: 'Term ended'
           })
         ).statusCode
@@ -317,6 +327,7 @@ suite('super admin approval HTTP boundary', () => {
     expect(
       (
         await post('/admin/api/access/grants/' + rootAccount.grants[0]!.id + '/revoke', master, {
+          version: await grantVersion(rootAccount.grants[0]!.id),
           reason: 'Forbidden'
         })
       ).statusCode
@@ -337,7 +348,10 @@ suite('super admin approval HTTP boundary', () => {
         await post(
           '/admin/api/access/grants/' + approved.json<{ grantId: string }>().grantId + '/revoke',
           master,
-          { reason: 'Term ended' }
+          {
+            version: await grantVersion(approved.json<{ grantId: string }>().grantId),
+            reason: 'Term ended'
+          }
         )
       ).statusCode
     ).toBe(200);
@@ -350,11 +364,90 @@ suite('super admin approval HTTP boundary', () => {
     expect(
       (
         await post('/admin/api/access/grants/' + masterGrant + '/revoke', superSession, {
+          version: await grantVersion(masterGrant),
           reason: 'Master term ended'
         })
       ).statusCode
     ).toBe(200);
     expect((await get('/admin/api/access/accounts', master)).statusCode).toBe(401);
+  });
+  it('lists authorized accounts, atomically edits with CSRF/version checks, and removes all access without deleting identity', async () => {
+    const pending = await signIn('candidate');
+    const s = await request(pending);
+    const admin = await signIn('root');
+    expect(
+      (
+        await post('/admin/api/access/accounts/' + s.principalId + '/decision', admin, {
+          version: s.version,
+          decision: 'approved',
+          role: 'regional_admin',
+          regionId: region,
+          reason: 'Verified region'
+        })
+      ).statusCode
+    ).toBe(200);
+    const candidate = await signIn('candidate');
+    const list = (
+      await get('/admin/api/access/accounts?status=authorized', admin)
+    ).json<AccountList>();
+    const account = list.entries.find((e) => e.principalId === s.principalId)!;
+    expect(list.entries.map((e) => e.subject).sort()).toEqual(['candidate', 'root']);
+    expect(account.canRevokeAll).toBe(true);
+    const endpoint = '/admin/api/access/grants/' + account.grants[0]!.id + '/edit';
+    const edit = {
+      version: account.grantVersion,
+      role: 'coach_admin',
+      reason: 'Coach responsibilities verified'
+    };
+    expect((await post(endpoint, admin, edit, false)).statusCode).toBe(403);
+    expect((await post(endpoint, candidate, edit)).statusCode).toBe(403);
+    expect(
+      (await post(endpoint, admin, { ...edit, permissions: ['privacy.delete'] })).statusCode
+    ).toBe(400);
+    expect(
+      (await post(endpoint, admin, { ...edit, role: 'regional_admin', regionId: randomUUID() }))
+        .statusCode
+    ).toBe(400);
+    expect((await get('/admin/auth/me', candidate)).statusCode).toBe(200);
+    expect((await post(endpoint, admin, edit)).statusCode).toBe(200);
+    expect((await post(endpoint, admin, edit)).statusCode).toBe(409);
+    expect((await get('/admin/auth/me', candidate)).statusCode).toBe(401);
+    const updated = (await get('/admin/api/access/accounts?status=authorized', admin))
+      .json<AccountList>()
+      .entries.find((e) => e.principalId === s.principalId)!;
+    const remove = '/admin/api/access/accounts/' + s.principalId + '/revoke-all';
+    expect(
+      (await post(remove, admin, { version: account.grantVersion, reason: 'Stale' })).statusCode
+    ).toBe(409);
+    expect((await post(remove, admin, { reason: 'Missing version' })).statusCode).toBe(400);
+    expect(
+      (await post(remove, admin, { version: updated.grantVersion, reason: 'Term ended' }, false))
+        .statusCode
+    ).toBe(403);
+    expect(
+      (await post(remove, admin, { version: updated.grantVersion, reason: 'Term ended' })).json()
+    ).toEqual({ ok: true, revokedCount: 1 });
+    expect(
+      (await get('/admin/api/access/accounts?status=authorized', admin))
+        .json<AccountList>()
+        .entries.map((e) => e.subject)
+    ).toEqual(['root']);
+    expect(
+      (
+        await root.query('SELECT oidc_subject,status FROM admin.principals WHERE id=$1', [
+          s.principalId
+        ])
+      ).rows[0]
+    ).toEqual({ oidc_subject: 'candidate', status: 'active' });
+    const rootAccount = list.entries.find((e) => e.subject === 'root')!;
+    expect(
+      (
+        await post('/admin/api/access/accounts/' + rootAccount.principalId + '/revoke-all', admin, {
+          version: rootAccount.grantVersion,
+          reason: 'Self removal'
+        })
+      ).statusCode
+    ).toBe(403);
   });
   it('adds scoped roles only after approval, rejects duplicate grants, and invalidates existing sessions', async () => {
     const pending = await signIn('candidate');
