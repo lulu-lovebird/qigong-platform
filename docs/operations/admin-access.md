@@ -2,7 +2,9 @@
 
 ## 狀態
 
-本輪已依使用者確認於本機實作；**未提交、推送或部署**。正式仍為 `b271ede`／schema `0018`、原雙按鈕語言切換與右側登出。本機候選版本需完整 `0001–0019`，API 最小／最大均為 `0019_admin_access_approval.sql`；不能直接替換正式 binary。
+使用者核准提交／推送與部署後，已於 **2026-10-08 13:23:46–13:24:11 UTC** 部署正式站，停機25秒。程式 `79f3e4ce5451a0c0732aca6784478deba4d15cdb`、schema `0019_admin_access_approval.sql`；完整 `0001–0019` 與 API 最小／最大 `0019` 匹配。CI 37783413247 成功；正式快照升級、既有資料校驗、舊程式拒絕新版 schema、最終站外備份實際還原與公開 HTTPS38項均通過。現存授權未改，未啟用新 provider，無真實測試訊息。
+
+指定 super admin 的本人登入／身分核對與正式 bootstrap **尚未完成**；目前指定 Email 沒有對應管理帳號紀錄。新功能已可登入與申請，不代表候選人已取得 super admin。桌機／手機真人視覺驗收仍待完成。
 
 完整隔離 PostgreSQL16 的 `pnpm verify`：**213項通過，無 skip**，含格式、lint、source typecheck 與 build。未改歷史 migration、依賴、正式設定或舊 Bot。新增兩個角色及 `admin_access.manage` permission（配置給 master／super）；未擴張既有 regional_admin／global_viewer／班級 coach 模板，未自動轉換任何既有授權。
 
@@ -23,7 +25,7 @@
 | 身分               | 角色／範圍               | 私密心得及感受 | 管理員授權                                    |
 | ------------------ | ------------------------ | -------------- | --------------------------------------------- |
 | 地區管理員         | regional_admin／指定地區 | 無             | 無                                            |
-| 白雁工作人員       | global_viewer／全域唯讀  | 無             | 無                                            |
+| 白雁協會人員       | global_viewer／全域唯讀  | 無             | 無                                            |
 | 白雁氣功教練       | coach_admin／全域唯讀    | 可讀           | 無                                            |
 | 白雁老師、彥寬老師 | master_admin／全域       | 可讀           | 管理一般管理員                                |
 | 指定最高管理員     | super_admin／全域        | 可讀           | 包含配置 master；super 初始配置由受控程序處理 |
@@ -87,7 +89,8 @@ COMMIT;
 - 新 `admin.access_applications`／`admin.access_sessions` 強制 RLS；runtime 沒有直接表讀寫權限，待審 token 僅存 hash。角色寫入只經受限 definer 入口；共享內部 writer 沒有 runtime EXECUTE。
 - 管理員名稱、OIDC subject、Email、申請／異動理由不放 request URL 或一般失敗診斷；JSON 不含 session token。HTTP 邊界沿用 OIDC state／nonce／PKCE、issuer／audience 驗證、既有 cookie／CSRF 與限制型 CSP；動態文字用 `textContent`。
 - 測試含受限 NOINHERIT／NOBYPASSRLS login、首次待審／未授權／CSRF、四種角色 scope、跨地區私密心得／tag 的實際 forced-RLS 與 journal 查詢、master 委派／保護帳號與請求、唯讀角色禁止寫入權限、重複與並行核准、拒絕重送、身份不合併、停用／到期、角色新增與 session 撤銷、等待鎖時失權／到期、雙語 VM 操作、XSS 字面顯示。
-- 不等於真人 Authgear／桌機／手機驗收通過；仍需部署前演練 `0018 → 0019`、備份還原及 matching API／worker。實際 Authgear profile／email claims 是否提供，也需用指定帳號驗收；缺少已驗證 Email 時不採用未驗證值。
+- 不等於真人 Authgear／桌機／手機驗收通過。`0018 → 0019` 升級與 matching artifact 演練完成；最終站外 AES-256-GCM 備份已解密校驗並實際還原成 `0018`，舊程式 readiness 通過。既有40張表原始資料保留；新增兩角色、一 permission 及十 mappings，沒有既存 grants 轉換。實際 Authgear profile／email claims 是否提供，仍需用指定帳號驗收；缺少已驗證 Email 時不採用未驗證值。
+- 先前 `b271ede` API 不相容 `0019`；回復須還原 `0018` DB、舊 release／API drop-in 與 matching worker。已開流量後的 DB 還原會丟失後續寫入，須另獲核准與對帳。恢復備份／部署工具路徑見 `Handoff.md`。
 - 未實作授權通知、申請／session 定期保留清理、公開註冊 rate-limit 或任意角色自訂；不要將這批當成可直接大規模公開的管理員註冊服務。成就／心得管理頁的既有 backlog 不因這批完成而消失。
 
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。

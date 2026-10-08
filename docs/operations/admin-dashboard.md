@@ -16,9 +16,9 @@
 
 目前仍未完成管理端心得流、tag 管理畫面／HTTP 路由及成就徽章。第二批私密心得／tag 資料模型及學員卡片、提交／更正／歷史已部署，tag 目錄目前為空、未自行建立標籤；心得查詢僅有 SQL／helper，不以空白管理頁假裝完成。AI 評語、個資自動合併與管理員更正打卡亦未實作。已檢視舊站實作，移植提案與待決策項目見 [第二批規格](admin-phase-2-proposal.md)。
 
-## 新介面與管理員權限審核（本機未部署）
+## 新介面與管理員權限審核（已部署 `0019`）
 
-使用者另確認改為側欄單一下拉語言選單、登出置於主要選單下方；本機已完成，正式 `b271ede` 的雙按鈕與右側登出尚未變更。新增 super／master 分級使用的 `/admin/administrators`，可核准首次 Authgear 登入者、指定地區／全域角色、拒絕及撤銷授權；未核准帳號僅進獨立待審頁，不能讀管理資料。工作人員採 `global_viewer`，氣功教練採新 `coach_admin`（全域私密心得及感受唯讀），兩位老師採新 `master_admin`（同樣讀取＋一般管理員授權）；master 不能修改自己、其他 master／super 帳號或 master 申請。候選 migration 為 `0019_admin_access_approval.sql`，本機 API 最小／最大均為 `0019`，未改歷史 migration 或擴張原地區／唯讀／班級 coach 模板，也未自動變更既有 grants。詳細流程、第一位 super admin 的受控 bootstrap、213項本機驗證及部署限制見 [管理員權限審核](admin-access.md)。以下語言與發佈章節仍描述已部署的 `0018` 版本。
+使用者另確認側欄單一下拉語言選單、登出置於主要選單下方，申請選項統一為「地區管理員、白雁協會人員、白雁氣功教練、老師（Master）」。已於2026-10-08 13:23:46–13:24:11 UTC 核准部署 `79f3e4c`／`0019`，停機25秒；CI 37783413247、213項本機測試、正式快照升級／最終站外備份還原及公開 HTTPS38項通過。無 provider 測試訊息，舊 Bot／保護設定／既存 grants 未變。指定新 super admin 仍待本人登入與身分核對後 bootstrap。新增 super／master 分級使用的 `/admin/administrators`，可核准首次 Authgear 登入者、指定地區／全域角色、拒絕及撤銷授權；未核准帳號僅進獨立待審頁，不能讀管理資料。白雁協會人員採 `global_viewer`，氣功教練採新 `coach_admin`（全域私密心得及感受唯讀），兩位老師採新 `master_admin`（同樣讀取＋一般管理員授權）；master 不能修改自己、其他 master／super 帳號或 master 申請。正式 migration 為 `0019_admin_access_approval.sql`，API 最小／最大均為 `0019`，未改歷史 migration 或擴張原地區／唯讀／班級 coach 模板，也未自動變更既有 grants。詳細流程、第一位 super admin 的受控 bootstrap、213項本機驗證及部署限制見 [管理員權限審核](admin-access.md)。以下語言與初次發佈章節保留歷史 `0018` 版本說明；最新 `0019` 狀態以上述段落及 `Handoff.md` 為準。
 
 ## 管理介面語言
 
