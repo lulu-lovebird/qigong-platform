@@ -95,6 +95,7 @@ const fixture = (
     hash?: string;
     responseStatus?: number;
     notificationConsent?: boolean;
+    feelingTags?: ReadonlyArray<{ id: string; name: string }>;
   } = {}
 ) => {
   const nodes = new Map<string, ElementStub>();
@@ -141,6 +142,7 @@ const fixture = (
             makeupOpen: true,
             currentStreak: 0,
             totalDays: 0,
+            feelingTags: options.feelingTags ?? [],
             entries: []
           }
         : { status: 'pending' };
@@ -177,6 +179,46 @@ const submit = async (form: ElementStub) => {
 };
 
 describe('shared learner pages without database or real LIFF SDK', () => {
+  it.each([
+    ['line', 'zh_TW'],
+    ['telegram', 'zh_TW'],
+    ['telegram', 'en'],
+    ['whatsapp', 'zh_TW'],
+    ['whatsapp', 'en']
+  ] as const)(
+    'keeps %s/%s feeling selection separate from authored text',
+    async (platform, locale) => {
+      const id = '12345678-1234-4234-8234-123456789abc';
+      const page = renderCheckinPage({
+        platform,
+        locale,
+        ...(platform === 'line' ? { liffId: 'test-liff' } : {})
+      });
+      const f = fixture(page, { feelingTags: [{ id, name: '<script>放鬆</script>' }] });
+      await setImmediate();
+      const textarea = f.get('practiceNote');
+      textarea.value = '放鬆是我寫的字\n<script>原文</script>';
+      const click = () =>
+        f.get('feelingTags').children[0]!.listeners.get('click')!({ preventDefault: vi.fn() });
+      await click();
+      await click();
+      await click();
+      expect(textarea.value).toBe('放鬆是我寫的字\n<script>原文</script>');
+      expect(f.get('feelingTags').children[0]!.textContent).toBe('<script>放鬆</script>');
+      f.get('methods').querySelectorAll('input')[0]!.checked = true;
+      await submit(f.get('checkin'));
+      const write = f.fetchMock.mock.calls.find(([url]) => {
+        const path = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+        return path.endsWith('/submit');
+      });
+      expect(requestPayload(write?.[1]?.body)).toEqual(
+        expect.objectContaining({
+          practiceNote: '放鬆是我寫的字\n<script>原文</script>',
+          feelingTagIds: [id]
+        })
+      );
+    }
+  );
   it('renders syntactically valid scripts and escapes embedded LIFF IDs', () => {
     for (const html of [
       telegramApplicationPage,

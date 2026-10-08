@@ -5,6 +5,12 @@ import { z } from 'zod';
 import { renderApplicationPage } from './application-page.js';
 import { renderCheckinPage } from './checkin-page.js';
 import { learnerLocale, learnerTexts, localeQuery } from './learner-locale.js';
+import {
+  enrichPracticeHistory,
+  isPracticeNoteConflict,
+  practiceNoteSchema,
+  savePracticeNote
+} from './practice-notes.js';
 
 const queryLocale = (query: unknown) => {
   const parsed = z.object({ lang: z.string().optional() }).safeParse(query);
@@ -236,7 +242,7 @@ export const registerTelegramOnboarding = (
     token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
     locale: z.enum(['zh_TW', 'en']).default('zh_TW')
   });
-  const checkinSubmission = checkinToken.extend({
+  const checkinSubmission = checkinToken.extend(practiceNoteSchema.shape).extend({
     methods: z.array(z.string().min(1).max(64)).min(1).max(30),
     makeup: z.boolean()
   });
@@ -301,13 +307,21 @@ export const registerTelegramOnboarding = (
         pool,
         'qigong_api_runtime',
         { requestId: request.id },
-        (client) =>
-          client.query<{ history: unknown }>(
+        async (client) => {
+          const history = await client.query<{ history: unknown }>(
             'SELECT platform.telegram_checkin_history($1,$2) AS history',
             [parsed.data.token, parsed.data.locale]
-          )
+          );
+          return enrichPracticeHistory(
+            client,
+            'telegram',
+            parsed.data.token,
+            parsed.data.locale,
+            history.rows[0]?.history
+          );
+        }
       );
-      return reply.header('cache-control', 'no-store').send(result.rows[0]?.history);
+      return reply.header('cache-control', 'no-store').send(result);
     } catch (error) {
       if (
         error instanceof Error &&
@@ -320,7 +334,7 @@ export const registerTelegramOnboarding = (
     }
   });
 
-  app.post('/telegram/checkin/correct', { bodyLimit: 4096 }, async (request, reply) => {
+  app.post('/telegram/checkin/correct', { bodyLimit: 16384 }, async (request, reply) => {
     if (!checkOrigin(request.headers.origin, request.headers['content-type'])) {
       return reply.code(403).send({ error: 'invalid_origin' });
     }
@@ -332,20 +346,33 @@ export const registerTelegramOnboarding = (
       .safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_checkin_correction' });
     try {
-      await withRequestContext(pool, 'qigong_api_runtime', { requestId: request.id }, (client) =>
-        client.query('SELECT platform.correct_telegram_checkin($1, $2, $3)', [
-          parsed.data.token,
-          parsed.data.checkinId,
-          parsed.data.methods
-        ])
+      await withRequestContext(
+        pool,
+        'qigong_api_runtime',
+        { requestId: request.id },
+        async (client) => {
+          await client.query('SELECT platform.correct_telegram_checkin($1,$2,$3)', [
+            parsed.data.token,
+            parsed.data.checkinId,
+            parsed.data.methods
+          ]);
+          await savePracticeNote(
+            client,
+            'telegram',
+            parsed.data.token,
+            parsed.data.checkinId,
+            parsed.data
+          );
+        }
       );
       return reply.header('cache-control', 'no-store').send({ ok: true });
     } catch (error) {
       if (
-        error instanceof Error &&
-        /^(checkin link expired or identity unavailable|checkin correction unavailable|invalid or duplicate practice method)$/.test(
-          error.message
-        )
+        isPracticeNoteConflict(error) ||
+        (error instanceof Error &&
+          /^(checkin link expired or identity unavailable|checkin correction unavailable|invalid or duplicate practice method)$/.test(
+            error.message
+          ))
       ) {
         return reply.code(409).send({ error: 'checkin_conflict' });
       }
@@ -354,7 +381,7 @@ export const registerTelegramOnboarding = (
     }
   });
 
-  app.post('/telegram/checkin/submit', { bodyLimit: 4096 }, async (request, reply) => {
+  app.post('/telegram/checkin/submit', { bodyLimit: 16384 }, async (request, reply) => {
     if (!checkOrigin(request.headers.origin, request.headers['content-type'])) {
       return reply.code(403).send({ error: 'invalid_origin' });
     }
@@ -365,11 +392,26 @@ export const registerTelegramOnboarding = (
         pool,
         'qigong_api_runtime',
         { requestId: request.id },
-        (client) =>
-          client.query<{ checkin_id: string; practice_date: string; entry_kind: string }>(
-            'SELECT checkin_id, practice_date::text AS practice_date, entry_kind FROM platform.submit_telegram_checkin($1, $2, $3)',
+        async (client) => {
+          const result = await client.query<{
+            checkin_id: string;
+            practice_date: string;
+            entry_kind: string;
+          }>(
+            'SELECT checkin_id,practice_date::text AS practice_date,entry_kind FROM platform.submit_telegram_checkin($1,$2,$3)',
             [parsed.data.token, parsed.data.methods, parsed.data.makeup]
-          )
+          );
+          const checkin = result.rows[0];
+          if (!checkin) throw new Error('Checkin write returned no result');
+          await savePracticeNote(
+            client,
+            'telegram',
+            parsed.data.token,
+            checkin.checkin_id,
+            parsed.data
+          );
+          return result;
+        }
       );
       const checkin = result.rows[0];
       if (!checkin) throw new Error('Checkin write returned no result');
@@ -380,11 +422,12 @@ export const registerTelegramOnboarding = (
       };
     } catch (error) {
       if (
-        error instanceof Error &&
-        (/^(checkin link expired or used|checkin identity not approved or active|makeup deadline passed|practice date has no region assignment|invalid or duplicate practice method)$/.test(
-          error.message
-        ) ||
-          ('code' in error && error.code === '23505'))
+        isPracticeNoteConflict(error) ||
+        (error instanceof Error &&
+          (/^(checkin link expired or used|checkin identity not approved or active|makeup deadline passed|practice date has no region assignment|invalid or duplicate practice method)$/.test(
+            error.message
+          ) ||
+            ('code' in error && error.code === '23505')))
       ) {
         return reply.code(409).send({ error: 'checkin_conflict' });
       }

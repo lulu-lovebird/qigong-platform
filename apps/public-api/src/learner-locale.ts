@@ -2,6 +2,13 @@ export type LearnerLocale = 'zh_TW' | 'en';
 export const learnerLocale = (value: unknown): LearnerLocale => (value === 'en' ? 'en' : 'zh_TW');
 
 const english = {
+  noteHeading: 'Practice notes and feelings',
+  noteLabel: 'Private practice note (optional)',
+  notePlaceholder: 'Write your reflections here. Selecting tags does not change this text.',
+  feelingsLabel: 'Quick feelings (select any)',
+  notePrivacy: 'Notes and selected feelings are visible only to authorized administrators.',
+  noteLength: '{count}/1000 characters',
+  noteTooLong: 'The note may contain at most 1000 characters.',
   applicationTitle: 'Join the Qigong Assistant',
   applicationIntro:
     'Enter your Baiyan Qigong membership details for regional administrator review. You cannot check in until approved.',
@@ -80,6 +87,13 @@ const english = {
 } as const;
 export type LearnerTextKey = keyof typeof english;
 const chinese: Record<LearnerTextKey, string> = {
+  noteHeading: '心得與感受',
+  noteLabel: '私密心得（可不填）',
+  notePlaceholder: '記錄自己的心得；選取感受標籤不會改寫這裡的文字。',
+  feelingsLabel: '快速感受（可複選）',
+  notePrivacy: '心得與所選感受僅供具備權限的管理員查看。',
+  noteLength: '{count}/1000 字元',
+  noteTooLong: '心得最多 1000 個字元。',
   applicationTitle: '加入氣功小幫手',
   applicationIntro: '請填寫白雁氣功會員資料，供所在地區管理員人工核對。審核通過前無法打卡。',
   privateLink: '請勿將此連結轉傳他人。',

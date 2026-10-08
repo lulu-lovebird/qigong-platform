@@ -2,6 +2,12 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
+import {
+  enrichPracticeHistory,
+  isPracticeNoteConflict,
+  practiceNoteSchema,
+  savePracticeNote
+} from './practice-notes.js';
 import { lineApplicationPage } from './line-application-page.js';
 import { lineCheckinPage } from './line-checkin-page.js';
 
@@ -215,7 +221,7 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
   });
 
   const route = (name: 'methods' | 'history' | 'submit' | 'correct') => {
-    app.post(`/line/checkin/${name}`, { bodyLimit: 8192 }, async (request, reply) => {
+    app.post(`/line/checkin/${name}`, { bodyLimit: 16384 }, async (request, reply) => {
       if (!validOrigin(request.headers.origin, request.headers['content-type']))
         return reply.code(403).send({ error: 'invalid_origin' });
       const subject = await authenticated(request.body);
@@ -226,6 +232,7 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
           makeup: z.boolean().optional(),
           checkinId: z.uuid().optional()
         })
+        .extend(practiceNoteSchema.shape)
         .safeParse(request.body);
       if (
         (name === 'submit' || name === 'correct') &&
@@ -239,16 +246,19 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
           pool,
           'qigong_api_runtime',
           { requestId: request.id },
-          (client): Promise<{ rows: Array<Record<string, unknown>> }> =>
-            name === 'methods'
-              ? client.query('SELECT * FROM platform.line_checkin_method_tree($1)', [subject])
+          async (client): Promise<{ rows: Array<Record<string, unknown>> }> => {
+            const result: { rows: Array<Record<string, unknown>> } = await (name === 'methods'
+              ? client.query<Record<string, unknown>>(
+                  'SELECT * FROM platform.line_checkin_method_tree($1)',
+                  [subject]
+                )
               : name === 'history'
                 ? client.query<{ history: unknown }>(
                     'SELECT platform.line_checkin_history($1) AS history',
                     [subject]
                   )
                 : name === 'submit'
-                  ? client.query(
+                  ? client.query<{ checkin_id: string; practice_date: string; entry_kind: string }>(
                       'SELECT checkin_id, practice_date::text AS practice_date, entry_kind FROM platform.submit_line_checkin($1,$2,$3)',
                       [
                         subject,
@@ -256,11 +266,35 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
                         payload.success ? payload.data.makeup : false
                       ]
                     )
-                  : client.query('SELECT platform.correct_line_checkin($1,$2,$3)', [
+                  : client.query<{ correct_line_checkin: unknown }>(
+                      'SELECT platform.correct_line_checkin($1,$2,$3)',
+                      [
+                        subject,
+                        payload.success ? payload.data.checkinId : null,
+                        payload.success ? payload.data.methods : []
+                      ]
+                    ));
+            if (name === 'history')
+              return {
+                rows: [
+                  {
+                    history: await enrichPracticeHistory(
+                      client,
+                      'line',
                       subject,
-                      payload.success ? payload.data.checkinId : null,
-                      payload.success ? payload.data.methods : []
-                    ])
+                      'zh_TW',
+                      result.rows[0]?.history
+                    )
+                  }
+                ]
+              };
+            if ((name === 'submit' || name === 'correct') && payload.success) {
+              const id = name === 'submit' ? result.rows[0]?.checkin_id : payload.data.checkinId;
+              if (typeof id !== 'string') throw new Error('Checkin write returned no result');
+              await savePracticeNote(client, 'line', subject, id, payload.data);
+            }
+            return result;
+          }
         );
         if (name === 'methods')
           return reply.header('cache-control', 'no-store').send({ methods: result.rows });
@@ -271,11 +305,12 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
         return reply.header('cache-control', 'no-store').send({ ok: true });
       } catch (error) {
         if (
-          error instanceof Error &&
-          (/^(LINE checkin identity unavailable|checkin correction unavailable|makeup deadline passed|practice date has no region assignment|invalid or duplicate practice method)$/.test(
-            error.message
-          ) ||
-            ('code' in error && error.code === '23505'))
+          isPracticeNoteConflict(error) ||
+          (error instanceof Error &&
+            (/^(LINE checkin identity unavailable|checkin correction unavailable|makeup deadline passed|practice date has no region assignment|invalid or duplicate practice method)$/.test(
+              error.message
+            ) ||
+              ('code' in error && error.code === '23505')))
         )
           return reply.code(409).send({ error: 'checkin_conflict' });
         app.log.error({ err: error }, 'LINE checkin failed');

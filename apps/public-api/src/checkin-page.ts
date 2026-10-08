@@ -33,6 +33,7 @@ export const renderCheckinPage = (channel: LearnerPageChannel) => {
     button { cursor: pointer; font: inherit; } .action { width: 100%; background: #0d6efd; color: white; border: 0; border-radius: 12px; padding: 14px; font-weight: 600; }
     .action:disabled { background: #9ca3af; } .entry { border-top: 1px solid #f3f4f6; padding: 12px 0; }
     .entry button { background: white; border: 1px solid #0d6efd; border-radius: 8px; color: #0d6efd; padding: 6px 10px; margin-top: 8px; }
+    .feelings { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; } .feelings button,.feeling-chip { border:1px solid #a5b4c8; border-radius:16px; padding:5px 10px; background:white; } .feelings button[aria-pressed="true"] { background:#dbeafe; border-color:#2563eb; } .feeling-chip { display:inline-block; margin:4px; } textarea { width:100%; min-height:100px; font:inherit; padding:10px; box-sizing:border-box; } .practice-note { white-space:pre-wrap; overflow-wrap:anywhere; }
     .status { margin: 12px 0; } footer { color: #6b7280; font-size: 12px; text-align: center; }
     @media (max-width: 480px) { .container { padding: 14px; } .card { padding: 16px; margin-bottom: 12px; } }
   </style>
@@ -46,6 +47,7 @@ ${channel.platform !== 'line' ? `<nav><button id="languageSwitch" type="button">
       <button id="makeupTab" class="date-tab makeup" type="button">${t('yesterday')}</button></div>
     <p id="dateStatus" class="muted"></p></section>
   <form id="checkin" class="card" hidden><h2 id="formHeading">${t('methodsHeading')}</h2><div id="methods"></div>
+    <section><h2>${t('noteHeading')}</h2><p>${t('feelingsLabel')}</p><div id="feelingTags" class="feelings"></div><label for="practiceNote">${t('noteLabel')}</label><textarea id="practiceNote" placeholder="${t('notePlaceholder')}" aria-describedby="noteCount notePrivacy"></textarea><p id="noteCount" class="muted" aria-live="polite"></p><p id="notePrivacy" class="muted">${t('notePrivacy')}</p></section>
     <button id="submitButton" class="action" type="submit">${t('submit')}</button></form>
   <p id="status" class="status" role="status" aria-live="polite">${t('loading')}</p>
   <section id="historyCard" class="card" hidden><h2>${t('historyHeading')}</h2><p class="muted">${t('historyIntro')}</p><div id="entries"></div></section>
@@ -70,6 +72,29 @@ ${channel.platform !== 'line' ? `<nav><button id="languageSwitch" type="button">
   let historyData;
   let selectedDate = 'today';
   let editing = null;
+  const practiceNote = document.getElementById('practiceNote');
+  const feelings = document.getElementById('feelingTags');
+  let selectedFeelings = new Set();
+  const noteDrafts = new Map();
+  const rememberNote = () => noteDrafts.set(selectedDate,{text:practiceNote.value,ids:[...selectedFeelings]});
+  const updateNoteCount = () => document.getElementById('noteCount').textContent=format('noteLength',{count:[...practiceNote.value].length});
+  practiceNote.addEventListener('input',updateNoteCount);
+  const restoreNote = entry => {
+    const draft=noteDrafts.get(selectedDate);
+    practiceNote.value=draft?.text ?? entry?.practice_note ?? '';
+    selectedFeelings=new Set(draft?.ids ?? (entry?.feeling_tags ?? []).map(tag=>tag.id));
+    updateNoteCount();
+  };
+  const renderFeelings = () => {
+    feelings.replaceChildren();
+    const choices=new Map((historyData.feelingTags ?? []).map(tag=>[tag.id,tag]));
+    for(const tag of checkinForDate()?.feeling_tags ?? []) choices.set(tag.id,tag);
+    for(const tag of choices.values()) {
+      const button=document.createElement('button');button.type='button';button.textContent=tag.name;button.setAttribute('aria-pressed',String(selectedFeelings.has(tag.id)));
+      button.addEventListener('click',()=>{if(selectedFeelings.has(tag.id))selectedFeelings.delete(tag.id);else selectedFeelings.add(tag.id);renderFeelings();});
+      feelings.append(button);
+    }
+  };
   const post = async (route, payload) => {
     const response = await fetch('/${channel.platform}/checkin/' + route, {
       method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
@@ -109,6 +134,7 @@ ${channel.platform !== 'line' ? `<nav><button id="languageSwitch" type="button">
     makeupTab.disabled = !historyData.makeupOpen;
     makeupTab.textContent = historyData.makeupOpen ? ui.yesterday : ui.makeupClosed;
     const existing = checkinForDate();
+    renderFeelings(); updateNoteCount();
     const date = selectedDate === 'today' ? historyData.today : yesterday();
     dateStatus.textContent = existing ? format('alreadyRecorded', { date }) + (existing.editable ? ui.canCorrect : '')
       : format(selectedDate === 'makeup' ? 'makeupAvailable' : 'notRecorded', { date });
@@ -122,10 +148,14 @@ ${channel.platform !== 'line' ? `<nav><button id="languageSwitch" type="button">
       const heading = document.createElement('strong'); heading.textContent = entry.practice_date + (entry.entry_kind === 'makeup' ? ui.makeupEntry : '');
       const description = document.createElement('div'); description.textContent = entry.method_names.join('、');
       row.append(heading, description);
+      for(const tag of entry.feeling_tags ?? []) { const chip=document.createElement('span');chip.className='feeling-chip';chip.textContent=tag.name;row.append(chip); }
+      if(entry.practice_note) { const note=document.createElement('p');note.className='practice-note';note.textContent=entry.practice_note;row.append(note); }
       if (entry.editable) {
         const button = document.createElement('button'); button.type = 'button'; button.textContent = ui.correctMethods;
         button.addEventListener('click', () => {
+          rememberNote();
           selectedDate = entry.practice_date === historyData.today ? 'today' : 'makeup';
+          restoreNote(entry);
           editing = entry.id; selectMethods(entry.method_codes); render(); form.scrollIntoView({ behavior: 'smooth' });
         });
         row.append(button);
@@ -137,7 +167,7 @@ ${channel.platform !== 'line' ? `<nav><button id="languageSwitch" type="button">
   };
   for (const [button, date] of [[todayTab, 'today'], [makeupTab, 'makeup']]) {
     button.addEventListener('click', () => {
-      selectedDate = date; editing = null;
+      rememberNote(); selectedDate = date; editing = null; restoreNote(checkinForDate());
       selectMethods(checkinForDate()?.method_codes ?? []); render();
     });
   }
@@ -187,7 +217,7 @@ ${channel.platform !== 'line' ? `<nav><button id="languageSwitch" type="button">
       row.append(toggle, parentLabel); container.append(row, childList); methods.append(container);
     }
     updateGroups();
-    historyData = history; status.textContent = ''; render();
+    historyData = history; restoreNote(checkinForDate()); status.textContent = ''; render();
   });
   ${
     channel.platform === 'line'
@@ -200,13 +230,16 @@ ${channel.platform !== 'line' ? `<nav><button id="languageSwitch" type="button">
     event.preventDefault();
     const selected = selectedMethods();
     if (!selected.length) { status.textContent = ui.selectAtLeastOne; return; }
+    if([...practiceNote.value].length>1000) {status.textContent=ui.noteTooLong;return;}
+    const noteFields={practiceNote:practiceNote.value,feelingTagIds:[...selectedFeelings]};
     const button = document.getElementById('submitButton'); button.disabled = true;
     try {
       const corrected = !!editing;
       await post(corrected ? 'correct' : 'submit', corrected
-        ? { checkinId: editing, methods: selected }
-        : { methods: selected, makeup: selectedDate === 'makeup' });
+        ? { checkinId: editing, methods: selected, ...noteFields }
+        : { methods: selected, makeup: selectedDate === 'makeup', ...noteFields });
       historyData = await post('history', {});
+      noteDrafts.delete(selectedDate); restoreNote(checkinForDate());
       editing = null; status.textContent = corrected ? ui.corrected : ui.checkedIn; render();
     } catch (error) { status.textContent = error.message; }
     finally { button.disabled = false; }

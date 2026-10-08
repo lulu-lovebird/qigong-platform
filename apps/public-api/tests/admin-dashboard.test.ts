@@ -241,6 +241,40 @@ const descendants = (root: Element): Element[] => [root, ...root.children.flatMa
 const dispatch = (target: Element, event: string) =>
   target.listeners.get(event)?.({ preventDefault: () => {} });
 
+describe('administrator language navigation placement', () => {
+  it.each([
+    ['overview', 'zh_TW'],
+    ['overview', 'en'],
+    ['leaderboard', 'zh_TW'],
+    ['leaderboard', 'en'],
+    ['methods', 'zh_TW'],
+    ['methods', 'en'],
+    ['review', 'zh_TW'],
+    ['review', 'en']
+  ] as const)('places %s language controls above the navigation in %s', (page, locale) => {
+    const html = page === 'review' ? renderReviewPage(locale) : renderAdminDashboard(page, locale);
+    const sidebar = html.match(/<aside class="sidebar">([\s\S]*?)<\/aside>/)?.[1];
+    const header = html.match(/<header>([\s\S]*?)<\/header>/)?.[1];
+    if (!sidebar || !header) throw new Error('Missing sidebar or workspace header');
+    const languages = sidebar.indexOf('class="languages"');
+    expect(languages).toBeGreaterThan(sidebar.indexOf('class="brand"'));
+    expect(languages).toBeLessThan(sidebar.indexOf('<nav'));
+    expect(sidebar.indexOf('</div>', languages)).toBeLessThan(sidebar.indexOf('<nav'));
+    for (const [id, selected] of [
+      ['language-zh-TW', locale === 'zh_TW'],
+      ['language-en', locale === 'en']
+    ] as const) {
+      expect(html.match(new RegExp('id="' + id + '"', 'g'))).toHaveLength(1);
+      expect(sidebar).toMatch(new RegExp('id="' + id + '"[^>]*aria-pressed="' + selected + '"'));
+      expect(header).not.toContain(id);
+    }
+    expect(header).not.toContain('class="languages"');
+    expect(header).toContain('id="logout"');
+    expect(html).toContain('@media(max-width:760px)');
+    expect(html).toContain('.sidebar .languages button:focus-visible');
+  });
+});
+
 describe('ported administrator interface generated scripts', () => {
   it.each(['overview', 'leaderboard', 'methods'] as const)(
     'renders %s entirely in English with localized API queries',
@@ -302,7 +336,7 @@ describe('ported administrator interface generated scripts', () => {
     }
   );
 
-  it('switches in the header while preserving applied filters/person/date and writing only a safe preference cookie', async () => {
+  it('switches in the sidebar while preserving applied filters/person/date and writing only a safe preference cookie', async () => {
     const search =
       '?lang=zh_TW&period=month&region=' +
       personId +

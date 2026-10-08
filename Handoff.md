@@ -2,6 +2,15 @@
 
 > 正式環境已於 **2026-10-07 18:39 UTC** 經使用者核准的維護窗口升級，停機15秒。程式 release 為 `269555c3e3bff2c8a380e8c5518da86390460bed`，schema 為 `0017_admin_reporting.sql`。本文件區分已部署功能、尚未啟用的管道及未完成的真人驗收；早期 README／ADR 的階段描述可能已過時。
 
+## 第二批部分功能發布準備（已核准，待部署驗證）
+
+- 使用者已確認同卡片上方複選感受 tag、下方自由心得；兩者分開儲存，選取／取消不改寫文字，均維持私密權限。
+- 新增候選 migration `0018_private_practice_notes_and_tags.sql`：獨立 forced RLS 心得／tag 快照、版本鎖 tag 目錄、三平台身份綁定與心得查詢。Telegram／LINE／WhatsApp 提交、更正與歷史，以及共用學員卡片已接上；省略欄位保留既有資料。
+- 修正權限三值邏輯：新心得函式以 `IS NOT TRUE` 拒絕未明確授權的個人篩選；`methodsVisible` 的 `NULL` 正規化為 `false`。跨區／一般報表讀者無法取得私密文字與 tag，私密心得讀者不因此取得功法權限。未改既有角色授權或歷史 migration。
+- `admin-journal.ts` 僅為查詢 helper；管理端心得／tag 畫面及 HTTP 路由、成就模型、評估／reconciliation worker **尚未完成**。參見 `docs/operations/admin-phase-2-proposal.md`。
+- 本機候選 API 的 schema 最小／最大均為 `0018`，不是正式 `0017` 的可直接替換版本。隔離 PostgreSQL16、Node24／pnpm10 的完整 `pnpm verify` **173項通過、無 skip**；format／lint／source typecheck／build 與 `git diff --check` 通過。
+- 使用者已核准提交、推送及短暫停機部署目前完成部分；正式升級前須以新 release 演練 `0017 → 0018`、备份還原及受限 runtime 驗證。不得啟用新管道、改憑證或以切回舊 binary 代替 DB 還原。此處不是部署成功記錄；以下既有發佈與正式環境章節仍描述 `269555c`／`0017`，成功後另補紀錄。
+
 ## 專案與 Tech Stack
 
 白雁氣功跨 IM 學員審核與練功打卡平台：管理員以 Authgear 登入，依地區／班級權限審核及查看報表；核准學員使用獨立 Telegram Bot。LINE／Meta WhatsApp Cloud API adapter 程式已部署，但新管道設定尚未配置，路由未啟用；舊 Bot、舊登入、舊資料庫及 webhook 保持獨立。

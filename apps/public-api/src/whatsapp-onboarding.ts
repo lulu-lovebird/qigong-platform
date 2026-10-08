@@ -6,6 +6,12 @@ import { renderApplicationPage } from './application-page.js';
 import { renderCheckinPage } from './checkin-page.js';
 import { learnerLocale, learnerTexts, localeQuery } from './learner-locale.js';
 import { createWhatsAppTextSender, whatsappTransportSchema } from './whatsapp-client.js';
+import {
+  enrichPracticeHistory,
+  isPracticeNoteConflict,
+  practiceNoteSchema,
+  savePracticeNote
+} from './practice-notes.js';
 
 export const whatsappConfigSchema = whatsappTransportSchema.extend({
   businessAccountId: z.string().regex(/^\d+$/),
@@ -311,22 +317,22 @@ export const registerWhatsAppOnboarding = (
     }
   });
   for (const name of ['methods', 'history', 'submit', 'correct'] as const) {
-    app.post(`/whatsapp/checkin/${name}`, { bodyLimit: 8192 }, async (request, reply) => {
+    app.post(`/whatsapp/checkin/${name}`, { bodyLimit: 16384 }, async (request, reply) => {
       reply.header('cache-control', 'no-store');
       if (!validOrigin(request.headers.origin, request.headers['content-type']))
         return reply.code(403).send({ error: 'invalid_origin' });
       const schema =
         name === 'submit'
-          ? credentials.extend({
+          ? credentials.extend(practiceNoteSchema.shape).extend({
               methods: z.array(z.string().min(1).max(64)).min(1).max(30),
               makeup: z.boolean()
             })
           : name === 'correct'
-            ? credentials.extend({
+            ? credentials.extend(practiceNoteSchema.shape).extend({
                 methods: z.array(z.string().min(1).max(64)).min(1).max(30),
                 checkinId: z.uuid()
               })
-            : credentials;
+            : credentials.extend(practiceNoteSchema.shape);
       const parsed = schema.safeParse(request.body);
       if (!parsed.success) return reply.code(400).send({ error: 'invalid_checkin_submission' });
       const data = parsed.data;
@@ -350,37 +356,54 @@ export const registerWhatsAppOnboarding = (
                   )
                 ).rows
               };
-            if (name === 'history')
-              return (
-                await client.query<{ history: unknown }>(
-                  'SELECT platform.whatsapp_checkin_history($1,$2) AS history',
-                  [subject, data.locale]
-                )
-              ).rows[0]?.history;
-            if (name === 'submit' && 'methods' in data && 'makeup' in data)
-              return (
-                await client.query<{
-                  checkin_id: string;
-                  practice_date: string;
-                  entry_kind: string;
-                }>(
-                  'SELECT checkin_id,practice_date::text,entry_kind FROM platform.submit_whatsapp_checkin($1,$2,$3)',
-                  [subject, data.methods, data.makeup]
-                )
-              ).rows[0];
-            if (name === 'correct' && 'methods' in data && 'checkinId' in data) {
+            if (name === 'history') {
+              const history = await client.query<{ history: unknown }>(
+                'SELECT platform.whatsapp_checkin_history($1,$2) AS history',
+                [subject, data.locale]
+              );
+              return enrichPracticeHistory(
+                client,
+                'whatsapp',
+                data.token,
+                data.locale,
+                history.rows[0]?.history
+              );
+            }
+            if (name === 'submit' && 'methods' in data && 'makeup' in data) {
+              const result = await client.query<{
+                checkin_id: string;
+                practice_date: string;
+                entry_kind: string;
+              }>(
+                'SELECT checkin_id,practice_date::text,entry_kind FROM platform.submit_whatsapp_checkin($1,$2,$3)',
+                [subject, data.methods, data.makeup]
+              );
+              const checkin = result.rows[0];
+              if (!checkin) throw new Error('Checkin write returned no result');
+              await savePracticeNote(client, 'whatsapp', data.token, checkin.checkin_id, data);
+              return checkin;
+            }
+            if (
+              name === 'correct' &&
+              'methods' in data &&
+              'checkinId' in data &&
+              typeof data.checkinId === 'string'
+            ) {
               await client.query('SELECT platform.correct_whatsapp_checkin($1,$2,$3)', [
                 subject,
                 data.checkinId,
                 data.methods
               ]);
+              await savePracticeNote(client, 'whatsapp', data.token, data.checkinId, data);
               return { ok: true };
             }
             throw new Error('Invalid checkin operation');
           }
         );
       } catch (error) {
-        return reply.code(knownConflict(error) ? 409 : 503).send({ error: 'checkin_unavailable' });
+        return reply
+          .code(knownConflict(error) || isPracticeNoteConflict(error) ? 409 : 503)
+          .send({ error: 'checkin_unavailable' });
       }
     });
   }

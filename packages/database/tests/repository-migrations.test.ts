@@ -36,7 +36,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0017_admin_reporting.sql'
+      '0018_private_practice_notes_and_tags.sql'
     );
 
     expect(first.applied).toEqual([
@@ -56,13 +56,14 @@ describeWithDatabase('repository migrations', () => {
       '0014_no_implicit_identity_linking.sql',
       '0015_channel_locales.sql',
       '0016_whatsapp_onboarding.sql',
-      '0017_admin_reporting.sql'
+      '0017_admin_reporting.sql',
+      '0018_private_practice_notes_and_tags.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0017_admin_reporting.sql',
+      currentVersion: '0018_private_practice_notes_and_tags.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0017_admin_reporting.sql',
+      maximumVersion: '0018_private_practice_notes_and_tags.sql',
       ready: true
     });
   });
@@ -138,7 +139,8 @@ describeWithDatabase('repository migrations', () => {
         '0014_no_implicit_identity_linking.sql',
         '0015_channel_locales.sql',
         '0016_whatsapp_onboarding.sql',
-        '0017_admin_reporting.sql'
+        '0017_admin_reporting.sql',
+        '0018_private_practice_notes_and_tags.sql'
       ]);
       expect(
         (
@@ -172,8 +174,8 @@ describeWithDatabase('repository migrations', () => {
         (
           await getMigrationStatus(
             database.pool,
-            '0017_admin_reporting.sql',
-            '0017_admin_reporting.sql'
+            '0018_private_practice_notes_and_tags.sql',
+            '0018_private_practice_notes_and_tags.sql'
           )
         ).ready
       ).toBe(true);
