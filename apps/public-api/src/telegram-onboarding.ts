@@ -3,7 +3,9 @@ import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
 import { renderApplicationPage } from './application-page.js';
-import { renderCheckinPage } from './checkin-page.js';
+import { registerTelegramWorkspace } from './telegram-workspace.js';
+import { telegramWorkspacePaths, type TelegramWorkspacePage } from './telegram-workspace-pages.js';
+import { telegramWorkspaceTexts } from './telegram-workspace-locale.js';
 import { learnerLocale, learnerTexts, localeQuery } from './learner-locale.js';
 import {
   enrichPracticeHistory,
@@ -45,7 +47,11 @@ export interface TelegramOnboardingConfig {
   botToken: string;
   webhookSecret: string;
   regionCode: string;
-  sendMessage?: (chatId: number, text: string) => Promise<void>;
+  sendMessage?: (
+    chatId: number,
+    text: string,
+    buttons?: ReadonlyArray<{ text: string; url: string }>
+  ) => Promise<void>;
 }
 
 export const registerTelegramOnboarding = (
@@ -64,27 +70,37 @@ export const registerTelegramOnboarding = (
       .type('text/html; charset=utf-8')
       .send(renderApplicationPage({ platform: 'telegram', locale: queryLocale(request.query) }))
   );
-  app.get('/telegram/checkin', async (request, reply) =>
-    reply
-      .header('cache-control', 'no-store')
-      .header('referrer-policy', 'no-referrer')
-      .header(
-        'content-security-policy',
-        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-      )
-      .type('text/html; charset=utf-8')
-      .send(renderCheckinPage({ platform: 'telegram', locale: queryLocale(request.query) }))
-  );
+  registerTelegramWorkspace(app, pool);
   const sendMessage =
     config.sendMessage ??
-    (async (chatId: number, text: string) => {
+    (async (
+      chatId: number,
+      text: string,
+      buttons?: ReadonlyArray<{ text: string; url: string }>
+    ) => {
       const response = await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text }),
+        body: JSON.stringify({
+          chat_id: chatId,
+          text,
+          link_preview_options: { is_disabled: true },
+          ...(buttons
+            ? {
+                reply_markup: {
+                  inline_keyboard: buttons.map((button) => [
+                    { text: button.text, web_app: { url: button.url } }
+                  ])
+                }
+              }
+            : {})
+        }),
         signal: AbortSignal.timeout(5000)
       });
       if (!response.ok) throw new Error(`Telegram sendMessage failed: ${response.status}`);
+      const result: unknown = await response.json();
+      if (!result || typeof result !== 'object' || !('ok' in result) || result.ok !== true)
+        throw new Error('Telegram response not accepted');
     });
   app.post('/telegram/onboarding/webhook', { bodyLimit: 32_768 }, async (request, reply) => {
     const incoming = request.headers['x-telegram-bot-api-secret-token'];
@@ -105,10 +121,22 @@ export const registerTelegramOnboarding = (
     ) {
       return { ok: true };
     }
-    const isCheckin = /^\/checkin(?:@\w+)?(?:\s|$)/i.test(message.text ?? '');
+    const workspaceCommand =
+      /^\/(checkin|leaderboard|methods|methodanalysis|achievements|history|mystats|badges)(?:@\w+)?(?:\s|$)/i.exec(
+        message.text ?? ''
+      );
+    const command = workspaceCommand?.[1]?.toLowerCase();
+    const workspacePage: TelegramWorkspacePage =
+      command === 'leaderboard'
+        ? 'leaderboard'
+        : command === 'methods' || command === 'methodanalysis'
+          ? 'methods'
+          : command && command !== 'checkin'
+            ? 'achievements'
+            : 'checkin';
     const languageCommand = /^\/language(?:@\w+)?(?:\s+(\S+))?\s*$/i.exec(message.text ?? '');
     if (
-      !isCheckin &&
+      !workspaceCommand &&
       !languageCommand &&
       !/^\/(start|apply)(?:@\w+)?(?:\s|$)/i.test(message.text ?? '')
     ) {
@@ -151,7 +179,7 @@ export const registerTelegramOnboarding = (
         }
         return { ok: true };
       }
-      if (isCheckin) {
+      if (workspaceCommand) {
         const result = await withRequestContext(
           pool,
           'qigong_api_runtime',
@@ -162,11 +190,22 @@ export const registerTelegramOnboarding = (
               [String(message.from.id), linkToken]
             )
         );
-        const text =
-          result.rows[0]?.status === 'ready'
-            ? `${texts.checkinLink}\nhttps://checkin.baiyinqigong.org/telegram/checkin${localeQuery(locale)}#${linkToken}\n${texts.privateLink}`
-            : texts.notApproved;
-        await sendMessage(message.chat.id, text);
+        if (result.rows[0]?.status !== 'ready') {
+          await sendMessage(message.chat.id, texts.notApproved);
+          return { ok: true };
+        }
+        const labels = telegramWorkspaceTexts(locale);
+        const link = (page: TelegramWorkspacePage) =>
+          `https://checkin.baiyinqigong.org${telegramWorkspacePaths[page]}${localeQuery(locale)}#${linkToken}`;
+        const text = `${workspacePage === 'checkin' ? texts.checkinLink : labels[workspacePage]}\n${link(workspacePage)}\n${texts.privateLink}`;
+        await sendMessage(
+          message.chat.id,
+          text,
+          (Object.keys(telegramWorkspacePaths) as TelegramWorkspacePage[]).map((page) => ({
+            text: labels[page],
+            url: link(page)
+          }))
+        );
         return { ok: true };
       }
       const result = await withRequestContext(
@@ -188,7 +227,7 @@ export const registerTelegramOnboarding = (
       }
       const text =
         status === 'approved'
-          ? texts.approved
+          ? `${texts.approved}\n/leaderboard · /methodanalysis · /achievements`
           : status === 'rejected'
             ? texts.rejected
             : status === 'pending'
@@ -363,6 +402,11 @@ export const registerTelegramOnboarding = (
             parsed.data.checkinId,
             parsed.data
           );
+          await client.query('SELECT platform.queue_telegram_practice_receipt($1,$2,$3)', [
+            parsed.data.token,
+            parsed.data.checkinId,
+            'corrected'
+          ]);
         }
       );
       return reply.header('cache-control', 'no-store').send({ ok: true });
@@ -410,6 +454,11 @@ export const registerTelegramOnboarding = (
             checkin.checkin_id,
             parsed.data
           );
+          await client.query('SELECT platform.queue_telegram_practice_receipt($1,$2,$3)', [
+            parsed.data.token,
+            checkin.checkin_id,
+            checkin.entry_kind
+          ]);
           return result;
         }
       );

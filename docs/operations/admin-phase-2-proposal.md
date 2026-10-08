@@ -2,13 +2,13 @@
 
 ## 狀態與範圍
 
-**目前完成部分已依使用者另行核准，於2026-10-08 部署 release `b271ede`／schema `0018`，維護15秒。新管道啟用仍未核准；其餘第二批功能未完成。** 已新增 `0018_private_practice_notes_and_tags.sql`、三平台心得與感受卡片及提交／更正／歷史整合，文字與 tag 分開儲存、保留私密權限與歷史名稱快照。側欄語言切換亦已部署。管理端心得查詢 SQL／TypeScript helper 已有，但心得／tag 管理頁面與 HTTP 路由、成就模型及授獎 worker 尚未完成。
+**目前完成部分已依使用者另行核准，於2026-10-08 部署 release `b271ede`／schema `0018`，維護15秒。新管道啟用仍未核准；其餘第二批功能未完成。** 已新增 `0018_private_practice_notes_and_tags.sql`、三平台心得與感受卡片及提交／更正／歷史整合，文字與 tag 分開儲存、保留私密權限與歷史名稱快照。側欄語言切換亦已部署。管理端心得查詢 SQL／TypeScript helper 已有，但心得／tag 管理頁面與 HTTP 路由尚未完成。後續使用者核准 Telegram 四個學員頁一起實作：成就模型、耐久評估／reconciliation 已於本機 `0021_telegram_learner_workspace.sql` 完成，尚未提交／部署；管理端成就榜 UI 仍未實作。實際規則、驗證與發佈邊界見 [Telegram workspace](telegram-workspace.md)。
 
 已修正 SQL 三值邏輯：心得查詢的範圍授權必須明確為 `TRUE`，功法資訊可見旗標將 `NULL` 轉為 `false`；跨範圍查詢與私密表 RLS 拒絕均有測試。隔離 PostgreSQL16 的完整 `pnpm verify` **173項通過、無 skip**，含格式、lint、source typecheck 與 build。正式 API schema 最小／最大均為 `0018`，程式 commit／CI 為 `b271ede`／[37739536716](https://github.com/lulu-lovebird/qigong-platform/actions/runs/37739536716)。隔離升級、舊版拒絕新 schema、備份還原及受限 runtime／mock OIDC 演練通過；正式既有36張表資料不變，公開23項檢查通過，受限 env 不變，未送真實測試訊息。正式 tag 目錄目前為空，未自行建立標籤；自由心得可使用。未改歷史 migration、依賴、角色授權或舊 Bot；部署／備份／回復詳見根目錄 `Handoff.md`。
 
 來源為 `/Users/myhsu/Devel/qigong-line-bot` 當前工作目錄，HEAD `7bcd85c`；未 fetch／核對遠端或正式舊站。保留該 repo 既有未提交的文件變更。以下區分舊站實際行為與新平台建議，不把程式存在誤認為真實帳號驗收完成。
 
-**後續版本號註記：** `0019_admin_access_approval.sql` 已部署管理員分級審核（見 `admin-access.md`）；授權名單、編輯及全部撤銷已核准部署 `0020_admin_grant_management.sql`（程式4a0237e／2026-10-08，操作驗證及還原紀錄見交接文件）（見 `admin-grant-management.md`）。下列未實作的徽章 migration 規劃接續 `0021`，不覆寫 `0019` 或 `0020`。
+**後續版本號註記：** `0019_admin_access_approval.sql` 已部署管理員分級審核（見 `admin-access.md`）；授權名單、編輯及全部撤銷已核准部署 `0020_admin_grant_management.sql`（程式4a0237e／2026-10-08，操作驗證及還原紀錄見交接文件）（見 `admin-grant-management.md`）。徽章與 Telegram 學員 workspace 已在本機使用保留的 `0021`（未部署），下一份新 migration 應接續 `0022`；不覆寫 `0019`、`0020` 或已實作的 `0021`。
 
 ## 舊站功能核對
 
@@ -66,7 +66,7 @@
 - 打卡／更正交易記錄重算工作，獨立、可重試的評估 worker 處理；原子更新授獎與耐久通知意圖。定期 reconciliation 捕捉已結束活動／漏跑工作，不直接複用通知 worker 的外部發送交易作授獎引擎。
 - 是否通知新徽章另行確認；模板／通知同意／服務窗口要按各管道規則，不自動新增 WhatsApp 模板或啟用未配置 sender。
 
-## 建議實作分批與檔案範圍（未執行）
+## 原建議實作分批與檔案範圍（部分已實作；目前狀態見上）
 
 1. **心得＋tag 基礎**：新的 `0018` migration（確切名稱／schema 契約待核准），獨立 RLS／受限寫入與讀取函式；新增 `practice-notes.ts`、`practice-feeling-tags.ts` 及測試。改共用 `checkin-page.ts`、`learner-locale.ts`，三管道 onboarding 的 methods／history／submit／correct 契約；補不帶新欄位的舊 client 相容測試。
 2. **心得後台／tag 管理**：新增 `admin-journal.ts`、`admin-feeling-tags.ts` 與測試；改 `admin-auth.ts`、`admin-dashboard.ts`、`admin-locale.ts` 的導航／權限／文案。一般 `admin-reporting.ts` 不混入私密資料，個人心得走獨立授權請求。

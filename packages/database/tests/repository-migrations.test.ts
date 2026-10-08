@@ -36,7 +36,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0020_admin_grant_management.sql'
+      '0021_telegram_learner_workspace.sql'
     );
 
     expect(first.applied).toEqual([
@@ -59,13 +59,14 @@ describeWithDatabase('repository migrations', () => {
       '0017_admin_reporting.sql',
       '0018_private_practice_notes_and_tags.sql',
       '0019_admin_access_approval.sql',
-      '0020_admin_grant_management.sql'
+      '0020_admin_grant_management.sql',
+      '0021_telegram_learner_workspace.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0020_admin_grant_management.sql',
+      currentVersion: '0021_telegram_learner_workspace.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0020_admin_grant_management.sql',
+      maximumVersion: '0021_telegram_learner_workspace.sql',
       ready: true
     });
   });
@@ -144,7 +145,8 @@ describeWithDatabase('repository migrations', () => {
         '0017_admin_reporting.sql',
         '0018_private_practice_notes_and_tags.sql',
         '0019_admin_access_approval.sql',
-        '0020_admin_grant_management.sql'
+        '0020_admin_grant_management.sql',
+        '0021_telegram_learner_workspace.sql'
       ]);
       expect(
         (
@@ -178,14 +180,76 @@ describeWithDatabase('repository migrations', () => {
         (
           await getMigrationStatus(
             database.pool,
-            '0020_admin_grant_management.sql',
-            '0020_admin_grant_management.sql'
+            '0021_telegram_learner_workspace.sql',
+            '0021_telegram_learner_workspace.sql'
           )
         ).ready
       ).toBe(true);
     } finally {
       await database.dispose();
       await rm(legacyDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it('upgrades 0020 without changing existing application tables and rejects the old schema contract', async () => {
+    const previous = await mkdtemp(path.join(tmpdir(), 'qigong-workspace-upgrade-'));
+    try {
+      const files = (await readdir(migrationsDirectory)).filter(
+        (file) => /^\d{4}_.+\.sql$/.test(file) && file < '0021_'
+      );
+      await Promise.all(
+        files.map((file) =>
+          copyFile(path.join(migrationsDirectory, file), path.join(previous, file))
+        )
+      );
+      await runMigrations(pool, previous, 'workspace-old');
+      await pool.query(
+        "INSERT INTO identity.people(preferred_name,practice_timezone) VALUES('Preserved learner','UTC')"
+      );
+      const tables = (
+        await pool.query<{ schema: string; name: string }>(
+          "SELECT schemaname AS schema,tablename AS name FROM pg_tables WHERE schemaname IN ('identity','core','platform','ops','admin','audit','reporting') AND NOT (schemaname='core' AND tablename='platform_metadata') ORDER BY schemaname,tablename"
+        )
+      ).rows;
+      const fingerprint = async (schema: string, name: string) =>
+        (
+          await pool.query<{ digest: string }>(
+            `SELECT md5(coalesce(jsonb_agg(data ORDER BY data::text)::text,'')) digest FROM (SELECT to_jsonb(t) data FROM ${schema}.${name} t) records`
+          )
+        ).rows[0]!.digest;
+      const before = await Promise.all(
+        tables.map((table) => fingerprint(table.schema, table.name))
+      );
+      expect((await runMigrations(pool, migrationsDirectory, 'workspace-new')).applied).toEqual([
+        '0021_telegram_learner_workspace.sql'
+      ]);
+      expect(
+        await Promise.all(tables.map((table) => fingerprint(table.schema, table.name)))
+      ).toEqual(before);
+      expect(
+        (
+          await getMigrationStatus(
+            pool,
+            '0020_admin_grant_management.sql',
+            '0020_admin_grant_management.sql'
+          )
+        ).ready
+      ).toBe(false);
+      expect(
+        (
+          await getMigrationStatus(
+            pool,
+            '0021_telegram_learner_workspace.sql',
+            '0021_telegram_learner_workspace.sql'
+          )
+        ).ready
+      ).toBe(true);
+      expect((await runMigrations(pool, migrationsDirectory, 'workspace-repeat')).applied).toEqual(
+        []
+      );
+      expect((await pool.query('SELECT * FROM ops.practice_badge_jobs')).rowCount).toBe(1);
+    } finally {
+      await rm(previous, { recursive: true, force: true });
     }
   });
 });
