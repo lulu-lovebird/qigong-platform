@@ -2,6 +2,12 @@ import type { AdminLocale } from './admin-locale.js';
 const en = {
   active: 'Active',
   authorized: 'Authorized users',
+  reviewRequests: 'Review administrator requests',
+  reviewRequestsHelp:
+    'Review submitted administrator access requests awaiting approval, and approve or reject them. This is not learner enrollment review.',
+  manageGrants: 'Manage existing access',
+  manageGrantsHelp:
+    'View administrators with existing grants, including preconfigured accounts. Adjust roles, regions or remove access within your authority. Grants may be ineffective when an account is suspended.',
   edit: 'Edit authorization',
   saveEdit: 'Save authorization',
   revokeAll: 'Remove all administrative access',
@@ -76,6 +82,12 @@ const en = {
   required: 'Select a role and valid scope, and enter a reason.',
   switchConfirm:
     'Switch language? Unsubmitted access edits will be discarded. No decision will be submitted.',
+  listSwitchConfirm:
+    'Switch account lists? Unsaved access settings will be discarded. No access change will be submitted.',
+  pageSwitchConfirm:
+    'Switch pages? Unsaved access settings will be discarded. No access change will be submitted.',
+  reloadConfirm:
+    'Refresh? Unsaved access settings will be discarded. No access change will be submitted.',
   self: 'Your own grants cannot be changed here.',
   inactive: 'Inactive',
   count: 'Accounts',
@@ -89,6 +101,11 @@ const en = {
 const zh: Record<keyof typeof en, string> = {
   active: '有效',
   authorized: '已授權使用者',
+  reviewRequests: '審核管理員申請',
+  reviewRequestsHelp: '查看已送出、尚未核准的管理權限申請，進行核准或拒絕。此處不是學員報名審核。',
+  manageGrants: '管理現有授權',
+  manageGrantsHelp:
+    '查看已有授權的管理員，依您的權限調整角色、地區或移除權限；包含預先配置的帳號。帳號停用時，授權不一定有效。',
   edit: '編輯授權',
   saveEdit: '儲存授權',
   revokeAll: '移除全部管理權限',
@@ -159,6 +176,9 @@ const zh: Record<keyof typeof en, string> = {
   saved: '已儲存；受影響帳號需重新登入。',
   required: '請選擇角色及有效範圍，並填寫理由。',
   switchConfirm: '切換語言將清除未送出的權限設定；不會自動提交審核。',
+  listSwitchConfirm: '切換名單將清除未儲存的權限設定，是否繼續？不會自動提交權限異動。',
+  pageSwitchConfirm: '切換頁碼將清除未儲存的權限設定，是否繼續？不會自動提交權限異動。',
+  reloadConfirm: '重新載入將清除未儲存的權限設定，是否繼續？不會自動提交權限異動。',
   self: '無法在此修改自己的授權。',
   inactive: '已失效',
   count: '帳號數',

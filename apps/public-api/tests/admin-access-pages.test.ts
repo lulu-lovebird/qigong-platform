@@ -3,7 +3,7 @@ import { setImmediate } from 'node:timers/promises';
 import { describe, expect, it, vi } from 'vitest';
 import { renderAdminAccessPage, renderAccessPendingPage } from '../src/admin-access-pages.js';
 import { adminAccessTexts } from '../src/admin-access-locale.js';
-import type { AdminLocale } from '../src/admin-locale.js';
+import { adminTexts, type AdminLocale } from '../src/admin-locale.js';
 type Handler = (event: { preventDefault: () => void }) => unknown;
 interface Node {
   tag: string;
@@ -74,7 +74,8 @@ const fixture = (
   kind: 'pending' | 'manage',
   locale: AdminLocale,
   state = 'draft',
-  authority: 'super' | 'master' | 'protected' = 'super'
+  authority: 'super' | 'master' | 'protected' = 'super',
+  options: { total?: number; url?: string } = {}
 ) => {
   const fields = new Map<string, Node>();
   for (const m of html.matchAll(/id="([^"]+)"/g)) fields.set(m[1]!, node());
@@ -99,7 +100,7 @@ const fixture = (
     if (path.includes('/access/accounts?') && !init?.method)
       data = {
         page: 1,
-        total: 1,
+        total: options.total ?? 1,
         entries: [
           {
             principalId: applicant,
@@ -154,8 +155,13 @@ const fixture = (
   });
   const confirmMock = vi.fn<(message: string) => boolean>(() => true);
   const location = {
-    href: 'https://platform.example/admin/administrators?lang=' + locale,
+    href: options.url ?? 'https://platform.example/admin/administrators?lang=' + locale,
     assign: vi.fn()
+  };
+  const history = {
+    replaceState: vi.fn((_state: unknown, _title: string, url: string | URL) => {
+      location.href = new URL(url, location.href).href;
+    })
   };
   const source = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
   if (!source) throw new Error('No inline script');
@@ -163,6 +169,7 @@ const fixture = (
     fetch: fetchMock,
     URL,
     location,
+    history,
     confirm: confirmMock,
     document: {
       cookie: '__Host-qigong-admin-csrf=csrf-test',
@@ -173,7 +180,7 @@ const fixture = (
       }
     }
   });
-  return { fields, fetchMock, location, tags, kind, confirmMock };
+  return { fields, fetchMock, location, history, tags, kind, confirmMock };
 };
 const event = (n: Node, type: string) => n.listeners.get(type)?.({ preventDefault: () => {} });
 const body = (request: RequestInit | undefined): unknown => {
@@ -181,6 +188,31 @@ const body = (request: RequestInit | undefined): unknown => {
   return JSON.parse(request.body);
 };
 describe('administrator access generated browser behavior', () => {
+  it.each(['zh_TW', 'en'] as const)(
+    'explains the distinct %s administrator review and existing-access workflows without renaming statuses',
+    (locale) => {
+      const html = renderAdminAccessPage(locale);
+      const ui = adminAccessTexts(locale);
+      expect(html).toContain(
+        `id="show-pending" aria-describedby="pending-purpose">${ui.reviewRequests}</button>`
+      );
+      expect(html).toContain(`<p id="pending-purpose">${ui.reviewRequestsHelp}</p>`);
+      expect(html).toContain(
+        `id="show-authorized" aria-describedby="authorized-purpose">${ui.manageGrants}</button>`
+      );
+      expect(html).toContain(`<p id="authorized-purpose">${ui.manageGrantsHelp}</p>`);
+      expect(html).toContain(`<option value="pending">${ui.pending}</option>`);
+      expect(html).toContain(`<option value="authorized">${ui.authorized}</option>`);
+      expect(html).toContain(ui.manageIntro);
+      expect(ui.reviewRequestsHelp).toContain(
+        locale === 'en' ? 'not learner enrollment review' : '不是學員報名審核'
+      );
+      expect(ui.manageGrantsHelp).toContain(
+        locale === 'en' ? 'preconfigured accounts' : '預先配置的帳號'
+      );
+      expect(ui.manageGrantsHelp).toContain(locale === 'en' ? 'ineffective' : '不一定有效');
+    }
+  );
   it.each(['zh_TW', 'en'] as const)(
     'renders %s data as text and submits global private-read scope without region or cohort fields',
     async (locale) => {
@@ -369,6 +401,240 @@ describe('administrator access generated browser behavior', () => {
       expect(
         f.confirmMock.mock.calls.some(([message]) => String(message).includes(ui.revokeAllConfirm))
       ).toBe(true);
+    }
+  );
+  it.each(['zh_TW', 'en'] as const)(
+    'switches lists, filters, pages and refreshes without prompting for untouched %s forms',
+    async (locale) => {
+      const f = fixture(renderAdminAccessPage(locale), 'manage', locale, 'granted', 'super', {
+        total: 41
+      });
+      await settle();
+      const ui = adminAccessTexts(locale);
+      const originalCard = f.fields.get('accounts')!.children[0];
+      event(f.fields.get('show-pending')!, 'click');
+      event(f.fields.get('previous')!, 'click');
+      expect(f.fields.get('accounts')!.children[0]).toBe(originalCard);
+      event(
+        descendants(f.fields.get('accounts')!).find(
+          (n) => n.tag === 'button' && n.textContent === ui.edit
+        )!,
+        'click'
+      );
+      event(f.fields.get('show-authorized')!, 'click');
+      await settle();
+      event(f.fields.get('next')!, 'click');
+      await settle();
+      expect(new URL(f.location.href).searchParams.get('page')).toBe('2');
+      event(f.fields.get('previous')!, 'click');
+      await settle();
+      f.fields.get('access-filter')!.value = 'approved';
+      event(f.fields.get('filter')!, 'submit');
+      await settle();
+      event(f.fields.get('filter')!, 'submit');
+      await settle();
+      event(f.fields.get('show-pending')!, 'click');
+      await settle();
+      expect(f.confirmMock).not.toHaveBeenCalled();
+      expect(f.fetchMock.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
+      expect(new URL(f.location.href).searchParams.get('lang')).toBe(locale);
+      expect(f.location.assign).not.toHaveBeenCalled();
+    }
+  );
+  it.each(['zh_TW', 'en'] as const)(
+    'preserves unsaved %s values, applied filters, page and URL when navigation is cancelled',
+    async (locale) => {
+      const ui = adminAccessTexts(locale);
+      const actions = [
+        ['show-authorized', 'click', ui.listSwitchConfirm, false],
+        ['filter', 'submit', ui.listSwitchConfirm, true],
+        ['filter', 'submit', ui.reloadConfirm, false],
+        ['next', 'click', ui.pageSwitchConfirm, false],
+        ['previous', 'click', ui.pageSwitchConfirm, false]
+      ] as const;
+      for (const [id, type, message, changeFilter] of actions) {
+        const f = fixture(renderAdminAccessPage(locale), 'manage', locale, 'draft', 'super', {
+          total: 81,
+          url:
+            'https://platform.example/admin/administrators?lang=' +
+            locale +
+            '&status=pending&page=2'
+        });
+        await settle();
+        const card = f.fields.get('accounts')!.children[0];
+        const reason = descendants(f.fields.get('accounts')!).find((n) => n.tag === 'input')!;
+        reason.value = '未送出的理由';
+        if (changeFilter) f.fields.get('access-filter')!.value = 'authorized';
+        const href = f.location.href;
+        const calls = f.fetchMock.mock.calls.length;
+        const updates = f.history.replaceState.mock.calls.length;
+        f.confirmMock.mockReturnValue(false);
+        event(f.fields.get(id)!, type);
+        await settle();
+        expect(f.confirmMock).toHaveBeenCalledExactlyOnceWith(message);
+        expect(message).not.toBe(ui.switchConfirm);
+        expect(f.fields.get('accounts')!.children[0]).toBe(card);
+        expect(reason.value).toBe('未送出的理由');
+        expect(f.fields.get('access-filter')!.value).toBe('pending');
+        expect(f.location.href).toBe(href);
+        expect(f.fetchMock).toHaveBeenCalledTimes(calls);
+        expect(f.history.replaceState).toHaveBeenCalledTimes(updates);
+      }
+    }
+  );
+  it.each(['zh_TW', 'en'] as const)(
+    'discards confirmed %s edits on list, filter, page or reload without submitting changes',
+    async (locale) => {
+      const ui = adminAccessTexts(locale);
+      const actions = [
+        ['show-authorized', 'click', ui.listSwitchConfirm, false],
+        ['filter', 'submit', ui.listSwitchConfirm, true],
+        ['filter', 'submit', ui.reloadConfirm, false],
+        ['next', 'click', ui.pageSwitchConfirm, false]
+      ] as const;
+      for (const [id, type, message, changeFilter] of actions) {
+        const f = fixture(renderAdminAccessPage(locale), 'manage', locale, 'draft', 'super', {
+          total: 41
+        });
+        await settle();
+        descendants(f.fields.get('accounts')!).find((n) => n.tag === 'input')!.value = '未送出';
+        if (changeFilter) f.fields.get('access-filter')!.value = 'authorized';
+        event(f.fields.get(id)!, type);
+        await settle();
+        expect(f.confirmMock).toHaveBeenCalledExactlyOnceWith(message);
+        expect(descendants(f.fields.get('accounts')!).find((n) => n.tag === 'input')!.value).toBe(
+          ''
+        );
+        expect(f.fetchMock.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
+        f.confirmMock.mockClear();
+        event(f.fields.get('filter')!, 'submit');
+        await settle();
+        expect(f.confirmMock).not.toHaveBeenCalled();
+      }
+    }
+  );
+  it.each(['zh_TW', 'en'] as const)(
+    'tracks %s role, scope, review, single removal and all-removal edits independently',
+    async (locale) => {
+      const ui = adminAccessTexts(locale);
+      for (const state of ['draft', 'granted']) {
+        const initial = fixture(renderAdminAccessPage(locale), 'manage', locale, state);
+        await settle();
+        const editable = descendants(initial.fields.get('accounts')!).filter(
+          (n) => n.tag === 'select' || n.tag === 'input'
+        );
+        for (let index = 0; index < editable.length; index++) {
+          const f = fixture(renderAdminAccessPage(locale), 'manage', locale, state);
+          await settle();
+          const field = descendants(f.fields.get('accounts')!).filter(
+            (n) => n.tag === 'select' || n.tag === 'input'
+          )[index]!;
+          const baseline = field.value;
+          field.value =
+            field.tag === 'input'
+              ? '異動理由'
+              : field.attributes['aria-label'] === ui.role
+                ? 'global_viewer'
+                : region === baseline
+                  ? ''
+                  : region;
+          f.confirmMock.mockReturnValue(false);
+          event(f.fields.get('show-authorized')!, 'click');
+          await settle();
+          expect(f.confirmMock).toHaveBeenCalledExactlyOnceWith(ui.listSwitchConfirm);
+          field.value = baseline;
+          f.confirmMock.mockClear();
+          event(f.fields.get('show-authorized')!, 'click');
+          await settle();
+          expect(f.confirmMock).not.toHaveBeenCalled();
+          expect(f.fields.get('show-authorized')!.attributes['aria-pressed']).toBe('true');
+        }
+      }
+    }
+  );
+  it.each(['zh_TW', 'en'] as const)(
+    'keeps unsaved %s grant edits after a failed save and clears tracking after a successful save',
+    async (locale) => {
+      const f = fixture(renderAdminAccessPage(locale), 'manage', locale, 'granted');
+      await settle();
+      const ui = adminAccessTexts(locale);
+      const editor = descendants(f.fields.get('accounts')!).find((n) => n.tag === 'fieldset')!;
+      const reason = descendants(editor).find((n) => n.tag === 'input')!;
+      reason.value = '異動理由';
+      const save = descendants(editor).find(
+        (n) => n.tag === 'button' && n.textContent === ui.saveEdit
+      )!;
+      f.fetchMock.mockResolvedValueOnce(new Response('{}', { status: 400 }));
+      event(save, 'click');
+      await settle();
+      expect(f.fields.get('status')!.textContent).toBe(ui.failed);
+      f.confirmMock.mockClear();
+      f.confirmMock.mockReturnValueOnce(false);
+      event(f.fields.get('show-authorized')!, 'click');
+      await settle();
+      expect(f.confirmMock).toHaveBeenCalledExactlyOnceWith(ui.listSwitchConfirm);
+      expect(reason.value).toBe('異動理由');
+      event(save, 'click');
+      await settle();
+      f.confirmMock.mockClear();
+      event(f.fields.get('show-authorized')!, 'click');
+      await settle();
+      expect(f.confirmMock).not.toHaveBeenCalled();
+    }
+  );
+  it.each(['zh_TW', 'en'] as const)(
+    'retains the distinct %s language confirmation and cancels without sending access changes',
+    async (locale) => {
+      const f = fixture(renderAdminAccessPage(locale), 'manage', locale);
+      await settle();
+      descendants(f.fields.get('accounts')!).find((n) => n.tag === 'input')!.value = '未送出';
+      const language = f.fields.get('admin-language')!;
+      language.value = locale === 'en' ? 'zh_TW' : 'en';
+      f.confirmMock.mockReturnValue(false);
+      event(language, 'change');
+      expect(f.confirmMock).toHaveBeenCalledExactlyOnceWith(adminTexts(locale).accessSwitchConfirm);
+      expect(language.value).toBe(locale);
+      expect(f.location.assign).not.toHaveBeenCalled();
+      expect(f.fetchMock.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
+    }
+  );
+  it.each(['zh_TW', 'en'] as const)(
+    'refreshes pristine %s pending requests silently, protects changed values and uses language-specific warnings',
+    async (locale) => {
+      const f = fixture(renderAccessPendingPage(locale), 'pending', locale);
+      await settle();
+      const ui = adminAccessTexts(locale);
+      event(f.fields.get('refresh')!, 'click');
+      await settle();
+      expect(f.confirmMock).not.toHaveBeenCalled();
+      for (const id of ['role', 'scope', 'reason']) {
+        const field = f.fields.get(id)!;
+        const baseline = field.value;
+        field.value = id === 'role' ? 'coach_admin' : '未送出';
+        const calls = f.fetchMock.mock.calls.length;
+        f.confirmMock.mockReturnValue(false);
+        event(f.fields.get('refresh')!, 'click');
+        await settle();
+        expect(f.confirmMock).toHaveBeenLastCalledWith(ui.reloadConfirm);
+        expect(f.fetchMock).toHaveBeenCalledTimes(calls);
+        field.value = baseline;
+      }
+      f.fields.get('reason')!.value = '未送出';
+      const language = f.fields.get('pending-language')!;
+      language.value = locale === 'en' ? 'zh_TW' : 'en';
+      event(language, 'change');
+      expect(f.confirmMock).toHaveBeenLastCalledWith(ui.switchConfirm);
+      expect(language.value).toBe(locale);
+      expect(f.location.assign).not.toHaveBeenCalled();
+      f.confirmMock.mockReturnValue(true);
+      event(f.fields.get('refresh')!, 'click');
+      await settle();
+      expect(f.fields.get('reason')!.value).toBe('');
+      f.confirmMock.mockClear();
+      event(f.fields.get('refresh')!, 'click');
+      await settle();
+      expect(f.confirmMock).not.toHaveBeenCalled();
+      expect(f.fetchMock.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
     }
   );
   it('approved pending accounts see a fresh-login action rather than an editable form or automatic privilege switch', async () => {
