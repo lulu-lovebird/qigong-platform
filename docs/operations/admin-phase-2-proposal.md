@@ -2,9 +2,9 @@
 
 ## 狀態與範圍
 
-**方案已獲使用者確認實作，並另核准提交、推送及短暫停機部署目前完成部分；正在發布準備，尚未驗證正式部署成功。新管道啟用仍未核准。** 已新增 `0018_private_practice_notes_and_tags.sql`、三平台心得與感受卡片及提交／更正／歷史整合，文字與 tag 分開儲存、保留私密權限與歷史名稱快照。側欄語言切換亦僅完成於本機。管理端心得查詢 SQL／TypeScript helper 已有，但心得／tag 管理頁面與 HTTP 路由、成就模型及授獎 worker 尚未完成。
+**目前完成部分已依使用者另行核准，於2026-10-08 部署 release `b271ede`／schema `0018`，維護15秒。新管道啟用仍未核准；其餘第二批功能未完成。** 已新增 `0018_private_practice_notes_and_tags.sql`、三平台心得與感受卡片及提交／更正／歷史整合，文字與 tag 分開儲存、保留私密權限與歷史名稱快照。側欄語言切換亦已部署。管理端心得查詢 SQL／TypeScript helper 已有，但心得／tag 管理頁面與 HTTP 路由、成就模型及授獎 worker 尚未完成。
 
-已修正 SQL 三值邏輯：心得查詢的範圍授權必須明確為 `TRUE`，功法資訊可見旗標將 `NULL` 轉為 `false`；跨範圍查詢與私密表 RLS 拒絕均有測試。隔離 PostgreSQL16 的完整 `pnpm verify` **173項通過、無 skip**，含格式、lint、source typecheck 與 build。本機候選 API schema 最小／最大均為 `0018`；正式 release 仍為 `269555c`／schema `0017`。未改歷史 migration、依賴、正式設定或舊 Bot。
+已修正 SQL 三值邏輯：心得查詢的範圍授權必須明確為 `TRUE`，功法資訊可見旗標將 `NULL` 轉為 `false`；跨範圍查詢與私密表 RLS 拒絕均有測試。隔離 PostgreSQL16 的完整 `pnpm verify` **173項通過、無 skip**，含格式、lint、source typecheck 與 build。正式 API schema 最小／最大均為 `0018`，程式 commit／CI 為 `b271ede`／[37739536716](https://github.com/lulu-lovebird/qigong-platform/actions/runs/37739536716)。隔離升級、舊版拒絕新 schema、備份還原及受限 runtime／mock OIDC 演練通過；正式既有36張表資料不變，公開23項檢查通過，受限 env 不變，未送真實測試訊息。正式 tag 目錄目前為空，未自行建立標籤；自由心得可使用。未改歷史 migration、依賴、角色授權或舊 Bot；部署／備份／回復詳見根目錄 `Handoff.md`。
 
 來源為 `/Users/myhsu/Devel/qigong-line-bot` 當前工作目錄，HEAD `7bcd85c`；未 fetch／核對遠端或正式舊站。保留該 repo 既有未提交的文件變更。以下區分舊站實際行為與新平台建議，不把程式存在誤認為真實帳號驗收完成。
 
