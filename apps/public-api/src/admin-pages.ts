@@ -1,7 +1,7 @@
 import { renderAdminShell } from './admin-dashboard.js';
 import { adminLocaleScript, adminTexts, type AdminLocale } from './admin-locale.js';
 
-export const renderReviewPage = (locale: AdminLocale = 'zh_TW') => {
+export const renderReviewPage = (locale: AdminLocale = 'zh_TW', canManageAdmins = false) => {
   const text = adminTexts(locale);
   return renderAdminShell(
     'review',
@@ -111,7 +111,8 @@ export const renderReviewPage = (locale: AdminLocale = 'zh_TW') => {
     }
     load().catch(error => { status.textContent = localizedFailure(error,t.applicationsFailed); });
 `,
-    locale
+    locale,
+    canManageAdmins
   );
 };
 

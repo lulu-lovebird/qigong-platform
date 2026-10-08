@@ -174,7 +174,7 @@ const mockResponse = (url: string): Response => {
   return Response.json({ error: 'unknown' }, { status: 400 });
 };
 const fixture = (
-  page: AdminPage,
+  page: Exclude<AdminPage, 'access'>,
   search = '',
   fetchImpl?: typeof fetch,
   locale: AdminLocale = 'zh_TW',
@@ -260,18 +260,16 @@ describe('administrator language navigation placement', () => {
     expect(languages).toBeGreaterThan(sidebar.indexOf('class="brand"'));
     expect(languages).toBeLessThan(sidebar.indexOf('<nav'));
     expect(sidebar.indexOf('</div>', languages)).toBeLessThan(sidebar.indexOf('<nav'));
-    for (const [id, selected] of [
-      ['language-zh-TW', locale === 'zh_TW'],
-      ['language-en', locale === 'en']
-    ] as const) {
-      expect(html.match(new RegExp('id="' + id + '"', 'g'))).toHaveLength(1);
-      expect(sidebar).toMatch(new RegExp('id="' + id + '"[^>]*aria-pressed="' + selected + '"'));
-      expect(header).not.toContain(id);
-    }
+    expect(sidebar).toContain('id="admin-language"');
+    expect(sidebar).toContain(
+      'value="' + locale + '" lang="' + (locale === 'en' ? 'en' : 'zh-Hant') + '" selected'
+    );
+    expect(html.match(/id="admin-language"/g)).toHaveLength(1);
+    expect(sidebar.indexOf('id="logout"')).toBeGreaterThan(sidebar.indexOf('</nav>'));
     expect(header).not.toContain('class="languages"');
-    expect(header).toContain('id="logout"');
+    expect(header).not.toContain('id="logout"');
     expect(html).toContain('@media(max-width:760px)');
-    expect(html).toContain('.sidebar .languages button:focus-visible');
+    expect(html).toContain('.sidebar .languages select:focus-visible');
   });
 });
 
@@ -282,7 +280,7 @@ describe('ported administrator interface generated scripts', () => {
       const page = fixture(mode, '?lang=en&personId=' + personId, undefined, 'en');
       await settle();
       expect(page.html).toContain('<html lang="en">');
-      expect(page.html).toContain('id="language-en"');
+      expect(page.html).toContain('id="admin-language"');
       expect(page.html).toContain('Interface language');
       const labels = {
         overview: 'Check-in person-days',
@@ -344,7 +342,8 @@ describe('ported administrator interface generated scripts', () => {
       personId;
     const page = fixture('overview', search);
     await settle();
-    dispatch(page.fields.get('language-en')!, 'click');
+    page.fields.get('admin-language')!.value = 'en';
+    dispatch(page.fields.get('admin-language')!, 'change');
     const target = new URL(page.location.assign.mock.calls[0]![0], 'https://test.example');
     for (const [key, value] of new URLSearchParams(search))
       expect(target.searchParams.get(key)).toBe(key === 'lang' ? 'en' : value);
@@ -354,6 +353,16 @@ describe('ported administrator interface generated scripts', () => {
       adminLocaleCookie + '=en; Path=/; Max-Age=31536000; Secure; SameSite=Lax'
     ]);
     expect(page.fetchMock.mock.calls.every((call) => call[1]?.method !== 'POST')).toBe(true);
+  });
+  it('ignores unchanged or forged dropdown values without writing cookies or submitting decisions', async () => {
+    const page = fixture('overview');
+    await settle();
+    dispatch(page.fields.get('admin-language')!, 'change');
+    page.fields.get('admin-language')!.value = 'unexpected';
+    dispatch(page.fields.get('admin-language')!, 'change');
+    expect(page.fields.get('admin-language')!.value).toBe('zh_TW');
+    expect(page.cookieWrites).toEqual([]);
+    expect(page.location.assign).not.toHaveBeenCalled();
   });
   it('confirms English review language changes without auto-submitting selections or rejection reasons', async () => {
     const page = fixture('review', '?lang=en', undefined, 'en');
@@ -371,7 +380,8 @@ describe('ported administrator interface generated scripts', () => {
       (node) => node.tag === 'input' && node.attributes['aria-label'] === 'Rejection reason'
     )!;
     reason.value = '未送出的理由';
-    dispatch(page.fields.get('language-zh-TW')!, 'click');
+    page.fields.get('admin-language')!.value = 'zh_TW';
+    dispatch(page.fields.get('admin-language')!, 'change');
     expect(page.confirmMock).toHaveBeenCalledWith(
       expect.stringContaining('No review decisions will be submitted')
     );
@@ -383,7 +393,9 @@ describe('ported administrator interface generated scripts', () => {
     await settle();
     page.fields.get('select-all')!.checked = true;
     dispatch(page.fields.get('select-all')!, 'change');
-    dispatch(page.fields.get('language-zh-TW')!, 'click');
+    page.fields.get('admin-language')!.value = 'zh_TW';
+    dispatch(page.fields.get('admin-language')!, 'change');
+    expect(page.fields.get('admin-language')!.value).toBe('en');
     expect(page.fields.get('approve-selected')!.textContent).toBe('Approve selected (1)');
     expect(page.location.assign).not.toHaveBeenCalled();
     expect(page.cookieWrites).toEqual([]);

@@ -2,6 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
+import { accessCookie, registerAdminAccessRoutes } from './admin-access.js';
 import { renderReviewPage } from './admin-pages.js';
 import {
   adminLocaleCookie,
@@ -24,7 +25,7 @@ export interface AdminAuthProvider {
     verifier: string,
     state: string,
     nonce: string
-  ): Promise<{ iss: string; sub: string }>;
+  ): Promise<{ iss: string; sub: string; name?: string; verifiedEmail?: string }>;
   callbackUrl: string;
 }
 
@@ -104,18 +105,49 @@ export const registerAdminRoutes = (
             claims.sub
           ])
       );
-      if (!allowed.rows[0]?.allowed)
-        return reply.code(403).send({ error: 'administrator_not_provisioned' });
       const csrf = token();
+      if (!allowed.rows[0]?.allowed) {
+        const pending = token();
+        const registered = await withRequestContext(
+          pool,
+          'qigong_api_runtime',
+          { requestId: request.id },
+          (client) =>
+            client.query<{ allowed: boolean }>(
+              'SELECT admin.begin_access_login($1,$2,$3,$4,$5) allowed',
+              [pending, claims.iss, claims.sub, claims.name ?? null, claims.verifiedEmail ?? null]
+            )
+        );
+        if (!registered.rows[0]?.allowed)
+          return reply
+            .code(403)
+            .header('set-cookie', [
+              clearCookie(stateCookie),
+              clearCookie(sessionCookie),
+              clearCookie(accessCookie),
+              clearCookie(csrfCookie)
+            ])
+            .send({ error: 'administrator_unavailable' });
+        return reply
+          .header('set-cookie', [
+            clearCookie(stateCookie),
+            clearCookie(sessionCookie),
+            cookie(accessCookie, pending, 28800),
+            cookie(csrfCookie, csrf, 28800, false)
+          ])
+          .header('cache-control', 'no-store')
+          .redirect('/admin/access');
+      }
       return reply
         .header('set-cookie', [
           clearCookie(stateCookie),
+          clearCookie(accessCookie),
           cookie(sessionCookie, session, 28800),
           cookie(csrfCookie, csrf, 28800, false)
         ])
         .redirect('/admin/');
-    } catch (error) {
-      app.log.warn({ err: error }, 'admin OIDC callback rejected');
+    } catch {
+      app.log.warn({ requestId: request.id }, 'admin OIDC callback rejected');
       return reply.code(400).send({ error: 'invalid_login_callback' });
     }
   });
@@ -139,7 +171,13 @@ export const registerAdminRoutes = (
   app.get('/admin/auth/me', async (request, reply) => {
     const principalId = await principalFor(request);
     if (!principalId) return reply.code(401).send({ error: 'unauthenticated' });
-    return { principalId };
+    const result = await withRequestContext(
+      pool,
+      'qigong_api_runtime',
+      { requestId: request.id, principalId },
+      (c) => c.query<{ allowed: boolean }>('SELECT admin.can_manage_admin_access() allowed')
+    );
+    return { principalId, canManageAdmins: result.rows[0]?.allowed === true };
   });
 
   app.get('/admin', async (request, reply) =>
@@ -157,8 +195,14 @@ export const registerAdminRoutes = (
       const principalId = await principalFor(request);
       if (!principalId)
         return reply.header('cache-control', 'no-store').redirect('/admin/auth/login');
+      const management = await withRequestContext(
+        pool,
+        'qigong_api_runtime',
+        { requestId: request.id, principalId },
+        (c) => c.query<{ allowed: boolean }>('SELECT admin.can_manage_admin_access() allowed')
+      );
       let html: string;
-      if (page === 'review') html = renderReviewPage(locale);
+      if (page === 'review') html = renderReviewPage(locale, management.rows[0]?.allowed === true);
       else {
         const permission = await withRequestContext(
           pool,
@@ -169,7 +213,8 @@ export const registerAdminRoutes = (
               "SELECT admin.has_permission('stats.read') AND admin.has_permission('learner.read') AND admin.has_permission('checkin.read') AS allowed"
             )
         );
-        if (permission.rows[0]?.allowed) html = renderAdminDashboard(page, locale);
+        if (permission.rows[0]?.allowed)
+          html = renderAdminDashboard(page, locale, management.rows[0]?.allowed === true);
         else {
           void reply.code(403);
           html = renderAdminShell(
@@ -338,6 +383,17 @@ export const registerAdminRoutes = (
     }
   });
 
+  registerAdminAccessRoutes(app, pool, principalFor, (request) => {
+    const csrf = request.headers['x-csrf-token'];
+    const saved = cookies(request)[csrfCookie];
+    return (
+      typeof csrf === 'string' &&
+      typeof saved === 'string' &&
+      saved.length > 0 &&
+      timingSafeEqual(sha256(csrf), sha256(saved))
+    );
+  });
+
   app.post('/admin/auth/logout', async (request, reply) => {
     const values = cookies(request);
     const csrf = request.headers['x-csrf-token'];
@@ -354,8 +410,16 @@ export const registerAdminRoutes = (
         client.query('SELECT admin.revoke_session($1)', [values[sessionCookie]])
       );
     }
+    if (values[accessCookie])
+      await withRequestContext(pool, 'qigong_api_runtime', { requestId: request.id }, (client) =>
+        client.query('SELECT admin.revoke_access_session($1)', [values[accessCookie]])
+      );
     return reply
-      .header('set-cookie', [clearCookie(sessionCookie), clearCookie(csrfCookie)])
+      .header('set-cookie', [
+        clearCookie(sessionCookie),
+        clearCookie(accessCookie),
+        clearCookie(csrfCookie)
+      ])
       .send({ ok: true });
   });
 };

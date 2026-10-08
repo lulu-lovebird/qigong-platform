@@ -13,6 +13,10 @@ export const resolveAdminLocale = (query: unknown, cookieHeader?: string): Admin
   return adminLocale(saved);
 };
 const english = {
+  access: 'Administrators and access',
+  navAccess: 'Admin access',
+  accessSwitchConfirm:
+    'Switch language? Unsubmitted access changes will be discarded. No decision will be submitted.',
   overview: 'Practice overview',
   leaderboard: 'Practice leaderboard',
   methods: 'Methods and learner analysis',
@@ -141,6 +145,9 @@ const english = {
 } as const;
 export type AdminTextKey = keyof typeof english;
 const chinese: Record<AdminTextKey, string> = {
+  access: '管理員與權限',
+  navAccess: '管理員權限',
+  accessSwitchConfirm: '切換語言將清除未送出的權限設定；不會自動提交審核。',
   overview: '練功總覽',
   leaderboard: '練功排行榜',
   methods: '功法與學員分析',

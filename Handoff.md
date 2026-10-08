@@ -2,6 +2,16 @@
 
 > 正式環境已於 **2026-10-08 06:54:45–06:55:00 UTC** 經使用者核准的維護窗口升級，停機15秒。程式 release 為 `b271ede1b6619556ca281ed1c914359e59865ee0`，schema 為 `0018_private_practice_notes_and_tags.sql`。本文件區分已部署功能、尚未啟用的管道及未完成的真人驗收；早期 README／ADR 的階段描述可能已過時。
 
+## 本機新管理界面與權限審核（未提交／未部署）
+
+- 使用者確認新規格：語言改為側欄緊湊下拉，登出移至主要選單下方；繁中／英文、篩選保留與未送出審核切換提醒均保留。
+- 新候選 `0019_admin_access_approval.sql`、`admin-access*.ts`：Authgear 首次未授權登入建立獨立待審身份／session，僅能提交與讀取本人申請；待審 credential 永不變成普通管理 session，不能讀報表或授權資料。
+- 有效 global super／master 可在 `/admin/administrators` 管理授權。地區管理員採 `regional_admin + region`；工作人員採 `global_viewer + global`；氣功教練採新 `coach_admin + global`（含私密心得及感受唯讀）；兩位老師採新 `master_admin + global`（相同讀取＋一般管理員授權）。Master 僅能管理三種一般角色，不能處理自己、其他 master／super 帳號或 master 申請；僅 super 可配置 master，瀏覽器不能配置 super。沒有任意 permissions 編輯／Authgear role claim 自動授權／姓名或 Email 合併帳號。
+- 核准需重新登入；角色異動會撤銷受影響帳號普通 session。SQL 保護自我異動／最後 super admin，版本鎖／交易／audit 及並行操作後重新驗證角色／時鐘到期均有測試。原有歷史 migrations、依賴與正式設定未動；既有地區／全域唯讀／班級 coach 模板未擴張，未自動變更現存 grants。新增管理員授權 permission 配置給 master／super。
+- 使用者已指定第一位 super admin 候選人（Email 私下核對、不寫死程式），但 **未建立 Authgear 帳號或配置正式 grant**；須完成 Authgear 登入／已驗證 Email、核對 issuer／subject／UID，再由受控 DB owner bootstrap。指定人選不是部署核准。操作流程與限制見 `docs/operations/admin-access.md`。
+- 本機候選 API 最小／最大均為 `0019`；正式仍為 `b271ede`／`0018`，不能直接替換 binary。隔離 PostgreSQL16 的完整 `pnpm verify` **213項通過、無 skip**，含格式／lint／source typecheck／build。真人 Authgear／瀏覽器驗收與 `0018 → 0019` 發布演練仍待完成；此輪不 commit／push／部署。
+- 原第二批心得管理頁／tag 管理／成就 worker backlog 不變；徽章 migration 規劃須接續 `0020`，不能再使用已保留給管理員審核的 `0019`。
+
 ## 第二批部分功能（已部署；其餘功能未完成）
 
 - 使用者已確認同卡片上方複選感受 tag、下方自由心得；兩者分開儲存，選取／取消不改寫文字，均維持私密權限。

@@ -30,7 +30,12 @@ export const createAdminOidcProvider = async (): Promise<AdminAuthProvider> => {
         idTokenExpected: true
       });
       const claims = validateVerifiedAdminClaims(tokens.claims(), environment);
-      return { iss: claims.iss, sub: claims.sub };
+      return {
+        iss: claims.iss,
+        sub: claims.sub,
+        ...(claims.name ? { name: claims.name } : {}),
+        ...(claims.email && claims.email_verified === true ? { verifiedEmail: claims.email } : {})
+      };
     }
   };
 };

@@ -6,12 +6,13 @@ import {
   type AdminLocale,
   type AdminTextKey
 } from './admin-locale.js';
-export type AdminPage = 'overview' | 'leaderboard' | 'methods' | 'review';
+export type AdminPage = 'overview' | 'leaderboard' | 'methods' | 'review' | 'access';
 const navigation: ReadonlyArray<{ page: AdminPage; path: string; label: AdminTextKey }> = [
   { page: 'overview', path: '/admin/', label: 'navOverview' },
   { page: 'leaderboard', path: '/admin/leaderboard', label: 'navLeaderboard' },
   { page: 'methods', path: '/admin/method-analysis', label: 'navMethods' },
-  { page: 'review', path: '/admin/applications', label: 'navReview' }
+  { page: 'review', path: '/admin/applications', label: 'navReview' },
+  { page: 'access', path: '/admin/administrators', label: 'navAccess' }
 ];
 
 // All shell inputs come from source-controlled page definitions, never user data.
@@ -19,10 +20,11 @@ export const renderAdminShell = (
   page: AdminPage,
   content: string,
   script: string,
-  locale: AdminLocale = 'zh_TW'
+  locale: AdminLocale = 'zh_TW',
+  canManageAdmins = false
 ) => {
   const text = adminTexts(locale);
-  const languageSwitcher = `<div class="languages" role="group" aria-label="${text.language}"><button id="language-zh-TW" type="button" lang="zh-Hant" class="${locale === 'zh_TW' ? '' : 'secondary'}" aria-pressed="${locale === 'zh_TW'}">繁體中文</button><button id="language-en" type="button" lang="en" class="${locale === 'en' ? '' : 'secondary'}" aria-pressed="${locale === 'en'}">English</button></div>`;
+  const languageSwitcher = `<div class="languages"><select id="admin-language" aria-label="${text.language}"><option value="zh_TW" lang="zh-Hant"${locale === 'zh_TW' ? ' selected' : ''}>繁體中文</option><option value="en" lang="en"${locale === 'en' ? ' selected' : ''}>English</option></select></div>`;
   return `<!doctype html>
 <html lang="${locale === 'en' ? 'en' : 'zh-Hant'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${text[page]}｜${text.siteTitle}</title>
 <style>
@@ -32,8 +34,7 @@ a { color:var(--green); } .shell { display:grid; grid-template-columns:15rem min
 .sidebar { background:#193e2b; color:#edf7ef; padding:2rem 1.25rem; } .brand { font-size:1.3rem; font-weight:700; margin-bottom:1.25rem; } .brand small { display:block; font-size:.8rem; opacity:.7; font-weight:400; }
 nav { display:grid; gap:.6rem; } nav a { color:#d9eadd; padding:.7rem 1rem; text-decoration:none; border-radius:.5rem; } nav a:hover,nav a[aria-current="page"] { background:#366448; color:white; }
 .workspace { padding:1.5rem clamp(1rem,3vw,3rem); min-width:0; } header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem; } h1 { font-size:1.7rem; margin:0; } h2 { font-size:1.15rem; margin:0 0 1rem; } h3 { font-size:1rem; }
- .header-actions,.languages { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; } .header-actions { margin-left:auto; }
-.sidebar .languages { margin-bottom:1.25rem; } .sidebar .languages button { flex:1 1 auto; border-color:#93bfa0; background:#edf7ef; color:#193e2b; padding:.45rem .6rem; font-size:.875rem; } .sidebar .languages button.secondary { background:transparent; color:#edf7ef; } .sidebar .languages button:focus-visible { outline:2px solid #edf7ef; outline-offset:3px; }
+.sidebar .languages { margin-bottom:1rem; } .sidebar .languages select { width:100%; border-color:#93bfa0; background:#edf7ef; color:#193e2b; padding:.4rem .6rem; font-size:.875rem; } .sidebar .languages select:focus-visible,.sidebar #logout:focus-visible { outline:2px solid #edf7ef; outline-offset:3px; } .sidebar #logout { margin-top:1.25rem; width:100%; border-color:#93bfa0; background:transparent; color:#edf7ef; }
 button { cursor:pointer; padding:.55rem .9rem; border-radius:.45rem; border:1px solid var(--green); background:var(--green); color:white; font:inherit; } button:disabled { opacity:.45; cursor:default; } button.secondary,button.reject { background:white; color:var(--green); } button.reject { color:#82352f; border-color:#82352f; }
 input,select { font:inherit; padding:.5rem; border:1px solid #b9cbbd; border-radius:.35rem; max-width:100%; background:white; } input[type="checkbox"] { width:auto; }
 .filters { display:flex; flex-wrap:wrap; align-items:end; gap:.85rem; margin-bottom:1rem; } label { display:grid; gap:.3rem; font-size:.85rem; } .filters input { width:12rem; } .filters select { min-width:8rem; }
@@ -43,14 +44,24 @@ input,select { font:inherit; padding:.5rem; border:1px solid #b9cbbd; border-rad
 footer { font-size:.75rem; color:var(--muted); margin-top:2rem; } details summary { cursor:pointer; } .skip { position:absolute; left:-9999px; } .skip:focus { left:1rem; top:1rem; background:white; padding:1rem; z-index:2; }
 @media(max-width:1000px) { .kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:760px) { .shell { display:block; } .sidebar { padding:1rem; } .brand { margin-bottom:.7rem; } nav { display:flex; flex-wrap:wrap; gap:.3rem; } nav a { padding:.4rem .7rem; } .grid { grid-template-columns:1fr; } .workspace { padding:1rem; } h1 { font-size:1.35rem; } }
-</style></head><body><a class="skip" href="#main">${text.skip}</a><div class="shell"><aside class="sidebar"><div class="brand">${text.brand}<small>${text.brandSubtitle}</small></div>${languageSwitcher}<nav aria-label="${text.navigation}">${navigation.map((item) => `<a href="${item.path + adminLocaleQuery(locale)}"${item.page === page ? ' aria-current="page"' : ''}>${text[item.label]}</a>`).join('')}</nav></aside>
-<div class="workspace"><header><div><h1>${text[page]}</h1><span class="muted">${text.scope}</span></div><div class="header-actions"><button id="logout" class="secondary" type="button">${text.logout}</button></div></header><div id="main">${content}</div><footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer></div></div>
+</style></head><body><a class="skip" href="#main">${text.skip}</a><div class="shell"><aside class="sidebar"><div class="brand">${text.brand}<small>${text.brandSubtitle}</small></div>${languageSwitcher}<nav aria-label="${text.navigation}">${navigation
+    .filter((item) => item.page !== 'access' || canManageAdmins)
+    .map(
+      (item) =>
+        `<a href="${item.path + adminLocaleQuery(locale)}"${item.page === page ? ' aria-current="page"' : ''}>${text[item.label]}</a>`
+    )
+    .join('')}</nav><button id="logout" type="button">${text.logout}</button></aside>
+<div class="workspace"><header><div><h1>${text[page]}</h1><span class="muted">${text.scope}</span></div></header><div id="main">${content}</div><footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer></div></div>
 <script>
 (() => {
   ${adminLocaleScript(locale)}
-  for (const [id,next] of [['language-zh-TW','zh_TW'],['language-en','en']]) document.getElementById(id).addEventListener('click',() => {
+  const language=document.getElementById('admin-language');
+  language.value=locale;
+  language.addEventListener('change',() => {
+    const next=language.value;
+    if(next!=='en' && next!=='zh_TW') {language.value=locale;return;}
     if(next === locale) return;
-    if(${JSON.stringify(page === 'review')} && !confirm(t.reviewSwitchConfirm)) return;
+    if(${JSON.stringify(page === 'review' || page === 'access')} && !confirm(t.${page === 'access' ? 'accessSwitchConfirm' : 'reviewSwitchConfirm'})) {language.value=locale;return;}
     const url=new URL(location.href); url.searchParams.set('lang',next);
     document.cookie='${adminLocaleCookie}='+next+'; Path=/; Max-Age=31536000; Secure; SameSite=Lax';
     location.assign(url.pathname+url.search+url.hash);
@@ -69,8 +80,9 @@ ${script}
 };
 
 export const renderAdminDashboard = (
-  page: Exclude<AdminPage, 'review'>,
-  locale: AdminLocale = 'zh_TW'
+  page: Exclude<AdminPage, 'review' | 'access'>,
+  locale: AdminLocale = 'zh_TW',
+  canManageAdmins = false
 ) => {
   const text = adminTexts(locale);
   return renderAdminShell(
@@ -182,6 +194,7 @@ ${page === 'leaderboard' ? `<label>${text.periodRanking}<select id="top"><option
   if(regionWanted) { const initial=node('option',t.specifiedRegion); initial.value=regionWanted; $('region').append(initial); $('region').value=regionWanted; }
   void load();
 })();`,
-    locale
+    locale,
+    canManageAdmins
   );
 };

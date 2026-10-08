@@ -8,6 +8,8 @@
 
 來源為 `/Users/myhsu/Devel/qigong-line-bot` 當前工作目錄，HEAD `7bcd85c`；未 fetch／核對遠端或正式舊站。保留該 repo 既有未提交的文件變更。以下區分舊站實際行為與新平台建議，不把程式存在誤認為真實帳號驗收完成。
 
+**後續版本號註記：** 本機新管理員權限申請／審核已保留 `0019_admin_access_approval.sql`（未提交／部署，見 `admin-access.md`）；下列尚未實作的徽章 migration 規劃接續 `0020`，不覆寫 `0019`。
+
 ## 舊站功能核對
 
 | 功能         | Source（相對舊 repo）                                                                        | 實際行為                                                                                                                                                           |
