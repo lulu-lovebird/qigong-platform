@@ -1,6 +1,7 @@
 import Fastify, { type FastifyBaseLogger } from 'fastify';
 import { checkApiRuntimePreflight, getMigrationStatus, type Pool } from '@qigong/database';
 import { registerAdminRoutes, type AdminAuthProvider } from './admin-auth.js';
+import { registerExternalJournalRoutes } from './journal-routes.js';
 import {
   registerTelegramOnboarding,
   type TelegramOnboardingConfig
@@ -8,8 +9,8 @@ import {
 import { registerLineOnboarding, type LineConfig } from './line-onboarding.js';
 import { registerWhatsAppOnboarding, type WhatsAppConfig } from './whatsapp-onboarding.js';
 
-export const minimumMigrationVersion = '0021_telegram_learner_workspace.sql';
-export const maximumMigrationVersion = '0021_telegram_learner_workspace.sql';
+export const minimumMigrationVersion = '0022_journal_sharing.sql';
+export const maximumMigrationVersion = '0022_journal_sharing.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -96,6 +97,7 @@ export const buildApp = ({
     }
   });
 
+  registerExternalJournalRoutes(app, pool);
   if (adminAuth) registerAdminRoutes(app, pool, adminAuth);
   if (telegramOnboarding) registerTelegramOnboarding(app, pool, telegramOnboarding);
   if (line) registerLineOnboarding(app, pool, line);

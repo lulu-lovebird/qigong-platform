@@ -28,6 +28,16 @@ describe('administrator access vocabulary', () => {
     expect(
       grantSchema.safeParse({ role: 'regional_admin', regionId: id, reason: 'Verified' }).success
     ).toBe(true);
+    expect(
+      grantSchema.safeParse({ role: 'regional_viewer', regionId: id, reason: 'Verified' }).success
+    ).toBe(true);
+    expect(
+      grantSchema.safeParse({ role: 'regional_viewer', reason: 'Missing region' }).success
+    ).toBe(false);
+    expect(
+      grantSchema.safeParse({ role: 'regional_viewer', cohortId: id, reason: 'Wrong scope' })
+        .success
+    ).toBe(false);
     for (const role of ['global_viewer', 'coach_admin', 'master_admin']) {
       expect(grantSchema.safeParse({ role, reason: 'Verified' }).success).toBe(true);
       expect(grantSchema.safeParse({ role, regionId: id, reason: 'Wrong' }).success).toBe(false);
@@ -66,13 +76,19 @@ describe('administrator access vocabulary', () => {
       }).success
     ).toBe(false);
   });
-  it('offers all four applicant identities as a single select, never a super-admin option', () => {
+  it('offers all five applicant identities as a single select, never a super-admin option', () => {
     const html = renderAccessPendingPage('zh_TW');
     const options = html.match(/<select id="role">([\s\S]*?)<\/select>/)?.[1];
     expect(options).toBeDefined();
-    for (const label of ['地區管理員', '白雁協會人員', '白雁氣功教練', '老師（Master）'])
+    for (const label of [
+      '地區管理員',
+      '地區心得檢視員',
+      '白雁協會人員',
+      '白雁氣功教練',
+      '老師（Master）'
+    ])
       expect(options).toContain(label);
-    expect(options?.match(/<option /g)).toHaveLength(4);
+    expect(options?.match(/<option /g)).toHaveLength(5);
     expect(options).not.toContain('super_admin');
   });
   it('covers both locales and explicitly discloses private note access for coaches', () => {

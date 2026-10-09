@@ -13,6 +13,10 @@ export const resolveAdminLocale = (query: unknown, cookieHeader?: string): Admin
   return adminLocale(saved);
 };
 const english = {
+  journal: 'Private practice journal',
+  tags: 'Quick feeling tags',
+  navJournal: 'Practice journal',
+  navTags: 'Edit feeling tags',
   access: 'Administrators and access',
   navAccess: 'Admin access',
   accessSwitchConfirm:
@@ -146,6 +150,10 @@ const english = {
 export type AdminTextKey = keyof typeof english;
 const chinese: Record<AdminTextKey, string> = {
   access: '管理員與權限',
+  journal: '私密練功心得流',
+  tags: '快速感受標籤',
+  navJournal: '練功心得流',
+  navTags: '編輯快速標籤',
   navAccess: '管理員權限',
   accessSwitchConfirm: '切換語言將清除未送出的權限設定；不會自動提交審核。',
   overview: '練功總覽',

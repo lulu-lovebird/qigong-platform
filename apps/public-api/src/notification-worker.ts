@@ -34,7 +34,7 @@ try {
     'qigong_worker_runtime',
     { requestId: randomUUID() },
     (client) =>
-      client.query<{ ready: boolean }>('SELECT ops.telegram_workspace_schema_ready() ready')
+      client.query<{ ready: boolean }>('SELECT ops.journal_workspace_schema_ready() ready')
   );
   if (!schema.rows[0]?.ready) throw new Error('Notification worker schema mismatch');
   // Independent lanes, three sends each: worst-case transport time remains below

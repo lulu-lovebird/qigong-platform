@@ -159,7 +159,7 @@ suite('versioned administrator grant management', () => {
             accountStatus: string;
             canRevokeAll: boolean;
             grantVersion: number;
-            grants: Array<{ effective: boolean }>;
+            grants: Array<{ id: string; effective: boolean; canEdit: boolean; canRevoke: boolean }>;
           }>;
         };
       }>("SELECT admin.access_admin_list(1,'authorized') data", [], who)
@@ -323,6 +323,33 @@ suite('versioned administrator grant management', () => {
       [replacement, await revision(s.principalId), 'Remove ordinary role'],
       who
     );
+  });
+  it('lets masters manage regional viewers only with explicit regions and versioned ordinary-role protections', async () => {
+    const s = await approved();
+    await db.pool.query('DELETE FROM admin.role_grants WHERE principal_id=$1', [actor]);
+    await db.pool.query(
+      "INSERT INTO admin.role_grants(principal_id,role_id,scope_type,reason) SELECT $1,id,'global','Master fixture' FROM admin.roles WHERE code='master_admin'",
+      [actor]
+    );
+    await expect(
+      edit(s.grant, await revision(s.principalId), 'regional_viewer', null)
+    ).rejects.toThrow('invalid admin grant');
+    const grant = (await edit(s.grant, await revision(s.principalId), 'regional_viewer', region))
+      .rows[0]!.id;
+    expect(
+      (
+        await db.pool.query(
+          'SELECT r.code,g.scope_type,g.region_id FROM admin.role_grants g JOIN admin.roles r ON r.id=g.role_id WHERE g.id=$1',
+          [grant]
+        )
+      ).rows[0]
+    ).toMatchObject({ code: 'regional_viewer', scope_type: 'region', region_id: region });
+    expect(
+      (await list()).entries
+        .find((e) => e.principalId === s.principalId)
+        ?.grants.find((g) => g.id === grant)
+    ).toMatchObject({ canEdit: true, canRevoke: true });
+    expect((await bulk(s.principalId, await revision(s.principalId))).rows[0]!.n).toBe(1);
   });
   it('prevalidates the whole removal batch, never partially revoking unsupported or scheduled grants', async () => {
     const who = await master();

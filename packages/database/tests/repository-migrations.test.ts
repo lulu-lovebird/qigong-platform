@@ -36,7 +36,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0021_telegram_learner_workspace.sql'
+      '0022_journal_sharing.sql'
     );
 
     expect(first.applied).toEqual([
@@ -60,17 +60,89 @@ describeWithDatabase('repository migrations', () => {
       '0018_private_practice_notes_and_tags.sql',
       '0019_admin_access_approval.sql',
       '0020_admin_grant_management.sql',
-      '0021_telegram_learner_workspace.sql'
+      '0021_telegram_learner_workspace.sql',
+      '0022_journal_sharing.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0021_telegram_learner_workspace.sql',
+      currentVersion: '0022_journal_sharing.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0021_telegram_learner_workspace.sql',
+      maximumVersion: '0022_journal_sharing.sql',
       ready: true
     });
   });
 
+  it('upgrades 0021 with explicit regional consent boundaries and targeted session revocation', async () => {
+    const staging = await mkdtemp(path.join(tmpdir(), 'qigong-journal-upgrade-'));
+    try {
+      for (const name of await readdir(migrationsDirectory))
+        if (name.endsWith('.sql') && name < '0022_')
+          await copyFile(path.join(migrationsDirectory, name), path.join(staging, name));
+      await runMigrations(pool, staging, 'vitest');
+    } finally {
+      await rm(staging, { recursive: true, force: true });
+    }
+    const region = (
+      await pool.query<{ id: string }>(
+        "WITH g AS (INSERT INTO core.regions(code,region_type,name_zh_tw,name_en) VALUES('upgrade-global','global','全球','Global') RETURNING id),k AS (INSERT INTO core.regions(parent_region_id,code,region_type,name_zh_tw,name_en) SELECT id,'upgrade-country','country','國家','Country' FROM g RETURNING id) INSERT INTO core.regions(parent_region_id,code,region_type,name_zh_tw,name_en) SELECT id,'upgrade-region','operational','地區','Region' FROM k RETURNING id"
+      )
+    ).rows[0]!.id;
+    const ids: string[] = [];
+    for (const role of ['regional_viewer', 'global_viewer']) {
+      const id = (
+        await pool.query<{ id: string }>(
+          "INSERT INTO admin.principals(oidc_issuer,oidc_subject,display_name) VALUES('https://upgrade.example',$1,$1) RETURNING id",
+          [role]
+        )
+      ).rows[0]!.id;
+      ids.push(id);
+      await pool.query(
+        "INSERT INTO admin.role_grants(principal_id,role_id,scope_type,region_id,reason) SELECT $1,id,$2,$3,'Existing verified access' FROM admin.roles WHERE code=$4",
+        [
+          id,
+          role === 'regional_viewer' ? 'region' : 'global',
+          role === 'regional_viewer' ? region : null,
+          role
+        ]
+      );
+      await pool.query(
+        "INSERT INTO admin.sessions(token_hash,principal_id,expires_at) VALUES(public.digest($1,'sha256'),$2,clock_timestamp()+INTERVAL '1 hour')",
+        [role, id]
+      );
+    }
+    const grants = (await pool.query('SELECT * FROM admin.role_grants ORDER BY id')).rows;
+    expect((await runMigrations(pool, migrationsDirectory, 'vitest')).applied).toEqual([
+      '0022_journal_sharing.sql'
+    ]);
+    expect((await runMigrations(pool, migrationsDirectory, 'vitest')).applied).toEqual([]);
+    expect((await pool.query('SELECT * FROM admin.role_grants ORDER BY id')).rows).toEqual(grants);
+    const sessions = (
+      await pool.query<{ principal_id: string; revoked_at: Date | null }>(
+        'SELECT principal_id,revoked_at FROM admin.sessions'
+      )
+    ).rows;
+    expect(sessions.find((s) => s.principal_id === ids[0])?.revoked_at).not.toBeNull();
+    expect(sessions.find((s) => s.principal_id === ids[1])?.revoked_at).toBeNull();
+    expect(
+      (await pool.query<{ count: string }>('SELECT count(*) FROM core.journal_publications'))
+        .rows[0]!.count
+    ).toBe('0');
+    expect(
+      (
+        await pool.query<{ count: string }>(
+          "SELECT count(*) FROM audit.events WHERE action='journal.regional_read_enabled'"
+        )
+      ).rows[0]!.count
+    ).toBe('1');
+    expect(
+      (await pool.query<{ ready: boolean }>('SELECT ops.journal_workspace_schema_ready() ready'))
+        .rows[0]!.ready
+    ).toBe(true);
+    expect(
+      (await pool.query<{ ready: boolean }>('SELECT ops.telegram_workspace_schema_ready() ready'))
+        .rows[0]!.ready
+    ).toBe(false);
+  });
   it('upgrades 0013 to policy A without splitting existing linked people or rewriting history', async () => {
     const database = await createIsolatedTestDatabase(databaseUrl!);
     const legacyDirectory = await mkdtemp(path.join(tmpdir(), 'qigong-legacy-migrations-'));
@@ -146,7 +218,8 @@ describeWithDatabase('repository migrations', () => {
         '0018_private_practice_notes_and_tags.sql',
         '0019_admin_access_approval.sql',
         '0020_admin_grant_management.sql',
-        '0021_telegram_learner_workspace.sql'
+        '0021_telegram_learner_workspace.sql',
+        '0022_journal_sharing.sql'
       ]);
       expect(
         (
@@ -180,8 +253,8 @@ describeWithDatabase('repository migrations', () => {
         (
           await getMigrationStatus(
             database.pool,
-            '0021_telegram_learner_workspace.sql',
-            '0021_telegram_learner_workspace.sql'
+            '0022_journal_sharing.sql',
+            '0022_journal_sharing.sql'
           )
         ).ready
       ).toBe(true);
@@ -214,14 +287,15 @@ describeWithDatabase('repository migrations', () => {
       const fingerprint = async (schema: string, name: string) =>
         (
           await pool.query<{ digest: string }>(
-            `SELECT md5(coalesce(jsonb_agg(data ORDER BY data::text)::text,'')) digest FROM (SELECT to_jsonb(t) data FROM ${schema}.${name} t) records`
+            `SELECT md5(coalesce(jsonb_agg(data ORDER BY data::text)::text,'')) digest FROM (SELECT to_jsonb(t) data FROM ${schema}.${name} t ${schema === 'audit' && name === 'events' ? "WHERE action <> 'journal.regional_read_enabled'" : schema === 'admin' && name === 'role_permissions' ? "WHERE NOT (role_id=(SELECT id FROM admin.roles WHERE code='regional_viewer') AND permission_id=(SELECT id FROM admin.permissions WHERE code='checkin.read_private_note'))" : ''}) records`
           )
         ).rows[0]!.digest;
       const before = await Promise.all(
         tables.map((table) => fingerprint(table.schema, table.name))
       );
       expect((await runMigrations(pool, migrationsDirectory, 'workspace-new')).applied).toEqual([
-        '0021_telegram_learner_workspace.sql'
+        '0021_telegram_learner_workspace.sql',
+        '0022_journal_sharing.sql'
       ]);
       expect(
         await Promise.all(tables.map((table) => fingerprint(table.schema, table.name)))
@@ -236,13 +310,8 @@ describeWithDatabase('repository migrations', () => {
         ).ready
       ).toBe(false);
       expect(
-        (
-          await getMigrationStatus(
-            pool,
-            '0021_telegram_learner_workspace.sql',
-            '0021_telegram_learner_workspace.sql'
-          )
-        ).ready
+        (await getMigrationStatus(pool, '0022_journal_sharing.sql', '0022_journal_sharing.sql'))
+          .ready
       ).toBe(true);
       expect((await runMigrations(pool, migrationsDirectory, 'workspace-repeat')).applied).toEqual(
         []

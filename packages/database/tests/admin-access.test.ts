@@ -187,7 +187,13 @@ suite('super admin access approval and isolated pending credentials', () => {
           data: { entries: Array<{ subject: string }>; roles: Array<{ code: string }> };
         }>('SELECT admin.access_admin_list(1,$1) data', ['all'], actor)
       ).rows[0]?.data.roles.map((r) => r.code)
-    ).toEqual(['coach_admin', 'global_viewer', 'master_admin', 'regional_admin']);
+    ).toEqual([
+      'coach_admin',
+      'global_viewer',
+      'master_admin',
+      'regional_admin',
+      'regional_viewer'
+    ]);
     expect(
       (await db.pool.query("SELECT * FROM audit.events WHERE action='admin_access.decide'")).rows[0]
     ).toMatchObject({ actor_principal_id: actor, target_id: s.principalId, outcome: 'success' });
@@ -244,7 +250,13 @@ suite('super admin access approval and isolated pending credentials', () => {
     );
     return principal;
   };
-  it.each(['global_viewer', 'coach_admin', 'master_admin', 'regional_admin'] as const)(
+  it.each([
+    'global_viewer',
+    'coach_admin',
+    'master_admin',
+    'regional_admin',
+    'regional_viewer'
+  ] as const)(
     'enforces %s private-note visibility and immutable read-only capabilities across regions',
     async (role) => {
       const s = await request(role);
@@ -253,7 +265,7 @@ suite('super admin access approval and isolated pending credentials', () => {
         s.version,
         'approved',
         role,
-        role === 'regional_admin' ? region : null,
+        ['regional_admin', 'regional_viewer'].includes(role) ? region : null,
         null
       );
       const outside = (
@@ -302,13 +314,15 @@ suite('super admin access approval and isolated pending credentials', () => {
           [checkin, person, tag]
         );
       }
-      const privateAccess = role === 'coach_admin' || role === 'master_admin';
+      const privateCount =
+        role === 'regional_viewer' ? 1 : role === 'coach_admin' || role === 'master_admin' ? 2 : 0;
+      const privateAccess = privateCount > 0;
       expect(
         (await query('SELECT * FROM core.checkin_notes', [], s.principalId)).rows
-      ).toHaveLength(privateAccess ? 2 : 0);
+      ).toHaveLength(privateCount);
       expect(
         (await query('SELECT * FROM core.checkin_note_tags', [], s.principalId)).rows
-      ).toHaveLength(privateAccess ? 2 : 0);
+      ).toHaveLength(privateCount);
       if (privateAccess) {
         const journal = (
           await query<{
@@ -318,7 +332,7 @@ suite('super admin access approval and isolated pending credentials', () => {
             };
           }>("SELECT admin.practice_journal(NULL,1,'en') data", [], s.principalId)
         ).rows[0]!.data;
-        expect(journal.total).toBe(2);
+        expect(journal.total).toBe(privateCount);
         expect(
           journal.entries.every(
             (e) => e.practiceNote === 'Private note' && e.feelingTags[0]?.name === 'Relaxed'
@@ -389,7 +403,8 @@ suite('super admin access approval and isolated pending credentials', () => {
     expect(list.roles.map((r) => r.code)).toEqual([
       'coach_admin',
       'global_viewer',
-      'regional_admin'
+      'regional_admin',
+      'regional_viewer'
     ]);
     expect(list.entries.find((e) => e.principalId === actor)).toMatchObject({
       canManage: false,

@@ -4,6 +4,8 @@ import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
 import { renderApplicationPage } from './application-page.js';
 import { registerTelegramWorkspace } from './telegram-workspace.js';
+import { registerLearnerJournalRoutes } from './journal-routes.js';
+import { journalTexts } from './journal-locale.js';
 import { telegramWorkspacePaths, type TelegramWorkspacePage } from './telegram-workspace-pages.js';
 import { telegramWorkspaceTexts } from './telegram-workspace-locale.js';
 import { learnerLocale, learnerTexts, localeQuery } from './learner-locale.js';
@@ -71,6 +73,7 @@ export const registerTelegramOnboarding = (
       .send(renderApplicationPage({ platform: 'telegram', locale: queryLocale(request.query) }))
   );
   registerTelegramWorkspace(app, pool);
+  registerLearnerJournalRoutes(app, pool);
   const sendMessage =
     config.sendMessage ??
     (async (
@@ -122,7 +125,7 @@ export const registerTelegramOnboarding = (
       return { ok: true };
     }
     const workspaceCommand =
-      /^\/(checkin|leaderboard|methods|methodanalysis|achievements|history|mystats|badges)(?:@\w+)?(?:\s|$)/i.exec(
+      /^\/(checkin|leaderboard|methods|methodanalysis|achievements|history|mystats|badges|journal|share)(?:@\w+)?(?:\s|$)/i.exec(
         message.text ?? ''
       );
     const command = workspaceCommand?.[1]?.toLowerCase();
@@ -197,15 +200,16 @@ export const registerTelegramOnboarding = (
         const labels = telegramWorkspaceTexts(locale);
         const link = (page: TelegramWorkspacePage) =>
           `https://checkin.baiyinqigong.org${telegramWorkspacePaths[page]}${localeQuery(locale)}#${linkToken}`;
-        const text = `${workspacePage === 'checkin' ? texts.checkinLink : labels[workspacePage]}\n${link(workspacePage)}\n${texts.privateLink}`;
-        await sendMessage(
-          message.chat.id,
-          text,
-          (Object.keys(telegramWorkspacePaths) as TelegramWorkspacePage[]).map((page) => ({
+        const journalLink = `https://checkin.baiyinqigong.org/telegram/journal${localeQuery(locale)}#${linkToken}`;
+        const isJournal = command === 'journal' || command === 'share';
+        const text = `${isJournal ? journalTexts(locale).feed : workspacePage === 'checkin' ? texts.checkinLink : labels[workspacePage]}\n${isJournal ? journalLink : link(workspacePage)}\n${texts.privateLink}`;
+        await sendMessage(message.chat.id, text, [
+          ...(Object.keys(telegramWorkspacePaths) as TelegramWorkspacePage[]).map((page) => ({
             text: labels[page],
             url: link(page)
-          }))
-        );
+          })),
+          { text: journalTexts(locale).feed, url: journalLink }
+        ]);
         return { ok: true };
       }
       const result = await withRequestContext(

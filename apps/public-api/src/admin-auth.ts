@@ -4,6 +4,7 @@ import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
 import { accessCookie, registerAdminAccessRoutes } from './admin-access.js';
 import { renderReviewPage } from './admin-pages.js';
+import { registerAdminJournalRoutes } from './admin-journal-routes.js';
 import {
   adminLocaleCookie,
   adminNameColumn,
@@ -391,6 +392,17 @@ export const registerAdminRoutes = (
       typeof saved === 'string' &&
       saved.length > 0 &&
       timingSafeEqual(sha256(csrf), sha256(saved))
+    );
+  });
+
+  registerAdminJournalRoutes(app, pool, principalFor, (request) => {
+    const value = request.headers['x-csrf-token'],
+      saved = cookies(request)[csrfCookie];
+    return (
+      typeof value === 'string' &&
+      typeof saved === 'string' &&
+      saved.length > 0 &&
+      timingSafeEqual(sha256(value), sha256(saved))
     );
   });
 

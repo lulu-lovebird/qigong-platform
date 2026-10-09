@@ -15,6 +15,7 @@ interface Node {
   value: string;
   hidden: boolean;
   disabled: boolean;
+  required: boolean;
   type: string;
   style: Record<string, string>;
   attributes: Record<string, string>;
@@ -43,6 +44,7 @@ const node = (tag = 'div'): Node => {
     value: '',
     hidden: false,
     disabled: false,
+    required: false,
     type: '',
     style: {},
     attributes: {},
@@ -168,6 +170,7 @@ const fixture = (
         cohorts: [{ id: cohort, name: '原文班級', regionId: region }],
         roles: [
           { code: 'regional_admin', permissions: ['learner.read', 'stats.read'] },
+          { code: 'regional_viewer', permissions: ['learner.read', 'checkin.read_private_note'] },
           { code: 'global_viewer', permissions: ['learner.read', 'checkin.read', 'stats.read'] },
           { code: 'coach_admin', permissions: ['checkin.read_private_note'] },
           ...(authority === 'super'
@@ -357,6 +360,12 @@ describe('administrator access generated browser behavior', () => {
       expect(scope.hidden).toBe(false);
       expect(scope.value).toBe('');
       expect(scope.children[1]?.textContent).toBe(locale === 'en' ? 'Region A' : '甲區');
+      role.value = 'regional_viewer';
+      event(role, 'change');
+      expect(scope.hidden).toBe(false);
+      expect(scope.required).toBe(true);
+      expect(scope.value).toBe('');
+      expect(card.textContent).toContain(ui.privateNoteRead);
       const locked = fixture(renderAdminAccessPage(locale), 'manage', locale, 'draft', 'protected');
       await settle();
       const lockedCard = locked.fields.get('accounts')!;

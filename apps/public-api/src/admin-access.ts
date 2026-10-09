@@ -10,14 +10,20 @@ const text = z
   .min(1)
   .refine((v) => [...v].length <= 500 && !v.includes('\0'));
 const version = z.number().int().min(1).max(2147483647);
-const role = z.enum(['regional_admin', 'global_viewer', 'coach_admin', 'master_admin']);
+const role = z.enum([
+  'regional_admin',
+  'regional_viewer',
+  'global_viewer',
+  'coach_admin',
+  'master_admin'
+]);
 const fields = { role, regionId: z.uuid().optional(), cohortId: z.uuid().optional(), reason: text };
 const validScope = (v: {
   role: string;
   regionId?: string | undefined;
   cohortId?: string | undefined;
 }) =>
-  v.role === 'regional_admin'
+  ['regional_admin', 'regional_viewer'].includes(v.role)
     ? v.regionId !== undefined && v.cohortId === undefined
     : v.cohortId === undefined && v.regionId === undefined;
 export const grantSchema = z.object(fields).strict().refine(validScope);

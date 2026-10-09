@@ -6,13 +6,16 @@ import {
   type AdminLocale,
   type AdminTextKey
 } from './admin-locale.js';
-export type AdminPage = 'overview' | 'leaderboard' | 'methods' | 'review' | 'access';
+export type AdminPage =
+  'overview' | 'leaderboard' | 'methods' | 'review' | 'access' | 'journal' | 'tags';
 const navigation: ReadonlyArray<{ page: AdminPage; path: string; label: AdminTextKey }> = [
   { page: 'overview', path: '/admin/', label: 'navOverview' },
   { page: 'leaderboard', path: '/admin/leaderboard', label: 'navLeaderboard' },
   { page: 'methods', path: '/admin/method-analysis', label: 'navMethods' },
   { page: 'review', path: '/admin/applications', label: 'navReview' },
-  { page: 'access', path: '/admin/administrators', label: 'navAccess' }
+  { page: 'access', path: '/admin/administrators', label: 'navAccess' },
+  { page: 'journal', path: '/admin/journal', label: 'navJournal' },
+  { page: 'tags', path: '/admin/practice-feeling-tags', label: 'navTags' }
 ];
 
 // All shell inputs come from source-controlled page definitions, never user data.
@@ -41,6 +44,7 @@ input,select { font:inherit; padding:.5rem; border:1px solid #b9cbbd; border-rad
 .card,article { background:white; border:1px solid var(--border); border-radius:.75rem; padding:1.25rem; margin-bottom:1.2rem; } .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1.2rem; } .kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1rem; } .kpi strong { display:block; font-size:2rem; color:var(--green); } .muted,.meta { color:var(--muted); } #status { min-height:1.6rem; } #status[data-error="true"] { color:#a12c24; }
 .table-wrap { overflow:auto; } table { width:100%; border-collapse:collapse; font-size:.9rem; } th,td { text-align:left; padding:.65rem; border-bottom:1px solid var(--border); vertical-align:top; white-space:nowrap; } th { color:var(--muted); background:#f8faf8; } .pager { display:flex; flex-wrap:wrap; align-items:center; gap:.7rem; margin-top:1rem; }
 .chart { width:100%; height:210px; } .bar { background:#e7eee8; height:.5rem; border-radius:.25rem; } .bar span { display:block; height:100%; background:#62976e; border-radius:inherit; } .actions,.batch { display:flex; flex-wrap:wrap; align-items:center; gap:.6rem; } .batch { margin-bottom:1rem; } .batch label { display:flex; align-items:center; } .select-application { margin-right:.5rem; } .actions input { width:min(25rem,100%); }
+.journal-nav[hidden] { display:none; }
 footer { font-size:.75rem; color:var(--muted); margin-top:2rem; } details summary { cursor:pointer; } .skip { position:absolute; left:-9999px; } .skip:focus { left:1rem; top:1rem; background:white; padding:1rem; z-index:2; }
 .access-account { overflow-wrap:anywhere; } .access-account [hidden] { display:none !important; }
 .access-account-header,.access-grant-header { display:flex; justify-content:space-between; align-items:start; flex-wrap:wrap; gap:.75rem; } .access-email { margin:.25rem 0; }
@@ -56,11 +60,11 @@ footer { font-size:.75rem; color:var(--muted); margin-top:2rem; } details summar
 @media(max-width:760px) { .access-form-grid { grid-template-columns:1fr; } .access-account-header,.access-grant-header { flex-direction:column; } .access-grant-actions > button,.access-action-panel .actions button { flex:1 1 100%; } }
 @media(max-width:1000px) { .kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:760px) { .shell { display:block; } .sidebar { padding:1rem; } .brand { margin-bottom:.7rem; } nav { display:flex; flex-wrap:wrap; gap:.3rem; } nav a { padding:.4rem .7rem; } .grid { grid-template-columns:1fr; } .workspace { padding:1rem; } h1 { font-size:1.35rem; } }
-</style></head><body><a class="skip" href="#main">${text.skip}</a><div class="shell"><aside class="sidebar"><div class="brand">${text.brand}<small>${text.brandSubtitle}</small></div>${languageSwitcher}<nav aria-label="${text.navigation}">${navigation
+</style></head><body><a class="skip" href="#main">${text.skip}</a><div class="shell"><aside class="sidebar"><div class="brand">${text.brand}<small>${text.brandSubtitle}</small></div>${languageSwitcher}<nav id="admin-navigation" aria-label="${text.navigation}">${navigation
     .filter((item) => item.page !== 'access' || canManageAdmins)
     .map(
       (item) =>
-        `<a href="${item.path + adminLocaleQuery(locale)}"${item.page === page ? ' aria-current="page"' : ''}>${text[item.label]}</a>`
+        `<a href="${item.path + adminLocaleQuery(locale)}"${item.page === 'journal' || item.page === 'tags' ? ` class="journal-nav" data-journal-nav="${item.page}" hidden` : ''}${item.page === page ? ' aria-current="page"' : ''}>${text[item.label]}</a>`
     )
     .join('')}</nav><button id="logout" type="button">${text.logout}</button></aside>
 <div class="workspace"><header><div><h1>${text[page]}</h1><span class="muted">${text.scope}</span></div></header><div id="main">${content}</div><footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer></div></div>
@@ -69,22 +73,27 @@ footer { font-size:.75rem; color:var(--muted); margin-top:2rem; } details summar
   ${adminLocaleScript(locale)}
   const language=document.getElementById('admin-language');
   language.value=locale;
+  if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-journal-nav]').length)fetch('/admin/api/journal/capabilities?lang='+locale,{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-journal-nav]'))a.hidden=!(c&&(a.dataset.journalNav==='journal'?c.canReadJournal===true:c.canManageTags===true));}).catch(()=>{});
+  const mayLeave=()=>typeof window==='undefined'||!window.qigongJournalMayLeave||window.qigongJournalMayLeave();
   language.addEventListener('change',() => {
     const next=language.value;
     if(next!=='en' && next!=='zh_TW') {language.value=locale;return;}
     if(next === locale) return;
     if(${JSON.stringify(page === 'review' || page === 'access')} && !confirm(t.${page === 'access' ? 'accessSwitchConfirm' : 'reviewSwitchConfirm'})) {language.value=locale;return;}
+    if(!mayLeave()){language.value=locale;return;}
     const url=new URL(location.href); url.searchParams.set('lang',next);
     document.cookie='${adminLocaleCookie}='+next+'; Path=/; Max-Age=31536000; Secure; SameSite=Lax';
     location.assign(url.pathname+url.search+url.hash);
   });
+  document.getElementById('admin-navigation')?.addEventListener('click',event=>{if(event.target.closest('a')&&!mayLeave())event.preventDefault();});
   document.getElementById('logout').addEventListener('click',async () => {
+    if(!mayLeave())return;
     const csrf = document.cookie.split('; ').find(part => part.startsWith('__Host-qigong-admin-csrf='))?.split('=')[1] || '';
     try {
       const response = await fetch('/admin/auth/logout',{ method:'POST',credentials:'same-origin',headers:{'x-csrf-token':csrf} });
       if (response.ok || response.status===401) location.assign('/admin/auth/login');
       else throw new Error(t.logoutFailed);
-    } catch { document.getElementById('status').textContent=t.logoutFailed; }
+    } catch { if(typeof window!=='undefined')window.qigongJournalLeaveCancelled?.();const status=document.getElementById('status')||document.getElementById('journal-status');if(status)status.textContent=t.logoutFailed; }
   });
 })();
 ${script}

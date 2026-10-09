@@ -381,7 +381,7 @@ suite('Telegram workspace HTTP, bot menu and durable delivery integration', () =
       403
     );
   });
-  it('opens each workspace command with four identity-bound private WebApp buttons', async () => {
+  it('opens each workspace command with five identity-bound private WebApp buttons', async () => {
     let updateId = 1000;
     for (const command of [
       'checkin',
@@ -407,7 +407,7 @@ suite('Telegram workspace HTTP, bot menu and durable delivery integration', () =
       expect(response.statusCode).toBe(200);
       const call = sendMessage.mock.calls.at(-1)!;
       expect(call[0]).toBe(Number(subject));
-      expect(call[2]).toHaveLength(4);
+      expect(call[2]).toHaveLength(5);
       expect(call[2]?.every((button) => /#[A-Za-z0-9_-]{43}$/.test(button.url))).toBe(true);
     }
     const count = sendMessage.mock.calls.length;
@@ -484,7 +484,7 @@ suite('Telegram workspace HTTP, bot menu and durable delivery integration', () =
       'qigong_worker_runtime',
       { requestId: randomUUID() },
       (client) =>
-        client.query<{ ready: boolean }>('SELECT ops.telegram_workspace_schema_ready() ready')
+        client.query<{ ready: boolean }>('SELECT ops.journal_workspace_schema_ready() ready')
     );
     expect(ready.rows[0]!.ready).toBe(true);
     await expect(

@@ -203,7 +203,13 @@ suite('super admin approval HTTP boundary', () => {
     ).toBe(400);
     expect((await request(s)).status).toBe('pending');
   });
-  it.each(['regional_admin', 'global_viewer', 'coach_admin', 'master_admin'] as const)(
+  it.each([
+    'regional_admin',
+    'regional_viewer',
+    'global_viewer',
+    'coach_admin',
+    'master_admin'
+  ] as const)(
     'lets super admins approve %s with the required scope; pending credentials never inherit roles',
     async (role) => {
       const pending = await signIn('candidate');
@@ -220,10 +226,15 @@ suite('super admin approval HTTP boundary', () => {
         version: application.version,
         decision: 'approved',
         role,
-        ...(role === 'regional_admin' ? { regionId: region } : {}),
+        ...(['regional_admin', 'regional_viewer'].includes(role) ? { regionId: region } : {}),
         reason: 'Identity and scope verified'
       };
       const endpoint = '/admin/api/access/accounts/' + application.principalId + '/decision';
+      if (role === 'regional_viewer') {
+        const invalid = { ...body };
+        delete invalid.regionId;
+        expect((await post(endpoint, admin, invalid)).statusCode).toBe(400);
+      }
       expect((await post(endpoint, admin, body, false)).statusCode).toBe(403);
       const result = await post(endpoint, admin, body);
       expect(result.statusCode).toBe(200);
@@ -261,7 +272,7 @@ suite('super admin approval HTTP boundary', () => {
         ])
       ).rows[0];
       expect(record).toMatchObject(
-        role === 'regional_admin'
+        ['regional_admin', 'regional_viewer'].includes(role)
           ? { scope_type: 'region', region_id: region, cohort_id: null }
           : { scope_type: 'global', region_id: null, cohort_id: null }
       );
