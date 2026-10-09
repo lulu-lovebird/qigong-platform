@@ -1,16 +1,19 @@
 # Qigong Platform — 交接摘要
 
-> 最新正式環境已於 **2026-10-08 18:08:50–18:09:07 UTC** 經使用者核准部署，維護17秒。程式 release 為 `0ed750de5871fddb77acca09ad4d5ca367dbd8b1`，schema `0021_telegram_learner_workspace.sql`。Telegram四個學員頁、耐久私人聊天摘要及成就評估已上線；下方保留前版歷史，不把合成資料驗證當作真人Telegram驗收。
+> 最新正式環境已於 **2026-10-09 10:02:27–10:02:45 UTC** 經使用者核准部署，維護18秒。程式 release 為 `852cd05ce54c9aac4a2e650fb207d04838760684`，schema `0022_journal_sharing.sql`。私密心得後台、學員跨區主動分享、快速標籤與合作系統唯讀 API 已上線；既有心得仍私密，正式外部 client 為零，官網登入串接另待確認。
 
-## 心得流／分享／外部 API／標籤（本機實作，尚未部署）
+## 心得流／分享／外部 API／標籤（已部署852cd05／schema22）
 
-- 使用者核准本機實作；新0022_journal_sharing.sql，不改0001–0021、正式21、舊Bot、保護設定、依賴或 provider 開關。使用者已核准 commit／push／部署；目前等待 CI、正式快照升級演練與備份還原驗證，尚未切換正式服務。
+- 使用者核准 commit／push／部署，程式852cd05；[CI37914571159](https://github.com/lulu-lovebird/qigong-platform/actions/runs/37914571159) 成功。新0022，不改0001–0021、舊Bot、保護設定、依賴或 provider 開關。
 - Master／Coach／Super 後台全域私密心得，regional_viewer 僅已授權地區全部私密內容，不擴張 regional_admin／global_viewer。regional_viewer 接入待審、核准、版本式授權管理，必選 active operational 地區；self／master／super、audit、鎖後再驗證與 session invalidation 保護保留。遷移撤銷持有此角色的舊普通 session，不自動發 grant。
 - 新 /admin/journal、/admin/practice-feeling-tags，雙語、篩選／分頁、標籤增改／停用／排序／整批版本儲存；taxonomy.manage 不自動給 Coach／Master，歷史標籤不改寫。
 - /telegram/journal、/journal／/share 第五個私聊入口，跨所有地區主動分享，既有心得私密。心得／感受／外部讀取分別同意，獨立快照；sourceHash／publication version 阻擋預覽後未見更動，撤回停止新讀取。實際修改保護／失敗保留／其他卡草稿保留，SDK cache 無 capability，聊天摘要不含心得／感受。
 - /api/v1/shared-journal 只讀另同意外部分享的快照；backend SHA-256 credential、最長90天、每分鐘60次、可撤銷，無 CORS／no-store，不供瀏覽器密鑰。僅 Super＋CSRF 發行／撤銷，尚無正式 client。API認證合作系統，不驗證其終端使用者 session；官網登入／授權／清除契約仍待確認。
 - 完整 isolated PostgreSQL16 pnpm verify **356項通過、無 skip**，格式／lint／source typecheck／build 通過。額外全測試 tsc 仍有10項既有錯誤（learner-pages／admin-sessions／onboarding／runtime-rls），沒有本批新錯誤。
-- 本機 scope／RLS、快照、撤回、作者失效、token／限流、CSRF／標籤、授權保護、21→22針對性 session 撤銷測試通過。Chrome六種手機／桌機雙語合成配置無溢出／JS exception；不是正式快照、真人裝置或官網驗收。契約見 [journal-sharing](docs/operations/journal-sharing.md)。本批 API／worker exact0022，正式 exact0021，不得 binary-only rollback。
+- 本機 scope／RLS、快照、撤回、作者失效、token／限流、CSRF／標籤、授權保護、21→22針對性 session 撤銷測試通過。Chrome六種手機／桌機雙語合成配置無溢出／JS exception；不是正式快照、真人裝置或官網驗收。契約見 [journal-sharing](docs/operations/journal-sharing.md)。本批 API／worker正式 exact0022，不得 binary-only rollback。
+- 正式快照21→22／重跑、舊21 binary拒絕22、compiled OIDC／後台／授權／分享來源衝突／撤回／外部憑證撤銷 smoke 通過；worker三lane演練為0 onboarding／1 badge／3 mock receipts，零真實provider發送，沒有在正式建立client或分享。最終站外AES-256-GCM DB／roles／env／systemd副本解密雜湊核對，DB副本實際還原21並與最終基線（含metadata）完全相同、舊0ed750d readiness通過。
+- 保留51張既有表的授權變更排除後完整雜湊、3 people／5 check-ins及grants／sessions；新增2表，只有regional_viewer permission＋1 migration audit＋architecture metadata為預期變更。本次無需撤銷的viewer普通session，零分享／零外部client；82項公開HTTPS檢查通過。API active／NRestarts=0／ExecMainStatus=0、timer active、worker Result=success／ExecMainStatus=0，實際三lane均0。保護env雜湊不變，零真實測試訊息；真人裝置／官網串接驗收仍待完成。
+- 回復位置：/root/qigong-deploy-852cd05、/opt/qigong-platform/deployment-tools/852cd05、/tmp/qigong-release-852cd05，以及 ~/.local/share/qigong-platform/backups/deployment-852cd05；key另置受限backup-keys。回復須21 DB＋0ed750d API／old-release.conf／matching worker，開流量後另核准並對帳後續寫入。備份不宣稱完整OS／Caddy災難復原。
 
 ## Telegram 四頁與聊天摘要（已部署 `0ed750d`／schema21）
 

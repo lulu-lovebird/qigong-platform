@@ -1,6 +1,6 @@
 # 練功心得、跨區分享與合作系統 API
 
-**狀態：使用者已核准提交、推送與部署；等待 CI、正式快照升級演練及備份還原驗證。正式目前仍為 release 0ed750d／schema21。**
+**已部署：2026-10-09 10:02:27–10:02:45 UTC，18秒；release 852cd05ce54c9aac4a2e650fb207d04838760684／schema22。** [CI37914571159](https://github.com/lulu-lovebird/qigong-platform/actions/runs/37914571159) 成功。既有心得保持私密，正式分享／外部client皆零，官網登入串接尚未啟用。
 
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
@@ -50,7 +50,9 @@ API **驗證系統 credential，不驗證網站終端使用者 session**。白�
 ## 發布與回復
 
 - 新 0022_journal_sharing.sql，不改0001–0021。新增兩張 forced-RLS 表；runtime 無直接 SELECT／內部 helper 權限，只能呼叫 credential-bound facade。
-- 本批 API／worker exact0022，正式21未改。新 binary 不可指向21，舊21 binary 不可指向22。
-- 使用者已核准 commit／push／部署；切換前先做正式快照21→22／重跑／matching worker／OIDC／授權 smoke，最終站外備份實際還原。回復須 matching21 DB＋0ed750d API／worker；開流量後另核准並對帳。
+- 正式 API／worker exact0022。新 binary 不可指向21，舊21 binary 不可指向22。
+- 經核准完成正式快照21→22／重跑／旧binary拒絕／matching worker／OIDC／授權及分享／外部撤銷 smoke。最終DB／roles／env／systemd站外AES-256-GCM副本逐一解密核對雜湊，DB實際還原21與基線（含metadata）一致，舊0ed750d readiness通過。回復須 matching21 DB＋0ed750d API／old-release.conf／worker；開流量後另核准並對帳。
 - 完整 pnpm verify：**356項通過、無 skip**，格式／lint／source typecheck／build 通過。額外全測試 tsc 尚有10項既有錯誤，沒有本批新錯誤。
-- isolated PostgreSQL16 scope／快照／來源衝突／撤回／credential／限流／CSRF／標籤／grant保護／21→22 session撤銷測試通過。Chrome六種390px／1280px雙語合成配置無溢出／JS exception，SDK cache 無 capability，草稿 native guard 通過；不是正式快照或真人 Telegram／Authgear／官網驗收。
+- isolated PostgreSQL16 scope／快照／來源衝突／撤回／credential／限流／CSRF／標籤／grant保護／21→22 session撤銷測試通過。Chrome六種390px／1280px雙語合成配置無溢出／JS exception，SDK cache 無 capability，草稿 native guard 通過；合成畫面不代表真人 Telegram／Authgear／官網驗收；正式快照演練另已完成。
+- 正式保留51張舊表授權變更排除後完整雜湊、3人／5筆打卡／grants／sessions；新增2表。region permission＋1 migration audit＋architecture metadata為核准差異，無需撤銷的viewer session。82項公開HTTPS檢查通過，API active／NRestarts=0／ExecMainStatus=0，timer active、worker Result=success／ExecMainStatus=0，實際三lane均0；保護env不變。worker演練3筆mock摘要無私密內容，零真實測試訊息。
+- 回復資料：/root/qigong-deploy-852cd05、/opt/qigong-platform/deployment-tools/852cd05、/tmp/qigong-release-852cd05、~/.local/share/qigong-platform/backups/deployment-852cd05；key另置受限backup-keys。停止的rehearsal cluster可清除，保留備份與舊21 release。不宣稱完整OS／Caddy災難復原。
