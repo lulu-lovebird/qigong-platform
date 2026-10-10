@@ -2,6 +2,41 @@
 
 > 最新正式環境已於 **2026-10-09 10:02:27–10:02:45 UTC** 經使用者核准部署，維護18秒。程式 release 為 `852cd05ce54c9aac4a2e650fb207d04838760684`，schema `0022_journal_sharing.sql`。私密心得後台、學員跨區主動分享、快速標籤與合作系統唯讀 API 已上線；既有心得仍私密，正式外部 client 為零，官網登入串接另待確認。
 
+## 候選25提交與隔離試行（已核准，執行中）
+
+- 使用者已核准commit／push、CI及隔離測試部署，使用專用測試帳號先LINE再WhatsApp真人驗收。這不是正式部署、新正式渠道啟用、正式政策發布或舊Bot設定變更的授權。
+- 正式仍852cd05／schema22；隔離環境須獨立DB／runtime／artifact及測試provider憑證，不複製正式學員資料或正式sender。公開測試HTTPS與專用帳號設定仍須確認；不得臆測網域／挪用舊渠道。
+
+## Telegram固定/start入口與commit後close（候選25）
+
+- 使用者核准本機修正兩項問題，要求/start完成後再自行加入新Bot設定；不動BotFather／憑證／渠道或正式部署。正式仍852cd05／22，未提交／推送。
+- 核對舊bot固定WebApp＋簽章initData（原始碼default1小時）與儲存成功tg.close；正式22則15分钟URLcapability／每user一筆link、沒有close呼叫。新/start與/checkin對有效核准user回5個static按鈕，申請／政策不繞過。
+- 新telegram-miniapp-auth.ts、bootstrap及0025：HMAC constant-time驗證raw initData／auth_date／安全userID，Origin與JSON嚴格，不信unsafe／browser ID，不接受debug bypass。signed來源仍須approval／person／primary／policy，backend短cap在記憶體提前renew，不永久授權。
+- 改links PK為token hash，保留舊列，獨立短session不互相取代；forced-RLS限流12/min。SDK首個tgWebAppData保留，平台cap不進SDKcache或持久存储；舊私鏈15分鐘fallback仍受控。
+- server commit後且無其他實際草稿自動SDK close，不等refresh、不再sendData重發摘要；有別的日期／zone草稿則保留UI，返回聊天按鈕需discard確認；普通browser／failed save不強關，LINE／WA衍生頁不使用TG exchange。
+- Mini App針對性測試、24→25原links保留／重跑／舊契約拒絕、HMAC／freshness／scope／limiting、renew／close／dirty與官方SDK合成4場景通過；非真人或正式快照。人員核准續查後，最近連續兩次完整 `pnpm verify` 425項通過、無skip，format／lint／source typecheck／build通過；額外全測試tsc仍為既有10錯誤、無新增。診斷期間另重現WA更正409／review權限拒絕、journal coach能力誤判；間歇性根因仍未定位，重跑通過不等於已修復。測試保留無憑證／個人內容的布林診斷；未放寬授權、未新增對外診斷欄位。不可宣稱可發布，仍未commit／push／部署／改Bot設定。見 [telegram-miniapp](docs/operations/telegram-miniapp.md)。
+- 本機API／worker exact25；政策draft不自動發布。提交／推送／CI及隔離試行已核准；正式22→25matching artifact／備份還原另核准，再指引只對新Bot設定start／commands／menubutton；現在正式22尚未套用。
+
+## LINE先行、接續WhatsApp工作區與私人摘要（已完成本機24，整合候選25，尚未提交／部署）
+
+- 使用者核准項目1完整學員工作區＋項目2選單及私人摘要，指定先LINE完成功能驗證後再WA；本機已依序實作。不含提醒、LLM、舊帳號／資料／勳章搬移，沒有真實發送、啟用渠道或正式部署。
+- 新0024、channel-workspace*.ts及channel-practice-receipts.ts：兩渠道打卡、同區遮罩榜、30／90日分析、49勳章／等級／真正月格與逐日歷史、跨區共享與本人發布／撤回。共用21的person preference／revision及23政策／資格邊界，不隱含連結人。
+- LINE維持單一LIFF endpoint與每次ID token驗證，繁中；WA簽章／帳號／短效capability，繁中／英文，互動list及文字fallback。UUID／version、日期獨立草稿、受控時區、dirty保護／失敗保留／刷新失败不重送；recipient不從browser取。
+- 私人摘要只含日期／功法／連續與累計天數，無心得或感受。LINE push用stable retry key，重複accepted409不再當作新失敗；WA紀錄簽章入站的24h窗口，enqueue／claim／pre-send重驗，過期不強送自由文字，不用未核准模板。lease／backoff／8次上限及停用取消；API接受不等於實際送達。
+- Worker最多onboarding3＋跨渠道practice3＝6次transport，三渠道均配置時各1，60秒預算不擴張。policy仍draft，部署不自動發布。工作區24整合本機API／worker exact25，正式仍852cd05／22；未提交／推送，發布與啟用各須核准。
+- 完整pnpm verify **409項、無skip**，format／lint／source typecheck／build／diff check通過；全測試tsc仍10項既有錯誤、無新增。23→24／重跑／舊契約拒絕／所有既有表指紋保留通過，非正式快照。Chrome12配置兩渠道五頁手機及雙語桌機，零overflow／JS exception，stub LIFF、fragment、日期草稿及31天月格通過，非真人／真實LINE SDK登入。詳見 [channel-workspaces](docs/operations/channel-workspaces.md)。
+- 後續：專用帳號與模板／真人裝置及真正provider送達驗收、LINE去重／非同步bot reply、WhatsApp送達追蹤及提醒／保留清理。正式22→25升級及matching22 DB＋852cd05回復需另核准與演練。
+
+## 白雁補充說明、同意與資格停用（已完成本機23，整合候選25）
+
+- 使用者核准本機實作及修復，現已核准commit／push與隔離試行；未核准正式部署。正式852cd05／22不變，不修改歷史0001–0022、package metadata／依賴／lockfile或保護設定，不動舊Bot或啟用LINE／WhatsApp。
+- 新docs/legal/checkin-helper-supplement.zh-TW.md及.en.md，承接使用者提供的官網政策（頁面更新2025-05-16），品牌白雁氣功，聯絡邱伶婷／eqibaiyin@gmail.com。新紀錄預設給有效學員及工作人員分享，舊私密不回填；停課退學由地區管理員停用，其他學員看不到其歷史，管理端仍依scope可讀。
+- 0023新增forced-RLS政策／capability／同意／資格版本／checkin origin；政策先draft，**部署不自動發布**。/privacy提供雙語全文，普通同意與選填reflection consent未預勾，平台identity由簽章後私鏈綁定，不接受瀏覽器user ID。一般功能及DB／worker報名facade拒絕缺同意／過期／錯版本；新舊學員生效後須確認，不自動授權或依姓名Email合併。
+- 新日期／功法／心得／感受共享快照依origin自動建立／更正，撤回不因更正重公開；敏感同意撤回停止公開心得／感受。外部仍獨立同意，內容更正撤下外部資格需重確認，Chatbot摘要仍無心得／感受。
+- /admin/learners提供範圍內資格停用，CSRF／理由／版本／鎖後實際clock授權檢查；先關互動管道後suspend，舊cap到期、對應同意撤銷，不刪原始紀錄或其他獨立person，不撤銷admin／Authgear。/admin/shared-journal讀共用歷史；舊私密及停用者原稿仍依原角色scope，不擴大私密權限。/admin/privacy-policy僅Super審閱後理由式發布。
+- 完整pnpm verify **388項通過、無skip**，format／lint／source typecheck／build通過；額外全測試tsc仍10項既有錯誤、無新錯誤。22→23／重跑／舊契約拒絕／原始資料與舊撤回snapshot保留及draft零同意origin驗證通過，非正式快照。signed三管道mock驗證與Chrome八種雙語手機／桌機配置無溢出／JS exception，非真人驗收、零真實測試發送。
+- 詳見 [learner-privacy-consent](docs/operations/learner-privacy-consent.md)。隱私功能migration23整合於本機candidate24；發布／正式快照／備份回復另核准，不能binary-only rollback22。復課／永久刪除自動化、保留清理、完整LINE／WhatsApp學員工作區及官網串接仍待做。
+
 ## 心得流／分享／外部 API／標籤（已部署852cd05／schema22）
 
 - 使用者核准 commit／push／部署，程式852cd05；[CI37914571159](https://github.com/lulu-lovebird/qigong-platform/actions/runs/37914571159) 成功。新0022，不改0001–0021、舊Bot、保護設定、依賴或 provider 開關。

@@ -9,7 +9,13 @@ import {
   savePracticeNote
 } from './practice-notes.js';
 import { lineApplicationPage } from './line-application-page.js';
-import { lineCheckinPage } from './line-checkin-page.js';
+import { renderChannelWorkspacePage } from './channel-workspace-pages.js';
+import { registerChannelWorkspace } from './channel-workspace.js';
+import {
+  beginLearnerPrivacy,
+  learnerPrivacyReply,
+  isLearnerPrivacyError
+} from './learner-privacy-routes.js';
 
 export interface LineConfig {
   channelSecret: string;
@@ -93,9 +99,15 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
         .type('text/html; charset=utf-8')
         .send(html);
   // The configured LIFF endpoint must initialize the SDK, including primary redirects.
-  app.get('/line/', page(lineCheckinPage(config.liffId)));
+  app.get(
+    '/line/',
+    page(renderChannelWorkspacePage({ platform: 'line', liffId: config.liffId }, 'checkin'))
+  );
   app.get('/line/apply', page(lineApplicationPage(config.liffId)));
-  app.get('/line/checkin', page(lineCheckinPage(config.liffId)));
+  app.get(
+    '/line/checkin',
+    page(renderChannelWorkspacePage({ platform: 'line', liffId: config.liffId }, 'checkin'))
+  );
 
   app.register((webhookApp, _options, done) => {
     webhookApp.addContentTypeParser(
@@ -131,11 +143,50 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
           (event.type === 'message' &&
             event.message?.type === 'text' &&
             /^(加入|申請|start|\/start)$/i.test(event.message.text?.trim() ?? ''));
-        if (!isCheckin && !isApply) continue;
-        if (isCheckin) {
+        const isPrivacy =
+          event.type === 'message' &&
+          event.message?.type === 'text' &&
+          /^(隱私|privacy|\/privacy|terms|條款)$/i.test(event.message.text?.trim() ?? '');
+        const workspaceCommand =
+          event.type === 'message' &&
+          event.message?.type === 'text' &&
+          /^(?:\/)?(?:menu|選單|leaderboard|排行榜|methods|methodanalysis|功法分析|achievements|我的成就|成就|history|打卡紀錄|journal|share|心得|心得分享)$/i.test(
+            event.message.text?.trim() ?? ''
+          );
+        if (!isCheckin && !isApply && !isPrivacy && !workspaceCommand) continue;
+        const privacyToken = createHmac('sha256', config.channelSecret)
+          .update(
+            'privacy:' + (event.webhookEventId ?? event.replyToken) + ':' + event.source.userId
+          )
+          .digest('base64url');
+        const privacyState = await withRequestContext(
+          pool,
+          'qigong_api_runtime',
+          { requestId: request.id },
+          (client) => beginLearnerPrivacy(client, 'line', event.source.userId!, privacyToken)
+        );
+        const privacyMessage = learnerPrivacyReply(
+          privacyState,
+          'line',
+          privacyToken,
+          'zh_TW',
+          isPrivacy
+        );
+        if (privacyMessage) {
+          await replyMessage(event.replyToken, privacyMessage);
+          continue;
+        }
+        if (isCheckin || workspaceCommand) {
           await replyMessage(
             event.replyToken,
-            '請開啟打卡頁：https://checkin.baiyinqigong.org/line/checkin'
+            [
+              '白雁氣功｜學員工作區',
+              '練功打卡：https://checkin.baiyinqigong.org/line/checkin',
+              '排行榜：https://checkin.baiyinqigong.org/line/leaderboard',
+              '功法分析：https://checkin.baiyinqigong.org/line/method-analysis',
+              '我的成就／月曆：https://checkin.baiyinqigong.org/line/achievements',
+              '心得分享：https://checkin.baiyinqigong.org/line/journal'
+            ].join('\n')
           );
         } else {
           const link = createHmac('sha256', config.channelSecret)
@@ -181,6 +232,14 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
       return null;
     }
   };
+  registerChannelWorkspace(
+    app,
+    pool,
+    { platform: 'line', liffId: config.liffId },
+    async (request) => authenticated(request.body),
+    false
+  );
+
   app.post('/line/onboarding/apply', { bodyLimit: 8192 }, async (request, reply) => {
     if (!validOrigin(request.headers.origin, request.headers['content-type']))
       return reply.code(403).send({ error: 'invalid_origin' });
@@ -215,7 +274,9 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
         )
       )
         return reply.code(409).send({ error: 'application_unavailable' });
-      app.log.error({ err: error }, 'LINE application failed');
+      if (isLearnerPrivacyError(error))
+        return reply.code(403).send({ error: 'privacy_acceptance_required' });
+      app.log.error({ requestId: request.id }, 'LINE application failed');
       return reply.code(503).send({ error: 'application_unavailable' });
     }
   });
@@ -313,7 +374,9 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
               ('code' in error && error.code === '23505')))
         )
           return reply.code(409).send({ error: 'checkin_conflict' });
-        app.log.error({ err: error }, 'LINE checkin failed');
+        if (isLearnerPrivacyError(error))
+          return reply.code(403).send({ error: 'privacy_acceptance_required' });
+        app.log.error({ requestId: request.id }, 'LINE checkin failed');
         return reply.code(503).send({ error: 'checkin_unavailable' });
       }
     });

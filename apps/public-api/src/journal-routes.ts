@@ -3,6 +3,7 @@ import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
 import { learnerLocale } from './learner-locale.js';
 import { renderLearnerJournalPage } from './learner-journal-pages.js';
+import { isLearnerPrivacyError } from './learner-privacy-routes.js';
 const query = z
   .object({
     page: z.coerce.number().int().min(1).max(100000).default(1),
@@ -46,6 +47,14 @@ const execute = async (pool: Pool, requestId: string, sql: string, values: unkno
     ).rows[0]?.data
   );
 const failure = (error: unknown) => {
+  if (isLearnerPrivacyError(error))
+    return {
+      status: 403,
+      code:
+        error instanceof Error && error.message === 'reflection consent required'
+          ? 'reflection_consent_required'
+          : 'privacy_acceptance_required'
+    };
   const message = error instanceof Error ? error.message : '';
   if (
     message === 'practice identity unavailable' ||
@@ -97,8 +106,8 @@ export const registerLearnerJournalRoutes = (app: FastifyInstance, pool: Pool) =
           pool,
           request.id,
           view === 'feed'
-            ? 'SELECT platform.journal_feed($1,$2,$3) data'
-            : 'SELECT platform.journal_own($1,$3,$2) data',
+            ? `SELECT platform.journal_feed($1,$2,$3) || CASE WHEN (platform.privacy_notice()->>'active')::boolean THEN jsonb_build_object('privacy',platform.privacy_usage('telegram',$1)) ELSE '{}'::jsonb END data`
+            : `SELECT platform.journal_own($1,$3,$2) || CASE WHEN (platform.privacy_notice()->>'active')::boolean THEN jsonb_build_object('privacy',platform.privacy_usage('telegram',$1)) ELSE '{}'::jsonb END data`,
           [parsed.data.token, parsed.data.locale, parsed.data.page]
         );
       } catch (e) {

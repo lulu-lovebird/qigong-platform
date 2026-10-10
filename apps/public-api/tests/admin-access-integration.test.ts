@@ -420,12 +420,40 @@ suite('super admin approval HTTP boundary', () => {
         .statusCode
     ).toBe(400);
     expect((await get('/admin/auth/me', candidate)).statusCode).toBe(200);
-    expect((await post(endpoint, admin, edit)).statusCode).toBe(200);
+    const edited = await post(endpoint, admin, edit);
+    let diagnostic = '';
+    if (edited.statusCode !== 200) {
+      const flags = (
+        await root.query<{ grants: boolean; sessions: boolean; target_active: boolean }>(
+          "SELECT EXISTS(SELECT 1 FROM admin.role_grants g JOIN admin.roles r ON r.id=g.role_id JOIN admin.principals p ON p.id=g.principal_id WHERE p.oidc_subject='root' AND r.code='super_admin' AND g.valid_from<=clock_timestamp() AND(g.valid_to IS NULL OR g.valid_to>clock_timestamp())) grants,EXISTS(SELECT 1 FROM admin.sessions s JOIN admin.principals p ON p.id=s.principal_id WHERE p.oidc_subject='root' AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp()) sessions,EXISTS(SELECT 1 FROM admin.principals WHERE id=$1 AND status='active') target_active",
+          [s.principalId]
+        )
+      ).rows[0];
+      diagnostic = JSON.stringify({ response: edited.json<{ error?: string }>().error, flags });
+    }
+    expect(edited.statusCode, diagnostic).toBe(200);
     expect((await post(endpoint, admin, edit)).statusCode).toBe(409);
     expect((await get('/admin/auth/me', candidate)).statusCode).toBe(401);
-    const updated = (await get('/admin/api/access/accounts?status=authorized', admin))
+    const updatedResponse = await get('/admin/api/access/accounts?status=authorized', admin);
+    const updated = updatedResponse
       .json<AccountList>()
-      .entries.find((e) => e.principalId === s.principalId)!;
+      .entries?.find((e) => e.principalId === s.principalId);
+    if (!updated) {
+      const flags = (
+        await root.query(
+          'SELECT r.code,g.valid_from<=clock_timestamp() valid_now,g.valid_to IS NULL open_ended,extract(epoch FROM(g.valid_from-clock_timestamp())) seconds_until_valid FROM admin.role_grants g JOIN admin.roles r ON r.id=g.role_id WHERE g.principal_id=$1 ORDER BY g.created_at',
+          [s.principalId]
+        )
+      ).rows;
+      throw Error(
+        JSON.stringify({
+          stage: 'roster_after_edit',
+          status: updatedResponse.statusCode,
+          error: updatedResponse.json<{ error?: string }>().error,
+          flags
+        })
+      );
+    }
     const remove = '/admin/api/access/accounts/' + s.principalId + '/revoke-all';
     expect(
       (await post(remove, admin, { version: account.grantVersion, reason: 'Stale' })).statusCode

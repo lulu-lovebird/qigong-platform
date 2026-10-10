@@ -2,6 +2,7 @@ import Fastify, { type FastifyBaseLogger } from 'fastify';
 import { checkApiRuntimePreflight, getMigrationStatus, type Pool } from '@qigong/database';
 import { registerAdminRoutes, type AdminAuthProvider } from './admin-auth.js';
 import { registerExternalJournalRoutes } from './journal-routes.js';
+import { registerLearnerPrivacyRoutes, isLearnerPrivacyError } from './learner-privacy-routes.js';
 import {
   registerTelegramOnboarding,
   type TelegramOnboardingConfig
@@ -9,8 +10,8 @@ import {
 import { registerLineOnboarding, type LineConfig } from './line-onboarding.js';
 import { registerWhatsAppOnboarding, type WhatsAppConfig } from './whatsapp-onboarding.js';
 
-export const minimumMigrationVersion = '0022_journal_sharing.sql';
-export const maximumMigrationVersion = '0022_journal_sharing.sql';
+export const minimumMigrationVersion = '0025_telegram_miniapp_sessions.sql';
+export const maximumMigrationVersion = '0025_telegram_miniapp_sessions.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -74,6 +75,18 @@ export const buildApp = ({
     }
   });
 
+  const defaultErrorHandler = app.errorHandler;
+  app.setErrorHandler((error, request, reply) => {
+    if (isLearnerPrivacyError(error))
+      return reply.code(403).send({
+        error:
+          error instanceof Error && error.message === 'reflection consent required'
+            ? 'reflection_consent_required'
+            : 'privacy_acceptance_required'
+      });
+    return defaultErrorHandler.call(app, error, request, reply);
+  });
+
   app.addHook('onSend', (request, reply, payload, done) => {
     void reply.header('x-request-id', request.id);
     done(null, payload);
@@ -97,6 +110,7 @@ export const buildApp = ({
     }
   });
 
+  registerLearnerPrivacyRoutes(app, pool);
   registerExternalJournalRoutes(app, pool);
   if (adminAuth) registerAdminRoutes(app, pool, adminAuth);
   if (telegramOnboarding) registerTelegramOnboarding(app, pool, telegramOnboarding);

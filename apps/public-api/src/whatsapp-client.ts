@@ -33,6 +33,17 @@ export const loadWhatsAppNotificationConfig = (
 type WhatsAppPayload = { to: string } & (
   | { type: 'text'; text: { body: string; preview_url: false } }
   | { type: 'template'; template: { name: string; language: { code: string } } }
+  | {
+      type: 'interactive';
+      interactive: {
+        type: 'list';
+        body: { text: string };
+        action: {
+          button: string;
+          sections: Array<{ title: string; rows: Array<{ id: string; title: string }> }>;
+        };
+      };
+    }
 );
 export const sendWhatsAppMessage = async (config: WhatsAppTransport, payload: WhatsAppPayload) => {
   let response: Response;
@@ -75,6 +86,31 @@ export const createWhatsAppTextSender =
       to: recipient,
       type: 'text',
       text: { body: text, preview_url: false }
+    });
+export const createWhatsAppWorkspaceMenuSender =
+  (config: WhatsAppTransport) => (recipient: string, text: string, locale: 'zh_TW' | 'en') =>
+    sendWhatsAppMessage(config, {
+      to: recipient,
+      type: 'interactive',
+      interactive: {
+        type: 'list',
+        body: { text },
+        action: {
+          button: locale === 'en' ? 'Choose a feature' : '選擇功能',
+          sections: [
+            {
+              title: locale === 'en' ? 'Learner workspace' : '學員工作區',
+              rows: [
+                ['checkin', locale === 'en' ? 'Check-in' : '練功打卡'],
+                ['leaderboard', locale === 'en' ? 'Leaderboard' : '排行榜'],
+                ['methods', locale === 'en' ? 'Method analysis' : '功法分析'],
+                ['achievements', locale === 'en' ? 'Achievements / history' : '成就／月曆'],
+                ['journal', locale === 'en' ? 'Shared reflections' : '心得分享']
+              ].map(([id, title]) => ({ id: 'workspace:' + id, title: title! }))
+            }
+          ]
+        }
+      }
     });
 export const createWhatsAppNotificationSender =
   (config: WhatsAppNotificationConfig): NotificationSender =>

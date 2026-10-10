@@ -3,6 +3,7 @@ import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
 import { learnerLocale } from './learner-locale.js';
 import { practiceNoteSchema } from './practice-notes.js';
+import { isLearnerPrivacyError } from './learner-privacy-routes.js';
 import {
   renderTelegramWorkspacePage,
   telegramWorkspacePaths,
@@ -69,6 +70,14 @@ export const registerTelegramWorkspace = (app: FastifyInstance, pool: Pool) => {
     return responseObject.parse(result.rows[0]?.data);
   };
   const failure = (error: unknown): { status: 403 | 409 | 503; code: string } => {
+    if (isLearnerPrivacyError(error))
+      return {
+        status: 403,
+        code:
+          error instanceof Error && error.message === 'reflection consent required'
+            ? 'reflection_consent_required'
+            : 'privacy_acceptance_required'
+      };
     if (error instanceof Error) {
       if (
         /^(practice identity unavailable|checkin link expired or identity unavailable|checkin identity not approved or active)$/.test(
@@ -93,11 +102,11 @@ export const registerTelegramWorkspace = (app: FastifyInstance, pool: Pool) => {
     const input = credential.safeParse(request.body);
     if (!input.success) return reply.code(400).send({ error: 'invalid_workspace_request' });
     try {
-      return await execute(request.id, 'SELECT platform.telegram_workspace_report($1,$2,$3) data', [
-        input.data.token,
-        'profile',
-        input.data.locale
-      ]);
+      return await execute(
+        request.id,
+        `SELECT platform.telegram_workspace_report($1,$2,$3) || CASE WHEN (platform.privacy_notice()->>'active')::boolean THEN jsonb_build_object('privacy',platform.privacy_usage('telegram',$1)) ELSE '{}'::jsonb END data`,
+        [input.data.token, 'profile', input.data.locale]
+      );
     } catch (error) {
       const outcome = failure(error);
       if (outcome.status === 503)

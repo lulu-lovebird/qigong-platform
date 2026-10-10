@@ -752,4 +752,109 @@ describeWithDatabase('LINE onboarding and checkin', () => {
       expect(() => new Script(script!)).not.toThrow();
     }
   });
+  it('gates signed new LINE joins on explicit supplement acceptance without accepting a browser user ID', async () => {
+    const newUser = 'U' + randomUUID().replaceAll('-', '');
+    await pool.query("UPDATE platform.learner_privacy_policies SET state='active'");
+    const reply = vi.fn<(token: string, text: string) => Promise<void>>(async () => {});
+    const app = buildApp({
+      pool: runtimePool,
+      logger: false,
+      line: {
+        channelSecret: secret,
+        channelAccessToken: 'mock-access-token',
+        loginChannelId: '123456',
+        liffId: '123456-test',
+        reply,
+        verifyIdToken: async (value) => {
+          if (value !== 'fresh-verified-id-token') throw Error('Unverified token');
+          return newUser;
+        }
+      }
+    });
+    const command = async () => {
+      const raw = JSON.stringify({
+        events: [
+          {
+            type: 'message',
+            webhookEventId: randomUUID(),
+            replyToken: 'reply-privacy',
+            source: { type: 'user', userId: newUser },
+            message: { type: 'text', text: '加入' }
+          }
+        ]
+      });
+      return app.inject({
+        method: 'POST',
+        url: '/line/webhook',
+        payload: raw,
+        headers: {
+          'content-type': 'application/json',
+          'x-line-signature': createHmac('sha256', secret).update(raw).digest('base64')
+        }
+      });
+    };
+    try {
+      expect((await command()).statusCode).toBe(200);
+      const text = reply.mock.calls.at(-1)![1];
+      expect(text).toContain('/privacy?platform=line');
+      const token = text.match(/#([A-Za-z0-9_-]{43})/)![1]!;
+      const notice = (await app.inject('/learner/privacy/notice')).json<{
+        version: string;
+        hash: string;
+      }>();
+      const headers = { origin: 'https://checkin.baiyinqigong.org' };
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/line/checkin/history',
+            headers,
+            payload: { idToken: 'fresh-verified-id-token' }
+          })
+        ).statusCode
+      ).toBe(403);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/learner/privacy/accept',
+            headers,
+            payload: {
+              platform: 'line',
+              token,
+              version: notice.version,
+              hash: notice.hash,
+              locale: 'zh_TW',
+              accepted: true,
+              reflectionConsent: false,
+              userId: newUser
+            }
+          })
+        ).statusCode
+      ).toBe(400);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/learner/privacy/accept',
+            headers,
+            payload: {
+              platform: 'line',
+              token,
+              version: notice.version,
+              hash: notice.hash,
+              locale: 'zh_TW',
+              accepted: true,
+              reflectionConsent: false
+            }
+          })
+        ).statusCode
+      ).toBe(200);
+      expect((await command()).statusCode).toBe(200);
+      expect(reply.mock.calls.at(-1)![1]).toContain('/line/apply#');
+    } finally {
+      await app.close();
+      await pool.query("UPDATE platform.learner_privacy_policies SET state='draft'");
+    }
+  });
 });

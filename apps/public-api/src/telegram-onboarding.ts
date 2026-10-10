@@ -6,6 +6,13 @@ import { renderApplicationPage } from './application-page.js';
 import { registerTelegramWorkspace } from './telegram-workspace.js';
 import { registerLearnerJournalRoutes } from './journal-routes.js';
 import { journalTexts } from './journal-locale.js';
+import { registerTelegramMiniapp } from './telegram-miniapp-auth.js';
+import {
+  beginLearnerPrivacy,
+  learnerPrivacyReply,
+  isLearnerPrivacyError
+} from './learner-privacy-routes.js';
+import { learnerPrivacyTexts } from './learner-privacy-locale.js';
 import { telegramWorkspacePaths, type TelegramWorkspacePage } from './telegram-workspace-pages.js';
 import { telegramWorkspaceTexts } from './telegram-workspace-locale.js';
 import { learnerLocale, learnerTexts, localeQuery } from './learner-locale.js';
@@ -72,6 +79,7 @@ export const registerTelegramOnboarding = (
       .type('text/html; charset=utf-8')
       .send(renderApplicationPage({ platform: 'telegram', locale: queryLocale(request.query) }))
   );
+  registerTelegramMiniapp(app, pool, config.botToken);
   registerTelegramWorkspace(app, pool);
   registerLearnerJournalRoutes(app, pool);
   const sendMessage =
@@ -128,18 +136,13 @@ export const registerTelegramOnboarding = (
       /^\/(checkin|leaderboard|methods|methodanalysis|achievements|history|mystats|badges|journal|share)(?:@\w+)?(?:\s|$)/i.exec(
         message.text ?? ''
       );
-    const command = workspaceCommand?.[1]?.toLowerCase();
-    const workspacePage: TelegramWorkspacePage =
-      command === 'leaderboard'
-        ? 'leaderboard'
-        : command === 'methods' || command === 'methodanalysis'
-          ? 'methods'
-          : command && command !== 'checkin'
-            ? 'achievements'
-            : 'checkin';
+    const privacyCommand = /^(?:\/(privacy|terms)(?:@\w+)?|隱私|條款)\s*$/i.test(
+      message.text ?? ''
+    );
     const languageCommand = /^\/language(?:@\w+)?(?:\s+(\S+))?\s*$/i.exec(message.text ?? '');
     if (
       !workspaceCommand &&
+      !privacyCommand &&
       !languageCommand &&
       !/^\/(start|apply)(?:@\w+)?(?:\s|$)/i.test(message.text ?? '')
     ) {
@@ -182,35 +185,80 @@ export const registerTelegramOnboarding = (
         }
         return { ok: true };
       }
-      if (workspaceCommand) {
-        const result = await withRequestContext(
+      const privacyToken = createHmac('sha256', config.webhookSecret)
+        .update('privacy:' + parsed.data.update_id + ':' + message.from.id)
+        .digest('base64url');
+      const privacyState = await withRequestContext(
+        pool,
+        'qigong_api_runtime',
+        { requestId: request.id },
+        (client) => beginLearnerPrivacy(client, 'telegram', String(message.from.id), privacyToken)
+      );
+      const privacyMessage = learnerPrivacyReply(
+        privacyState,
+        'telegram',
+        privacyToken,
+        locale,
+        privacyCommand
+      );
+      if (privacyMessage) {
+        await sendMessage(
+          message.chat.id,
+          privacyMessage,
+          privacyState.unavailable
+            ? undefined
+            : [
+                {
+                  text: learnerPrivacyTexts(locale).privacyLink,
+                  url:
+                    'https://checkin.baiyinqigong.org/privacy?platform=telegram&lang=' +
+                    locale +
+                    '#' +
+                    privacyToken
+                }
+              ]
+        );
+        return { ok: true };
+      }
+      const isStart = /^\/start(?:@\w+)?(?:\s|$)/i.test(message.text ?? '');
+      if (workspaceCommand || isStart) {
+        const readiness = await withRequestContext(
           pool,
           'qigong_api_runtime',
           { requestId: request.id },
           (client) =>
-            client.query<{ status: string }>(
-              'SELECT platform.begin_telegram_checkin($1, $2) AS status',
-              [String(message.from.id), linkToken]
-            )
+            client.query<{ ready: boolean }>('SELECT platform.telegram_workspace_ready($1) ready', [
+              String(message.from.id)
+            ])
         );
-        if (result.rows[0]?.status !== 'ready') {
+        if (readiness.rows[0]?.ready) {
+          const labels = telegramWorkspaceTexts(locale);
+          const buttons = [
+            ...(Object.keys(telegramWorkspacePaths) as TelegramWorkspacePage[]).map((page) => ({
+              text: labels[page],
+              url:
+                'https://checkin.baiyinqigong.org' +
+                telegramWorkspacePaths[page] +
+                localeQuery(locale)
+            })),
+            {
+              text: journalTexts(locale).feed,
+              url: 'https://checkin.baiyinqigong.org/telegram/journal' + localeQuery(locale)
+            }
+          ];
+          await sendMessage(
+            message.chat.id,
+            locale === 'en'
+              ? 'Welcome to Baiyin Qigong. Choose a feature below to open the Mini App.'
+              : '歡迎使用白雁氣功打卡小幫手，請點下方功能按鈕直接開啟。',
+            buttons
+          );
+          return { ok: true };
+        }
+        if (workspaceCommand) {
           await sendMessage(message.chat.id, texts.notApproved);
           return { ok: true };
         }
-        const labels = telegramWorkspaceTexts(locale);
-        const link = (page: TelegramWorkspacePage) =>
-          `https://checkin.baiyinqigong.org${telegramWorkspacePaths[page]}${localeQuery(locale)}#${linkToken}`;
-        const journalLink = `https://checkin.baiyinqigong.org/telegram/journal${localeQuery(locale)}#${linkToken}`;
-        const isJournal = command === 'journal' || command === 'share';
-        const text = `${isJournal ? journalTexts(locale).feed : workspacePage === 'checkin' ? texts.checkinLink : labels[workspacePage]}\n${isJournal ? journalLink : link(workspacePage)}\n${texts.privateLink}`;
-        await sendMessage(message.chat.id, text, [
-          ...(Object.keys(telegramWorkspacePaths) as TelegramWorkspacePage[]).map((page) => ({
-            text: labels[page],
-            url: link(page)
-          })),
-          { text: journalTexts(locale).feed, url: journalLink }
-        ]);
-        return { ok: true };
       }
       const result = await withRequestContext(
         pool,
@@ -268,6 +316,13 @@ export const registerTelegramOnboarding = (
       );
       return { status: 'pending' };
     } catch (error) {
+      if (isLearnerPrivacyError(error))
+        return reply.code(403).send({
+          error:
+            error instanceof Error && error.message === 'reflection consent required'
+              ? 'reflection_consent_required'
+              : 'privacy_acceptance_required'
+        });
       if (
         error instanceof Error &&
         /^(application link expired or used|application already reviewed|invalid application details|application region unavailable)$/.test(
@@ -308,6 +363,13 @@ export const registerTelegramOnboarding = (
       );
       return reply.header('cache-control', 'no-store').send({ locale: parsed.data.locale });
     } catch (error) {
+      if (isLearnerPrivacyError(error))
+        return reply.code(403).send({
+          error:
+            error instanceof Error && error.message === 'reflection consent required'
+              ? 'reflection_consent_required'
+              : 'privacy_acceptance_required'
+        });
       if (error instanceof Error && error.message === 'invalid language link')
         return reply.code(403).send({ error: 'invalid_language_link' });
       app.log.error({ err: error }, 'Telegram language preference failed');
@@ -366,6 +428,13 @@ export const registerTelegramOnboarding = (
       );
       return reply.header('cache-control', 'no-store').send(result);
     } catch (error) {
+      if (isLearnerPrivacyError(error))
+        return reply.code(403).send({
+          error:
+            error instanceof Error && error.message === 'reflection consent required'
+              ? 'reflection_consent_required'
+              : 'privacy_acceptance_required'
+        });
       if (
         error instanceof Error &&
         error.message === 'checkin link expired or identity unavailable'
@@ -415,6 +484,13 @@ export const registerTelegramOnboarding = (
       );
       return reply.header('cache-control', 'no-store').send({ ok: true });
     } catch (error) {
+      if (isLearnerPrivacyError(error))
+        return reply.code(403).send({
+          error:
+            error instanceof Error && error.message === 'reflection consent required'
+              ? 'reflection_consent_required'
+              : 'privacy_acceptance_required'
+        });
       if (
         isPracticeNoteConflict(error) ||
         (error instanceof Error &&
@@ -474,6 +550,13 @@ export const registerTelegramOnboarding = (
         entryKind: checkin.entry_kind
       };
     } catch (error) {
+      if (isLearnerPrivacyError(error))
+        return reply.code(403).send({
+          error:
+            error instanceof Error && error.message === 'reflection consent required'
+              ? 'reflection_consent_required'
+              : 'privacy_acceptance_required'
+        });
       if (
         isPracticeNoteConflict(error) ||
         (error instanceof Error &&

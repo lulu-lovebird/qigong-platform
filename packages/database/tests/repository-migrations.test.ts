@@ -36,7 +36,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0022_journal_sharing.sql'
+      '0025_telegram_miniapp_sessions.sql'
     );
 
     expect(first.applied).toEqual([
@@ -61,13 +61,16 @@ describeWithDatabase('repository migrations', () => {
       '0019_admin_access_approval.sql',
       '0020_admin_grant_management.sql',
       '0021_telegram_learner_workspace.sql',
-      '0022_journal_sharing.sql'
+      '0022_journal_sharing.sql',
+      '0023_learner_privacy_consent.sql',
+      '0024_learner_workspaces.sql',
+      '0025_telegram_miniapp_sessions.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0022_journal_sharing.sql',
+      currentVersion: '0025_telegram_miniapp_sessions.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0022_journal_sharing.sql',
+      maximumVersion: '0025_telegram_miniapp_sessions.sql',
       ready: true
     });
   });
@@ -112,7 +115,10 @@ describeWithDatabase('repository migrations', () => {
     }
     const grants = (await pool.query('SELECT * FROM admin.role_grants ORDER BY id')).rows;
     expect((await runMigrations(pool, migrationsDirectory, 'vitest')).applied).toEqual([
-      '0022_journal_sharing.sql'
+      '0022_journal_sharing.sql',
+      '0023_learner_privacy_consent.sql',
+      '0024_learner_workspaces.sql',
+      '0025_telegram_miniapp_sessions.sql'
     ]);
     expect((await runMigrations(pool, migrationsDirectory, 'vitest')).applied).toEqual([]);
     expect((await pool.query('SELECT * FROM admin.role_grants ORDER BY id')).rows).toEqual(grants);
@@ -135,13 +141,214 @@ describeWithDatabase('repository migrations', () => {
       ).rows[0]!.count
     ).toBe('1');
     expect(
-      (await pool.query<{ ready: boolean }>('SELECT ops.journal_workspace_schema_ready() ready'))
+      (await pool.query<{ ready: boolean }>('SELECT ops.telegram_miniapp_schema_ready() ready'))
         .rows[0]!.ready
     ).toBe(true);
     expect(
       (await pool.query<{ ready: boolean }>('SELECT ops.telegram_workspace_schema_ready() ready'))
         .rows[0]!.ready
     ).toBe(false);
+  });
+  it('upgrades 0022 without publishing old data or accepting users, preserving journal and access history', async () => {
+    const staging = await mkdtemp(path.join(tmpdir(), 'qigong-privacy-upgrade-'));
+    try {
+      for (const name of await readdir(migrationsDirectory))
+        if (name.endsWith('.sql') && name < '0023_')
+          await copyFile(path.join(migrationsDirectory, name), path.join(staging, name));
+      await runMigrations(pool, staging, 'privacy-old');
+    } finally {
+      await rm(staging, { recursive: true, force: true });
+    }
+    const person = (
+      await pool.query<{ id: string }>(
+        "INSERT INTO identity.people(preferred_name,practice_timezone) VALUES('Preserved learner','UTC') RETURNING id"
+      )
+    ).rows[0]!.id;
+    const identity = (
+      await pool.query<{ id: string }>(
+        "INSERT INTO identity.platform_identities(person_id,platform,external_subject_id) VALUES($1,'telegram','81234567') RETURNING id",
+        [person]
+      )
+    ).rows[0]!.id;
+    const region = (
+      await pool.query<{ id: string }>(
+        "WITH g AS(INSERT INTO core.regions(code,region_type,name_zh_tw,name_en) VALUES('privacy-global','global','全球','Global') RETURNING id),c AS(INSERT INTO core.regions(parent_region_id,code,region_type,name_zh_tw,name_en) SELECT id,'privacy-country','country','國家','Country' FROM g RETURNING id) INSERT INTO core.regions(parent_region_id,code,region_type,name_zh_tw,name_en) SELECT id,'privacy-region','operational','地區','Region' FROM c RETURNING id"
+      )
+    ).rows[0]!.id;
+    const assignment = (
+      await pool.query<{ id: string }>(
+        "INSERT INTO core.person_region_assignments(person_id,region_id,assignment_type,valid_from) VALUES($1,$2,'primary',CURRENT_DATE-1) RETURNING id",
+        [person, region]
+      )
+    ).rows[0]!.id;
+    const checkin = (
+      await pool.query<{ id: string }>(
+        "INSERT INTO core.checkins(person_id,submitted_via_identity_id,practice_date,practice_timezone,entry_kind,region_assignment_id) VALUES($1,$2,CURRENT_DATE,'UTC','regular',$3) RETURNING id",
+        [person, identity, assignment]
+      )
+    ).rows[0]!.id;
+    await pool.query(
+      "INSERT INTO core.checkin_notes(checkin_id,person_id,practice_note) VALUES($1,$2,'Private legacy reflection')",
+      [checkin, person]
+    );
+    await pool.query(
+      "INSERT INTO core.journal_publications(checkin_id,person_id,identity_id,revision,active,external_enabled,share_note,share_feelings,alias,practice_date,note_snapshot,method_snapshot,tag_snapshot) VALUES($1,$2,$3,1,FALSE,FALSE,TRUE,FALSE,'Old alias',CURRENT_DATE,'Older withdrawn snapshot','[]','[]')",
+      [checkin, person, identity]
+    );
+    const before = {
+      people: (await pool.query('SELECT * FROM identity.people ORDER BY id')).rows,
+      notes: (await pool.query('SELECT * FROM core.checkin_notes ORDER BY checkin_id')).rows,
+      publications: (
+        await pool.query('SELECT to_jsonb(j) data FROM core.journal_publications j ORDER BY id')
+      ).rows
+    };
+    expect((await runMigrations(pool, migrationsDirectory, 'privacy-new')).applied).toEqual([
+      '0023_learner_privacy_consent.sql',
+      '0024_learner_workspaces.sql',
+      '0025_telegram_miniapp_sessions.sql'
+    ]);
+    expect((await runMigrations(pool, migrationsDirectory, 'privacy-repeat')).applied).toEqual([]);
+    expect((await pool.query('SELECT * FROM identity.people ORDER BY id')).rows).toEqual(
+      before.people
+    );
+    expect((await pool.query('SELECT * FROM core.checkin_notes ORDER BY checkin_id')).rows).toEqual(
+      before.notes
+    );
+    expect(
+      (
+        await pool.query(
+          "SELECT to_jsonb(j)-'shared_with_staff' data FROM core.journal_publications j ORDER BY id"
+        )
+      ).rows
+    ).toEqual(before.publications);
+    expect(
+      (
+        await pool.query<{ count: string }>(
+          'SELECT count(*) FROM platform.learner_privacy_acceptances'
+        )
+      ).rows[0]!.count
+    ).toBe('0');
+    expect(
+      (await pool.query<{ count: string }>('SELECT count(*) FROM core.checkin_privacy_origins'))
+        .rows[0]!.count
+    ).toBe('0');
+    expect(
+      (await pool.query<{ state: string }>('SELECT state FROM platform.learner_privacy_policies'))
+        .rows[0]!.state
+    ).toBe('draft');
+    expect(
+      (await getMigrationStatus(pool, '0022_journal_sharing.sql', '0022_journal_sharing.sql')).ready
+    ).toBe(false);
+    expect(
+      (
+        await getMigrationStatus(
+          pool,
+          '0025_telegram_miniapp_sessions.sql',
+          '0025_telegram_miniapp_sessions.sql'
+        )
+      ).ready
+    ).toBe(true);
+  });
+  it('upgrades 0023 idempotently without rewriting practice, policy or existing receipts', async () => {
+    const staging = await mkdtemp(path.join(tmpdir(), 'qigong-channel-upgrade-'));
+    try {
+      for (const name of await readdir(migrationsDirectory))
+        if (name.endsWith('.sql') && name < '0024_')
+          await copyFile(path.join(migrationsDirectory, name), path.join(staging, name));
+      await runMigrations(pool, staging, 'channel-old');
+    } finally {
+      await rm(staging, { recursive: true, force: true });
+    }
+    await pool.query(
+      "INSERT INTO identity.people(preferred_name,practice_timezone) VALUES('Preserved actor','UTC')"
+    );
+    const tables = (
+      await pool.query<{ schema: string; name: string }>(
+        "SELECT schemaname AS schema,tablename AS name FROM pg_tables WHERE schemaname IN ('identity','core','platform','admin','ops','audit') AND NOT(schemaname='core' AND tablename='platform_metadata') ORDER BY 1,2"
+      )
+    ).rows;
+    const fingerprint = async (schema: string, name: string) =>
+      (
+        await pool.query<{ hash: string }>(
+          "SELECT md5(coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text)::text,'')) hash FROM " +
+            schema +
+            '.' +
+            name +
+            ' t'
+        )
+      ).rows[0]!.hash;
+    const before = await Promise.all(tables.map((t) => fingerprint(t.schema, t.name)));
+    expect((await runMigrations(pool, migrationsDirectory, 'channel-new')).applied).toEqual([
+      '0024_learner_workspaces.sql',
+      '0025_telegram_miniapp_sessions.sql'
+    ]);
+    expect((await runMigrations(pool, migrationsDirectory, 'channel-repeat')).applied).toEqual([]);
+    expect(await Promise.all(tables.map((t) => fingerprint(t.schema, t.name)))).toEqual(before);
+    expect(
+      (
+        await getMigrationStatus(
+          pool,
+          '0023_learner_privacy_consent.sql',
+          '0023_learner_privacy_consent.sql'
+        )
+      ).ready
+    ).toBe(false);
+    expect(
+      (
+        await getMigrationStatus(
+          pool,
+          '0025_telegram_miniapp_sessions.sql',
+          '0025_telegram_miniapp_sessions.sql'
+        )
+      ).ready
+    ).toBe(true);
+    expect(
+      (await pool.query<{ state: string }>('SELECT state FROM platform.learner_privacy_policies'))
+        .rows[0]!.state
+    ).toBe('draft');
+  });
+  it('upgrades 0024 preserving legacy capability rows while enabling multiple expiring sessions', async () => {
+    const staging = await mkdtemp(path.join(tmpdir(), 'qigong-miniapp-upgrade-'));
+    try {
+      for (const name of await readdir(migrationsDirectory))
+        if (name.endsWith('.sql') && name < '0025_')
+          await copyFile(path.join(migrationsDirectory, name), path.join(staging, name));
+      await runMigrations(pool, staging, 'miniapp-old');
+    } finally {
+      await rm(staging, { recursive: true, force: true });
+    }
+    await pool.query(
+      "INSERT INTO platform.telegram_checkin_links(telegram_user_id,token_hash,expires_at) VALUES('912345',public.digest($1,'sha256'),clock_timestamp()+INTERVAL '15 minutes')",
+      ['a'.repeat(43)]
+    );
+    const before = (
+      await pool.query('SELECT * FROM platform.telegram_checkin_links ORDER BY token_hash')
+    ).rows;
+    expect((await runMigrations(pool, migrationsDirectory, 'miniapp-new')).applied).toEqual([
+      '0025_telegram_miniapp_sessions.sql'
+    ]);
+    expect(
+      (await pool.query('SELECT * FROM platform.telegram_checkin_links ORDER BY token_hash')).rows
+    ).toEqual(before);
+    await pool.query(
+      "INSERT INTO platform.telegram_checkin_links(telegram_user_id,token_hash,expires_at) VALUES('912345',public.digest($1,'sha256'),clock_timestamp()+INTERVAL '15 minutes')",
+      ['b'.repeat(43)]
+    );
+    expect((await pool.query('SELECT * FROM platform.telegram_checkin_links')).rowCount).toBe(2);
+    expect((await runMigrations(pool, migrationsDirectory, 'miniapp-repeat')).applied).toEqual([]);
+    expect(
+      (await getMigrationStatus(pool, '0024_learner_workspaces.sql', '0024_learner_workspaces.sql'))
+        .ready
+    ).toBe(false);
+    expect(
+      (
+        await getMigrationStatus(
+          pool,
+          '0025_telegram_miniapp_sessions.sql',
+          '0025_telegram_miniapp_sessions.sql'
+        )
+      ).ready
+    ).toBe(true);
   });
   it('upgrades 0013 to policy A without splitting existing linked people or rewriting history', async () => {
     const database = await createIsolatedTestDatabase(databaseUrl!);
@@ -219,7 +426,10 @@ describeWithDatabase('repository migrations', () => {
         '0019_admin_access_approval.sql',
         '0020_admin_grant_management.sql',
         '0021_telegram_learner_workspace.sql',
-        '0022_journal_sharing.sql'
+        '0022_journal_sharing.sql',
+        '0023_learner_privacy_consent.sql',
+        '0024_learner_workspaces.sql',
+        '0025_telegram_miniapp_sessions.sql'
       ]);
       expect(
         (
@@ -253,8 +463,8 @@ describeWithDatabase('repository migrations', () => {
         (
           await getMigrationStatus(
             database.pool,
-            '0022_journal_sharing.sql',
-            '0022_journal_sharing.sql'
+            '0025_telegram_miniapp_sessions.sql',
+            '0025_telegram_miniapp_sessions.sql'
           )
         ).ready
       ).toBe(true);
@@ -287,7 +497,7 @@ describeWithDatabase('repository migrations', () => {
       const fingerprint = async (schema: string, name: string) =>
         (
           await pool.query<{ digest: string }>(
-            `SELECT md5(coalesce(jsonb_agg(data ORDER BY data::text)::text,'')) digest FROM (SELECT to_jsonb(t) data FROM ${schema}.${name} t ${schema === 'audit' && name === 'events' ? "WHERE action <> 'journal.regional_read_enabled'" : schema === 'admin' && name === 'role_permissions' ? "WHERE NOT (role_id=(SELECT id FROM admin.roles WHERE code='regional_viewer') AND permission_id=(SELECT id FROM admin.permissions WHERE code='checkin.read_private_note'))" : ''}) records`
+            `SELECT md5(coalesce(jsonb_agg(data ORDER BY data::text)::text,'')) digest FROM (SELECT to_jsonb(t) data FROM ${schema}.${name} t ${schema === 'audit' && name === 'events' ? "WHERE action <> 'journal.regional_read_enabled'" : schema === 'admin' && name === 'role_permissions' ? "WHERE permission_id IS DISTINCT FROM (SELECT id FROM admin.permissions WHERE code='journal.read_shared') AND NOT (role_id=(SELECT id FROM admin.roles WHERE code='regional_viewer') AND permission_id=(SELECT id FROM admin.permissions WHERE code='checkin.read_private_note'))" : schema === 'admin' && name === 'permissions' ? "WHERE code<>'journal.read_shared'" : ''}) records`
           )
         ).rows[0]!.digest;
       const before = await Promise.all(
@@ -295,7 +505,10 @@ describeWithDatabase('repository migrations', () => {
       );
       expect((await runMigrations(pool, migrationsDirectory, 'workspace-new')).applied).toEqual([
         '0021_telegram_learner_workspace.sql',
-        '0022_journal_sharing.sql'
+        '0022_journal_sharing.sql',
+        '0023_learner_privacy_consent.sql',
+        '0024_learner_workspaces.sql',
+        '0025_telegram_miniapp_sessions.sql'
       ]);
       expect(
         await Promise.all(tables.map((table) => fingerprint(table.schema, table.name)))
@@ -310,8 +523,13 @@ describeWithDatabase('repository migrations', () => {
         ).ready
       ).toBe(false);
       expect(
-        (await getMigrationStatus(pool, '0022_journal_sharing.sql', '0022_journal_sharing.sql'))
-          .ready
+        (
+          await getMigrationStatus(
+            pool,
+            '0025_telegram_miniapp_sessions.sql',
+            '0025_telegram_miniapp_sessions.sql'
+          )
+        ).ready
       ).toBe(true);
       expect((await runMigrations(pool, migrationsDirectory, 'workspace-repeat')).applied).toEqual(
         []

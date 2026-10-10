@@ -17,6 +17,7 @@ export const practiceNoteSchema = z.object({
 export type PracticeNoteInput = z.infer<typeof practiceNoteSchema>;
 const tag = z.object({ id: z.uuid(), name: z.string() });
 const supplement = z.object({
+  privacy: z.object({ active: z.boolean(), reflectionConsent: z.boolean() }).optional(),
   tags: z.array(tag),
   notes: z.array(
     z.object({ checkin_id: z.uuid(), practice_note: z.string(), feeling_tags: z.array(tag) })
@@ -62,6 +63,7 @@ export const enrichPracticeHistory = async (
   return {
     ...original.data,
     feelingTags: extra.data.tags,
+    ...(extra.data.privacy ? { privacy: extra.data.privacy } : {}),
     entries: original.data.entries.map((entry) => ({
       ...entry,
       practice_note: notes.get(entry.id)?.practice_note ?? '',

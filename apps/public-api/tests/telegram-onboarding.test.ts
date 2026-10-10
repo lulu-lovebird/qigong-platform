@@ -5,6 +5,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { runMigrations, type Pool } from '@qigong/database';
 import { buildApp } from '../src/app.js';
+import { signMiniapp } from './telegram-miniapp-fixtures.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
@@ -321,8 +322,14 @@ describeWithDatabase('separate Telegram onboarding webhook', () => {
       payload: update(201, 54321, 'private', '/checkin')
     });
     expect(ready.statusCode).toBe(200);
-    const link = sendMessage.mock.calls.at(-1)?.[1] ?? '';
-    const token = link.match(/\/telegram\/checkin#([A-Za-z0-9_-]{43})/)?.[1];
+    const session = await app.inject({
+      method: 'POST',
+      url: '/telegram/workspace/session',
+      headers: { origin: 'https://checkin.baiyinqigong.org' },
+      payload: { initData: signMiniapp('123456:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 54321) }
+    });
+    expect(session.statusCode).toBe(200);
+    const token = session.json<{ token: string }>().token;
     expect(token).toBeTruthy();
     const headers = { origin: 'https://checkin.baiyinqigong.org' };
     const methods = await app.inject({
@@ -418,9 +425,14 @@ describeWithDatabase('separate Telegram onboarding webhook', () => {
       payload: update(202, 54321, 'private', '/checkin')
     });
     expect(anotherLink.statusCode).toBe(200);
-    const secondToken = sendMessage.mock.calls
-      .at(-1)?.[1]
-      .match(/\/telegram\/checkin#([A-Za-z0-9_-]{43})/)?.[1];
+    const secondToken = (
+      await app.inject({
+        method: 'POST',
+        url: '/telegram/workspace/session',
+        headers: { origin: 'https://checkin.baiyinqigong.org' },
+        payload: { initData: signMiniapp('123456:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 54321) }
+      })
+    ).json<{ token: string }>().token;
     expect(secondToken).toBeTruthy();
     const duplicateDay = await app.inject({
       method: 'POST',
@@ -617,9 +629,14 @@ describeWithDatabase('separate Telegram onboarding webhook', () => {
         })
       ).statusCode
     ).toBe(200);
-    const token = sendMessage.mock.calls
-      .at(-1)?.[1]
-      .match(/\/telegram\/checkin#([A-Za-z0-9_-]{43})/)?.[1];
+    const token = (
+      await app.inject({
+        method: 'POST',
+        url: '/telegram/workspace/session',
+        headers: { origin: 'https://checkin.baiyinqigong.org' },
+        payload: { initData: signMiniapp('123456:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 54322) }
+      })
+    ).json<{ token: string }>().token;
     const someoneElse = await pool.query<{ id: string }>(
       `SELECT id FROM core.checkins WHERE person_id <> $1 LIMIT 1`,
       [person.rows[0]!.id]

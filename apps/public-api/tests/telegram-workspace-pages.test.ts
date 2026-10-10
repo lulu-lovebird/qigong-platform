@@ -7,6 +7,7 @@ import {
   type TelegramWorkspacePage
 } from '../src/telegram-workspace-pages.js';
 import { telegramWorkspaceTexts } from '../src/telegram-workspace-locale.js';
+import { renderChannelWorkspacePage } from '../src/channel-workspace-pages.js';
 
 type Event = { preventDefault: () => void; returnValue?: string };
 type Handler = (event?: Event) => void | Promise<void>;
@@ -115,7 +116,15 @@ const entry = (date: string, note = ''): Entry => ({
 });
 const fixture = (
   page: TelegramWorkspacePage = 'checkin',
-  options: { entries?: Entry[]; confirmed?: boolean; hash?: string; locale?: 'en' | 'zh_TW' } = {}
+  options: {
+    entries?: Entry[];
+    confirmed?: boolean;
+    hash?: string;
+    locale?: 'en' | 'zh_TW';
+    channel?: 'line';
+    native?: boolean;
+    clock?: { value: number };
+  } = {}
 ) => {
   const nodes = new Map<string, Element>();
   const get = (id: string) => {
@@ -167,7 +176,9 @@ const fixture = (
     const path = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const body = jsonBody(init?.body);
     let data: unknown = { ok: true };
-    if (path.endsWith('/profile')) data = profile;
+    if (path.endsWith('/session'))
+      data = { status: 'ready', token: 'a'.repeat(43), expiresIn: 840 };
+    else if (path.endsWith('/profile')) data = profile;
     else if (path.endsWith('/save'))
       data = { checkinId: randomUUID(), version: 4, action: 'regular', receiptQueued: true };
     else if (body.view === 'methods')
@@ -203,21 +214,44 @@ const fixture = (
       };
     return new Response(JSON.stringify(data), { status: 200 });
   });
-  const html = renderTelegramWorkspacePage(page, options.locale ?? 'en');
+  const html =
+    options.channel === 'line'
+      ? renderChannelWorkspacePage({ platform: 'line', liffId: '123456-test' }, page)
+      : renderTelegramWorkspacePage(page, options.locale ?? 'en');
   const source = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)]
     .map((match) => match[1])
     .join('\n');
+  const app = {
+    initData: 'signed-native-proof',
+    platform: 'android',
+    ready: vi.fn(),
+    expand: vi.fn(),
+    close: vi.fn(),
+    enableClosingConfirmation: vi.fn(),
+    disableClosingConfirmation: vi.fn()
+  };
   new Script(source).runInNewContext({
     document: { getElementById: get, createElement: element, querySelectorAll: all },
     location,
     history,
     window: {
+      Telegram: options.native ? { WebApp: app } : undefined,
       confirm,
       addEventListener: (name: string, handler: Handler) => {
         listeners.set(name, handler);
       }
     },
+    liff: {
+      init: async () => {},
+      isLoggedIn: () => true,
+      getIDToken: () => 'verified-line-token',
+      login: vi.fn()
+    },
     fetch: fetchMock,
+    Date: new Proxy(Date, {
+      get: (target, key) =>
+        key === 'now' ? () => options.clock?.value ?? Date.now() : Reflect.get(target, key)
+    }),
     crypto: { randomUUID },
     AbortSignal,
     URLSearchParams,
@@ -235,6 +269,7 @@ const fixture = (
     fetchMock,
     listeners,
     html,
+    app,
     texts
   };
 };
@@ -245,6 +280,72 @@ const tick = async () => {
 };
 
 describe('Telegram workspace generated scripts and unsaved private drafts', () => {
+  it('exchanges a native launch without a private link and preserves signed SDK parameters', async () => {
+    const f = fixture('checkin', {
+      native: true,
+      hash: '#tgWebAppData=signed%3Dpayload&tgWebAppVersion=8.0'
+    });
+    await tick();
+    expect(f.history.replaceState.mock.calls[0]?.[2]).toContain('tgWebAppData=signed%3Dpayload');
+    expect(f.fetchMock.mock.calls[0]?.[0]).toBe('/telegram/workspace/session');
+    expect(jsonBody(f.fetchMock.mock.calls[0]?.[1]?.body)).toMatchObject({
+      initData: 'signed-native-proof'
+    });
+    expect(f.get('editor').disabled).toBe(false);
+  });
+  it('renews short native sessions automatically without changing the permanent entry URL', async () => {
+    const clock = { value: Date.now() },
+      f = fixture('checkin', { native: true, hash: '', clock });
+    await tick();
+    expect(
+      f.fetchMock.mock.calls.filter(([path]) => path === '/telegram/workspace/session')
+    ).toHaveLength(1);
+    clock.value += 841000;
+    await f.get('reload').onclick?.();
+    await tick();
+    expect(
+      f.fetchMock.mock.calls.filter(([path]) => path === '/telegram/workspace/session')
+    ).toHaveLength(2);
+    expect(f.location.href).toBe('');
+  });
+  it('closes only after committed native save and leaves other actual drafts open', async () => {
+    const f = fixture('checkin', { native: true, hash: '' });
+    await tick();
+    const method = f.all('[data-method]')[0]!;
+    method.checked = true;
+    await method.onchange?.();
+    await f.get('submit').onclick?.();
+    expect(f.app.close).toHaveBeenCalledTimes(1);
+    expect(f.app.disableClosingConfirmation).toHaveBeenCalled();
+    const other = fixture('checkin', { native: true, hash: '' });
+    await tick();
+    other.get('note').value = 'Today draft';
+    other.get('note').oninput?.();
+    await other.get('yesterdayTab').onclick?.();
+    other.all('[data-method]')[0]!.checked = true;
+    await other.all('[data-method]')[0]!.onchange?.();
+    await other.get('submit').onclick?.();
+    expect(other.app.close).not.toHaveBeenCalled();
+  });
+  it('does not close on failed native saves or force-close ordinary browsers', async () => {
+    const f = fixture('checkin', { native: true, hash: '' });
+    await tick();
+    f.all('[data-method]')[0]!.checked = true;
+    await f.all('[data-method]')[0]!.onchange?.();
+    f.fetchMock.mockResolvedValueOnce(new Response('{}', { status: 409 }));
+    await f.get('submit').onclick?.();
+    expect(f.app.close).not.toHaveBeenCalled();
+  });
+  it('runs the LINE-derived editor only after LIFF identity is available and sends no browser user ID', async () => {
+    const f = fixture('checkin', { channel: 'line' });
+    await tick();
+    expect(f.fetchMock).toHaveBeenCalled();
+    const first = jsonBody(f.fetchMock.mock.calls[0]?.[1]?.body);
+    expect(first.idToken).toBe('verified-line-token');
+    expect(first.token).toBeUndefined();
+    expect(first.userId).toBeUndefined();
+    expect(first.locale).toBe('zh_TW');
+  });
   it.each(['checkin', 'leaderboard', 'methods', 'achievements'] as const)(
     'renders a bilingual, syntax-valid %s page with safe dynamic DOM writes',
     async (page) => {

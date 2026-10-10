@@ -189,7 +189,7 @@ describeWithDatabase('identity, region, and RBAC constraints', () => {
               (SELECT COUNT(*) FROM admin.role_permissions)::text AS mappings`
     );
     expect(Number(counts.rows[0]!.roles)).toBe(12);
-    expect(Number(counts.rows[0]!.permissions)).toBe(27);
+    expect(Number(counts.rows[0]!.permissions)).toBe(28);
     expect(Number(counts.rows[0]!.mappings)).toBeGreaterThan(23);
 
     const principal = await pool.query<{ id: string }>(

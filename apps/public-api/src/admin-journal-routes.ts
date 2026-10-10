@@ -65,10 +65,17 @@ export const registerAdminJournalRoutes = (
     );
   const capabilities = async (principalId: string, requestId: string) =>
     (
-      await query<{ canReadJournal: boolean; canManageTags: boolean; canManageAdmins: boolean }>(
+      await query<{
+        canReadJournal: boolean;
+        canManageTags: boolean;
+        canManageAdmins: boolean;
+        canManageLearners: boolean;
+        canReadShared: boolean;
+        canPublishPrivacy: boolean;
+      }>(
         principalId,
         requestId,
-        'SELECT admin.has_permission(\'learner.read\') AND admin.has_permission(\'checkin.read_private_note\') AS "canReadJournal",admin.has_permission(\'taxonomy.manage\') AS "canManageTags",admin.can_manage_admin_access() AS "canManageAdmins"'
+        `SELECT admin.has_permission('learner.read') AND admin.has_permission('checkin.read_private_note') AS "canReadJournal",admin.has_permission('taxonomy.manage') AS "canManageTags",admin.can_manage_admin_access() AS "canManageAdmins",admin.has_permission('learner.manage_profile') AS "canManageLearners",admin.has_permission('journal.read_shared') AS "canReadShared",admin.is_super_admin() AS "canPublishPrivacy"`
       )
     ).rows[0]!;
   app.get('/admin/api/journal/capabilities', async (request, reply) => {

@@ -1,4 +1,5 @@
 import type { LearnerTextKey } from './learner-locale.js';
+import { learnerPrivacyTexts } from './learner-privacy-locale.js';
 import {
   lineLoginScript,
   languageSwitchScript,
@@ -47,7 +48,7 @@ ${channel.platform !== 'line' ? `<nav><button id="languageSwitch" type="button">
       <button id="makeupTab" class="date-tab makeup" type="button">${t('yesterday')}</button></div>
     <p id="dateStatus" class="muted"></p></section>
   <form id="checkin" class="card" hidden><h2 id="formHeading">${t('methodsHeading')}</h2><div id="methods"></div>
-    <section><h2>${t('noteHeading')}</h2><p>${t('feelingsLabel')}</p><div id="feelingTags" class="feelings"></div><label for="practiceNote">${t('noteLabel')}</label><textarea id="practiceNote" placeholder="${t('notePlaceholder')}" aria-describedby="noteCount notePrivacy"></textarea><p id="noteCount" class="muted" aria-live="polite"></p><p id="notePrivacy" class="muted">${t('notePrivacy')}</p></section>
+    <section><h2>${t('noteHeading')}</h2><p>${t('feelingsLabel')}</p><div id="feelingTags" class="feelings"></div><label for="practiceNote">${t('noteLabel')}</label><textarea id="practiceNote" placeholder="${t('notePlaceholder')}" aria-describedby="noteCount notePrivacy"></textarea><p id="noteCount" class="muted" aria-live="polite"></p><p id="notePrivacy" class="muted">${t('notePrivacy')}</p><p id="reflectionPrivacy" class="muted" hidden></p></section>
     <button id="submitButton" class="action" type="submit">${t('submit')}</button></form>
   <p id="status" class="status" role="status" aria-live="polite">${t('loading')}</p>
   <section id="historyCard" class="card" hidden><h2>${t('historyHeading')}</h2><p class="muted">${t('historyIntro')}</p><div id="entries"></div></section>
@@ -62,6 +63,7 @@ ${channel.platform !== 'line' ? `<nav><button id="languageSwitch" type="button">
   history.replaceState(null, '', location.pathname);`
   }
   const ui = ${JSON.stringify(texts).replaceAll('<', '\\u003c')};
+  const privacyUi=${JSON.stringify(learnerPrivacyTexts(channel.platform === 'line' ? 'zh_TW' : (channel.locale ?? 'zh_TW')))};
   const format = (key, values) => Object.entries(values).reduce((text, [name, value]) => text.replaceAll('{' + name + '}', String(value)), ui[key]);
   const form = document.getElementById('checkin');
   const methods = document.getElementById('methods');
@@ -90,7 +92,7 @@ ${channel.platform !== 'line' ? `<nav><button id="languageSwitch" type="button">
     const choices=new Map((historyData.feelingTags ?? []).map(tag=>[tag.id,tag]));
     for(const tag of checkinForDate()?.feeling_tags ?? []) choices.set(tag.id,tag);
     for(const tag of choices.values()) {
-      const button=document.createElement('button');button.type='button';button.textContent=tag.name;button.setAttribute('aria-pressed',String(selectedFeelings.has(tag.id)));
+      const button=document.createElement('button');button.type='button';button.disabled=historyData.privacy?.reflectionConsent===false;button.textContent=tag.name;button.setAttribute('aria-pressed',String(selectedFeelings.has(tag.id)));
       button.addEventListener('click',()=>{if(selectedFeelings.has(tag.id))selectedFeelings.delete(tag.id);else selectedFeelings.add(tag.id);renderFeelings();});
       feelings.append(button);
     }
@@ -134,6 +136,9 @@ ${channel.platform !== 'line' ? `<nav><button id="languageSwitch" type="button">
     makeupTab.disabled = !historyData.makeupOpen;
     makeupTab.textContent = historyData.makeupOpen ? ui.yesterday : ui.makeupClosed;
     const existing = checkinForDate();
+    practiceNote.disabled=historyData.privacy?.reflectionConsent===false;
+    document.getElementById('notePrivacy').textContent=historyData.privacy?.active?privacyUi.sharing:ui.notePrivacy;
+    const reflectionHint=document.getElementById('reflectionPrivacy');if(reflectionHint){reflectionHint.hidden=historyData.privacy?.reflectionConsent!==false;reflectionHint.textContent=privacyUi.reflectionRequired;}
     renderFeelings(); updateNoteCount();
     const date = selectedDate === 'today' ? historyData.today : yesterday();
     dateStatus.textContent = existing ? format('alreadyRecorded', { date }) + (existing.editable ? ui.canCorrect : '')
@@ -231,7 +236,7 @@ ${channel.platform !== 'line' ? `<nav><button id="languageSwitch" type="button">
     const selected = selectedMethods();
     if (!selected.length) { status.textContent = ui.selectAtLeastOne; return; }
     if([...practiceNote.value].length>1000) {status.textContent=ui.noteTooLong;return;}
-    const noteFields={practiceNote:practiceNote.value,feelingTagIds:[...selectedFeelings]};
+    const noteFields=historyData.privacy?.reflectionConsent===false?{}:{practiceNote:practiceNote.value,feelingTagIds:[...selectedFeelings]};
     const button = document.getElementById('submitButton'); button.disabled = true;
     try {
       const corrected = !!editing;

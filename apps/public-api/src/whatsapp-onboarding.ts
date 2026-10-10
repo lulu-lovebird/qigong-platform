@@ -2,10 +2,22 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
+import {
+  beginLearnerPrivacy,
+  learnerPrivacyReply,
+  isLearnerPrivacyError
+} from './learner-privacy-routes.js';
 import { renderApplicationPage } from './application-page.js';
-import { renderCheckinPage } from './checkin-page.js';
+import { renderChannelWorkspacePage } from './channel-workspace-pages.js';
+import { registerChannelWorkspace } from './channel-workspace.js';
+import { telegramWorkspaceTexts } from './telegram-workspace-locale.js';
+import { journalTexts } from './journal-locale.js';
 import { learnerLocale, learnerTexts, localeQuery } from './learner-locale.js';
-import { createWhatsAppTextSender, whatsappTransportSchema } from './whatsapp-client.js';
+import {
+  createWhatsAppTextSender,
+  createWhatsAppWorkspaceMenuSender,
+  whatsappTransportSchema
+} from './whatsapp-client.js';
 import {
   enrichPracticeHistory,
   isPracticeNoteConflict,
@@ -20,6 +32,7 @@ export const whatsappConfigSchema = whatsappTransportSchema.extend({
 });
 export type WhatsAppConfig = z.infer<typeof whatsappConfigSchema> & {
   sendText?: (recipient: string, text: string) => Promise<void>;
+  sendWorkspaceMenu?: (recipient: string, text: string, locale: 'zh_TW' | 'en') => Promise<void>;
 };
 export const loadWhatsAppConfig = (source: NodeJS.ProcessEnv): WhatsAppConfig | undefined => {
   const values = {
@@ -42,7 +55,14 @@ const messageSchema = z.object({
   from: subjectSchema,
   timestamp: z.string().regex(/^\d{1,12}$/),
   type: z.string(),
-  text: z.object({ body: z.string().max(4096) }).optional()
+  text: z.object({ body: z.string().max(4096) }).optional(),
+  interactive: z
+    .object({
+      type: z.string(),
+      button_reply: z.object({ id: z.string().max(100) }).optional(),
+      list_reply: z.object({ id: z.string().max(100) }).optional()
+    })
+    .optional()
 });
 const eventSchema = z.object({
   object: z.literal('whatsapp_business_account'),
@@ -98,6 +118,23 @@ export const registerWhatsAppOnboarding = (
   config: WhatsAppConfig
 ) => {
   const sendText = config.sendText ?? createWhatsAppTextSender(config);
+  const sendMenu =
+    config.sendWorkspaceMenu ??
+    (config.sendText
+      ? (recipient: string, text: string) => sendText(recipient, text)
+      : createWhatsAppWorkspaceMenuSender(config));
+  registerChannelWorkspace(
+    app,
+    pool,
+    { platform: 'whatsapp' },
+    (request) => {
+      const parsed = z
+        .object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) })
+        .safeParse(request.body);
+      return parsed.success ? parsed.data.token : null;
+    },
+    false
+  );
   for (const kind of ['apply', 'checkin'] as const) {
     app.get(`/whatsapp/${kind}`, (request, reply) => {
       const query = z.object({ lang: z.string().optional() }).safeParse(request.query);
@@ -113,7 +150,7 @@ export const registerWhatsAppOnboarding = (
         .send(
           kind === 'apply'
             ? renderApplicationPage({ platform: 'whatsapp', locale })
-            : renderCheckinPage({ platform: 'whatsapp', locale })
+            : renderChannelWorkspacePage({ platform: 'whatsapp' }, 'checkin', locale)
         );
     });
   }
@@ -190,7 +227,15 @@ export const registerWhatsAppOnboarding = (
                   createHash('sha256').update(JSON.stringify(message)).digest('hex')
                 ]
               );
-              if (!inbox.rows[0]?.fresh || message.type !== 'text' || !message.text) return;
+              const interactiveId =
+                message.interactive?.button_reply?.id ?? message.interactive?.list_reply?.id;
+              const command =
+                message.type === 'text'
+                  ? message.text?.body
+                  : message.type === 'interactive' && interactiveId?.startsWith('workspace:')
+                    ? interactiveId.slice(10)
+                    : undefined;
+              if (!inbox.rows[0]?.fresh || !command) return;
               // Delayed messages are not a license to send free text outside the customer-service window.
               const age = Date.now() / 1000 - Number(message.timestamp);
               if (age < -300 || age >= 24 * 60 * 60) return;
@@ -200,7 +245,11 @@ export const registerWhatsAppOnboarding = (
               );
               const locale = learnerLocale(preference.rows[0]?.locale);
               const texts = learnerTexts(locale);
-              const text = message.text.body.trim();
+              await client.query('SELECT platform.record_whatsapp_service_window($1,$2)', [
+                message.from,
+                new Date(Number(message.timestamp) * 1000).toISOString()
+              ]);
+              const text = command.trim();
               const language = /^\/?language(?:\s+(\S+))?$/i.exec(text);
               if (language) {
                 const selected = language[1];
@@ -232,8 +281,33 @@ export const registerWhatsAppOnboarding = (
                 );
                 return;
               }
-              const checkin = /^(?:\/?checkin|打卡)$/i.test(text);
-              if (!checkin && !/^(?:\/?start|join|加入|申請)$/i.test(text)) return;
+              const workspace =
+                /^(?:\/)?(menu|選單|stats|統計|leaderboard|排行榜|methods|methodanalysis|功法分析|achievements|成就|history|紀錄|journal|share|心得|心得分享)$/i.test(
+                  text
+                );
+              const checkin = workspace || /^(?:\/?checkin|打卡)$/i.test(text);
+              const isPrivacy = /^(?:\/?privacy|隱私|\/?terms|條款)$/i.test(text);
+              if (!checkin && !isPrivacy && !/^(?:\/?start|join|加入|申請)$/i.test(text)) return;
+              const privacyToken = createHmac('sha256', config.appSecret)
+                .update('privacy:' + message.id + ':' + message.from)
+                .digest('base64url');
+              const privacyState = await beginLearnerPrivacy(
+                client,
+                'whatsapp',
+                message.from,
+                privacyToken
+              );
+              const privacyMessage = learnerPrivacyReply(
+                privacyState,
+                'whatsapp',
+                privacyToken,
+                locale,
+                isPrivacy
+              );
+              if (privacyMessage) {
+                await sendText(message.from, privacyMessage);
+                return;
+              }
               const purpose = checkin ? 'checkin' : 'apply';
               const token = createHmac('sha256', config.appSecret)
                 .update(`${message.id}:${message.from}:${purpose}`)
@@ -244,7 +318,31 @@ export const registerWhatsAppOnboarding = (
               );
               const status = result.rows[0]?.status;
               let response: string;
-              if (status === 'form_required' || status === 'ready')
+              if (status === 'ready') {
+                const labels = telegramWorkspaceTexts(locale),
+                  shared = journalTexts(locale);
+                const link = (path: string) =>
+                  'https://checkin.baiyinqigong.org/whatsapp/' +
+                  path +
+                  localeQuery(locale) +
+                  '#' +
+                  token;
+                const menu = [
+                  texts.checkinLink,
+                  labels.checkin + ' ' + link('checkin'),
+                  labels.leaderboard + ' ' + link('leaderboard'),
+                  labels.methods + ' ' + link('method-analysis'),
+                  labels.achievements + ' ' + link('achievements'),
+                  shared.feed + ' ' + link('journal')
+                ].join('\n');
+                try {
+                  await sendMenu(message.from, menu, locale);
+                } catch {
+                  await sendText(message.from, menu);
+                }
+                return;
+              }
+              if (status === 'form_required')
                 response = `${checkin ? texts.checkinLink : texts.applicationLink}\nhttps://checkin.baiyinqigong.org/whatsapp/${purpose}${localeQuery(locale)}#${token}\n${texts.privateLink}`;
               else if (status === 'approved')
                 response =
@@ -293,6 +391,8 @@ export const registerWhatsAppOnboarding = (
       );
       return { status: 'pending' };
     } catch (error) {
+      if (isLearnerPrivacyError(error))
+        return reply.code(403).send({ error: 'privacy_acceptance_required' });
       return reply
         .code(knownConflict(error) ? 409 : 503)
         .send({ error: 'application_unavailable' });
@@ -401,6 +501,8 @@ export const registerWhatsAppOnboarding = (
           }
         );
       } catch (error) {
+        if (isLearnerPrivacyError(error))
+          return reply.code(403).send({ error: 'privacy_acceptance_required' });
         return reply
           .code(knownConflict(error) || isPracticeNoteConflict(error) ? 409 : 503)
           .send({ error: 'checkin_unavailable' });

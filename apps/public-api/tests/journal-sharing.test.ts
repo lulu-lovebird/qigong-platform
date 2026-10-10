@@ -484,7 +484,11 @@ suite('Journal HTTP identity boundaries, sharing and taxonomy', () => {
       }
     });
     expect(result.statusCode).toBe(200);
-    expect(sendMessage.mock.calls[0]![1]).toContain('/telegram/journal');
+    expect(
+      sendMessage.mock.calls[0]![2]?.some(
+        (button) => button.url.includes('/telegram/journal') && !button.url.includes('#')
+      )
+    ).toBe(true);
     expect(sendMessage.mock.calls[0]![2]).toHaveLength(5);
   });
 });

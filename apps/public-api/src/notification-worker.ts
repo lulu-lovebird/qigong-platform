@@ -7,6 +7,11 @@ import {
 } from './telegram-practice-receipts.js';
 import { z } from 'zod';
 import {
+  createLinePracticeSender,
+  createWhatsAppPracticeSender,
+  deliverChannelPracticeReceipts
+} from './channel-practice-receipts.js';
+import {
   createWhatsAppNotificationSender,
   loadWhatsAppNotificationConfig
 } from './whatsapp-client.js';
@@ -33,12 +38,12 @@ try {
     pool,
     'qigong_worker_runtime',
     { requestId: randomUUID() },
-    (client) =>
-      client.query<{ ready: boolean }>('SELECT ops.journal_workspace_schema_ready() ready')
+    (client) => client.query<{ ready: boolean }>('SELECT ops.telegram_miniapp_schema_ready() ready')
   );
   if (!schema.rows[0]?.ready) throw new Error('Notification worker schema mismatch');
-  // Independent lanes, three sends each: worst-case transport time remains below
-  // the existing 60s service budget. Never close the pool while another lane runs.
+  // At most six transport attempts total: onboarding3 plus practice3 shared
+  // across configured channels. Preserve the existing 60s transport budget.
+  // Never close the pool while another lane runs.
   const outcomes = await Promise.allSettled([
     deliverOnboardingNotifications(
       pool,
@@ -54,10 +59,38 @@ try {
       pool,
       createTelegramPracticeSender(token),
       (_error, id) => console.error('Telegram practice receipt delivery failed', { id }),
-      3
+      lineToken && whatsapp ? 1 : lineToken || whatsapp ? 2 : 3
     ).then((processed) =>
       console.log(JSON.stringify({ event: 'telegram_practice_receipts_processed', processed }))
     ),
+    ...(lineToken
+      ? [
+          deliverChannelPracticeReceipts(
+            pool,
+            'line',
+            createLinePracticeSender(lineToken),
+            (_error, id) => console.error('LINE practice receipt delivery failed', { id }),
+            1
+          ).then((processed) =>
+            console.log(JSON.stringify({ event: 'line_practice_receipts_processed', processed }))
+          )
+        ]
+      : []),
+    ...(whatsapp
+      ? [
+          deliverChannelPracticeReceipts(
+            pool,
+            'whatsapp',
+            createWhatsAppPracticeSender(whatsapp),
+            (_error, id) => console.error('WhatsApp practice receipt delivery failed', { id }),
+            1
+          ).then((processed) =>
+            console.log(
+              JSON.stringify({ event: 'whatsapp_practice_receipts_processed', processed })
+            )
+          )
+        ]
+      : []),
     withRequestContext(pool, 'qigong_worker_runtime', { requestId: randomUUID() }, (client) =>
       client.query<{ processed: number }>('SELECT ops.reconcile_practice_badges(20) processed')
     ).then((result) =>

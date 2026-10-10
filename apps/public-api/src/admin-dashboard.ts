@@ -7,7 +7,16 @@ import {
   type AdminTextKey
 } from './admin-locale.js';
 export type AdminPage =
-  'overview' | 'leaderboard' | 'methods' | 'review' | 'access' | 'journal' | 'tags';
+  | 'overview'
+  | 'leaderboard'
+  | 'methods'
+  | 'review'
+  | 'access'
+  | 'journal'
+  | 'tags'
+  | 'learners'
+  | 'shared'
+  | 'privacy';
 const navigation: ReadonlyArray<{ page: AdminPage; path: string; label: AdminTextKey }> = [
   { page: 'overview', path: '/admin/', label: 'navOverview' },
   { page: 'leaderboard', path: '/admin/leaderboard', label: 'navLeaderboard' },
@@ -15,7 +24,10 @@ const navigation: ReadonlyArray<{ page: AdminPage; path: string; label: AdminTex
   { page: 'review', path: '/admin/applications', label: 'navReview' },
   { page: 'access', path: '/admin/administrators', label: 'navAccess' },
   { page: 'journal', path: '/admin/journal', label: 'navJournal' },
-  { page: 'tags', path: '/admin/practice-feeling-tags', label: 'navTags' }
+  { page: 'tags', path: '/admin/practice-feeling-tags', label: 'navTags' },
+  { page: 'learners', path: '/admin/learners', label: 'navLearners' },
+  { page: 'shared', path: '/admin/shared-journal', label: 'navShared' },
+  { page: 'privacy', path: '/admin/privacy-policy', label: 'navPrivacy' }
 ];
 
 // All shell inputs come from source-controlled page definitions, never user data.
@@ -64,7 +76,7 @@ footer { font-size:.75rem; color:var(--muted); margin-top:2rem; } details summar
     .filter((item) => item.page !== 'access' || canManageAdmins)
     .map(
       (item) =>
-        `<a href="${item.path + adminLocaleQuery(locale)}"${item.page === 'journal' || item.page === 'tags' ? ` class="journal-nav" data-journal-nav="${item.page}" hidden` : ''}${item.page === page ? ' aria-current="page"' : ''}>${text[item.label]}</a>`
+        `<a href="${item.path + adminLocaleQuery(locale)}"${['journal', 'tags', 'learners', 'shared', 'privacy'].includes(item.page) ? ` class="journal-nav" data-journal-nav="${item.page}" hidden` : ''}${item.page === page ? ' aria-current="page"' : ''}>${text[item.label]}</a>`
     )
     .join('')}</nav><button id="logout" type="button">${text.logout}</button></aside>
 <div class="workspace"><header><div><h1>${text[page]}</h1><span class="muted">${text.scope}</span></div></header><div id="main">${content}</div><footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer></div></div>
@@ -73,7 +85,7 @@ footer { font-size:.75rem; color:var(--muted); margin-top:2rem; } details summar
   ${adminLocaleScript(locale)}
   const language=document.getElementById('admin-language');
   language.value=locale;
-  if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-journal-nav]').length)fetch('/admin/api/journal/capabilities?lang='+locale,{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-journal-nav]'))a.hidden=!(c&&(a.dataset.journalNav==='journal'?c.canReadJournal===true:c.canManageTags===true));}).catch(()=>{});
+  if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-journal-nav]').length)fetch('/admin/api/journal/capabilities?lang='+locale,{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-journal-nav]'))a.hidden=!(c&&c[({journal:'canReadJournal',tags:'canManageTags',learners:'canManageLearners',shared:'canReadShared',privacy:'canPublishPrivacy'})[a.dataset.journalNav]]===true);}).catch(()=>{});
   const mayLeave=()=>typeof window==='undefined'||!window.qigongJournalMayLeave||window.qigongJournalMayLeave();
   language.addEventListener('change',() => {
     const next=language.value;

@@ -7,6 +7,7 @@ import { runMigrations, withRequestContext, type Pool } from '@qigong/database';
 import { buildApp } from '../src/app.js';
 import { loadWhatsAppConfig, type WhatsAppConfig } from '../src/whatsapp-onboarding.js';
 import { deliverOnboardingNotifications } from '../src/onboarding-notifications.js';
+import { deliverChannelPracticeReceipts } from '../src/channel-practice-receipts.js';
 
 const config: WhatsAppConfig = {
   phoneNumberId: '12345',
@@ -176,11 +177,40 @@ describeWithDatabase('WhatsApp restricted-role onboarding and practice', () => {
       runtime,
       'qigong_api_runtime',
       { requestId: randomUUID(), principalId },
-      (client) =>
-        client.query<{ person_id: string }>(
-          "SELECT identity.decide_application($1,'approved',NULL) AS person_id",
-          [id]
-        )
+      async (client) => {
+        await client.query('SAVEPOINT review_diagnostic');
+        try {
+          return await client.query<{ person_id: string }>(
+            "SELECT identity.decide_application($1,'approved',NULL) person_id",
+            [id]
+          );
+        } catch (error) {
+          await client.query('ROLLBACK TO SAVEPOINT review_diagnostic');
+          const flags = (
+            await client.query(
+              "SELECT admin.request_principal_id()=$1::uuid actor_matches,admin.has_permission('onboarding.review') permission,admin.can_review_application($2) region_permission,extract(epoch FROM(clock_timestamp()-CURRENT_TIMESTAMP)) transaction_age",
+              [principalId, regionId]
+            )
+          ).rows[0];
+          const clockFlags = (
+            await pool.query(
+              'SELECT bool_or(g.valid_from<=clock_timestamp()) valid_clock,bool_or(g.valid_to IS NULL) open_ended,min(extract(epoch FROM(g.valid_from-clock_timestamp()))) until_valid FROM admin.role_grants g WHERE principal_id=$1',
+              [principalId]
+            )
+          ).rows[0];
+          throw Error(
+            JSON.stringify({
+              stage: 'review',
+              kind:
+                error instanceof Error && error.message === 'onboarding review permission denied'
+                  ? 'review_denied'
+                  : 'database_error',
+              flags,
+              clockFlags
+            })
+          );
+        }
+      }
     );
 
   it('persists English, deduplicates concurrent deliveries, applies with consent and creates an independent approved learner', async () => {
@@ -268,9 +298,8 @@ describeWithDatabase('WhatsApp restricted-role onboarding and practice', () => {
       expect(
         (await request('correct', { checkinId: randomUUID(), methods: ['dayan_gao'] })).statusCode
       ).toBe(409);
-      expect((await request('correct', { checkinId, methods: ['dayan_gao'] })).statusCode).toBe(
-        200
-      );
+      const corrected = await request('correct', { checkinId, methods: ['dayan_gao'] });
+      expect(corrected.statusCode, corrected.body).toBe(200);
       const history = (await request('history')).json();
       const name = (
         await pool.query<{ name_en: string }>(
@@ -471,6 +500,136 @@ describeWithDatabase('WhatsApp restricted-role onboarding and practice', () => {
       ).toBe(403);
     } finally {
       await app.close();
+    }
+  });
+  it('supports signed interactive menus, complete reports and idempotent saves with safe private receipts', async () => {
+    const user = '886966666666',
+      menu = vi.fn<(recipient: string, text: string, locale: 'zh_TW' | 'en') => Promise<void>>(
+        async () => {}
+      );
+    const application = (
+      await pool.query<{ id: string }>(
+        "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164) VALUES('whatsapp',$1,'Workspace learner',$2,'Workspace learner','workspace@example.test','+886966666666') RETURNING id",
+        [user, regionId]
+      )
+    ).rows[0]!.id;
+    await decide(application);
+    const app = buildApp({
+      pool: runtime,
+      logger: false,
+      whatsapp: { ...config, sendText: replies, sendWorkspaceMenu: menu }
+    });
+    try {
+      expect(
+        (await app.inject(signed(body('workspace-menu-' + randomUUID(), 'menu', user)))).statusCode
+      ).toBe(200);
+      const text = menu.mock.calls.at(-1)![1];
+      expect(text).toContain('/whatsapp/journal');
+      const token = text.match(/#([A-Za-z0-9_-]{43})/)![1]!;
+      const request = (path: string, values: Record<string, unknown> = {}) =>
+        app.inject({
+          method: 'POST',
+          url: '/whatsapp/' + path,
+          headers: origin,
+          payload: { token, locale: 'en', ...values }
+        });
+      const profile = (await request('workspace/profile')).json<{
+        today: string;
+        timezone: string;
+        entries: Array<{ date: string; version: number }>;
+      }>();
+      expect(
+        (await request('preferences/timezone', { timezone: profile.timezone })).statusCode
+      ).toBe(200);
+      for (const view of ['leaderboard', 'methods', 'achievements', 'history'])
+        expect(
+          (
+            await request('workspace/report', {
+              view,
+              ...(view === 'history' ? { month: profile.today.slice(0, 7) } : {})
+            })
+          ).statusCode
+        ).toBe(200);
+      const payload = {
+        requestId: randomUUID(),
+        date: profile.today,
+        version: profile.entries.find((e) => e.date === profile.today)?.version ?? 0,
+        methods: ['dayan_chu'],
+        practiceNote: 'Private WA journal must not be sent',
+        feelingTagIds: []
+      };
+      const saved = await request('workspace/save', payload);
+      expect(saved.statusCode).toBe(200);
+      expect((await request('workspace/save', payload)).json()).toEqual(saved.json());
+      expect((await request('journal/own', { page: 1 })).statusCode).toBe(200);
+      const sender = vi.fn(async (recipient: string, summary: string) => {
+        expect(recipient).toBe(user);
+        expect(summary).not.toContain('Private WA journal');
+      });
+      expect(await deliverChannelPracticeReceipts(pool, 'whatsapp', sender, () => {}, 3)).toBe(1);
+      expect(sender).toHaveBeenCalledTimes(1);
+      const event = body('workspace-interactive-' + randomUUID(), 'unused', user);
+      Object.assign(event.entry[0]!.changes[0]!.value.messages[0]!, {
+        type: 'interactive',
+        text: undefined,
+        interactive: { type: 'list_reply', list_reply: { id: 'workspace:achievements' } }
+      });
+      expect((await app.inject(signed(event))).statusCode).toBe(200);
+      expect(menu).toHaveBeenCalledTimes(2);
+    } finally {
+      await app.close();
+    }
+  });
+  it('gates signed WhatsApp joins without conflating privacy acceptance with notification consent', async () => {
+    const user = '886955555555',
+      send = vi.fn<(recipient: string, text: string) => Promise<void>>(async () => {});
+    const app = appFactory(send);
+    await pool.query("UPDATE platform.learner_privacy_policies SET state='active'");
+    try {
+      expect(
+        (await app.inject(signed(body('privacy-' + randomUUID(), 'join', user)))).statusCode
+      ).toBe(200);
+      const text = send.mock.calls.at(-1)![1];
+      expect(text).toContain('/privacy?platform=whatsapp');
+      const token = text.match(/#([A-Za-z0-9_-]{43})/)![1]!;
+      const notice = (await app.inject('/learner/privacy/notice')).json<{
+        version: string;
+        hash: string;
+      }>();
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/learner/privacy/accept',
+            headers: origin,
+            payload: {
+              platform: 'whatsapp',
+              token,
+              version: notice.version,
+              hash: notice.hash,
+              locale: 'en',
+              accepted: true,
+              reflectionConsent: false
+            }
+          })
+        ).statusCode
+      ).toBe(200);
+      expect(
+        (await app.inject(signed(body('privacy-continue-' + randomUUID(), 'join', user))))
+          .statusCode
+      ).toBe(200);
+      expect(send.mock.calls.at(-1)![1]).toContain('/whatsapp/apply');
+      expect(
+        (
+          await pool.query(
+            'SELECT * FROM platform.whatsapp_notification_consents WHERE subject=$1',
+            [user]
+          )
+        ).rowCount
+      ).toBe(0);
+    } finally {
+      await app.close();
+      await pool.query("UPDATE platform.learner_privacy_policies SET state='draft'");
     }
   });
 });
