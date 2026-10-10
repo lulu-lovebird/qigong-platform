@@ -1,6 +1,6 @@
 # Telegram固定Mini App入口與儲存後返回聊天
 
-**候選25已核准commit／push、CI與隔離測試部署，執行中。正式仍852cd05／schema22。** 正式部署、正式政策發布、BotFather及正式渠道設定未核准；隔離試行先LINE再WhatsApp專用測試帳號驗收。
+**候選25程式已commit／push `75834f6`，CI 38055345937成功，本機隔離升級／還原通過；公開HTTPS與真人渠道測試尚待配置。正式仍852cd05／schema22。** 詳見[隔離試行](isolated-channel-pilot.md)。 正式部署、正式政策發布、BotFather及正式渠道設定未核准；隔離試行先LINE再WhatsApp專用測試帳號驗收。
 
 ## 已核對的差異
 

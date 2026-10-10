@@ -1,6 +1,6 @@
 # LINE／WhatsApp 學員工作區與私人打卡摘要
 
-**工作區功能migration24已整合候選schema25；已核准commit／push及隔離測試部署，尚未完成。正式仍為852cd05／schema22，兩個正式渠道保持未啟用。** 此批先完成LINE功能測試，再接WhatsApp；依使用者核准只做完整工作區、選單與私人打卡摘要，不做提醒、LLM、舊帳號／紀錄／勳章搬移或自動啟用。
+**工作區功能migration24已整合候選schema25；程式已commit／push `75834f6`，CI 38055345937成功，本機隔離升級／還原及受限smoke通過；公開HTTPS與真人渠道測試尚待配置。正式仍為852cd05／schema22，兩個正式渠道保持未啟用。** 詳見[隔離試行](isolated-channel-pilot.md)。 此批先完成LINE功能測試，再接WhatsApp；依使用者核准只做完整工作區、選單與私人打卡摘要，不做提醒、LLM、舊帳號／紀錄／勳章搬移或自動啟用。
 
 ## 入口與功能
 

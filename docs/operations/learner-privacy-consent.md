@@ -1,6 +1,6 @@
 # 學員補充說明、同意、預設分享及資格停用
 
-**已核准commit／push及隔離測試部署，尚未完成；未核准正式部署。正式仍為852cd05／schema22。** 隱私功能由migration0023提供；已整合到LINE／WhatsApp及Telegram候選API／worker exact0025。
+**候選程式已commit／push `75834f6`，CI 38055345937成功，本機隔離升級／還原通過；公開HTTPS與真人渠道測試尚待配置。未核准正式部署，正式仍為852cd05／schema22。** 詳見[隔離試行](isolated-channel-pilot.md)。 隱私功能由migration0023提供；已整合到LINE／WhatsApp及Telegram候選API／worker exact0025。
 
 ## 已確認的營運安排
 
