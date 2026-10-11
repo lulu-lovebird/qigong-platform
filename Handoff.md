@@ -1,12 +1,15 @@
 # Qigong Platform — 交接摘要
 
-> 最新主站已於 **2026-10-11 08:22:49–08:23:06 UTC** 經使用者核准部署LINE返回聊天修復，維護17秒。程式 release 為 `83dce1ec8b0ae9b4dfb9add90da34375c938287d`，schema `0025_telegram_miniapp_sessions.sql`不變。LINE首輪登入／Chatbot測試由使用者回報成功；最新close修復須從新LIFF入口手機重測。WhatsApp未啟用，政策draft、不自動分享舊資料。
+> 最新主站已於 **2026-10-11 09:31:03–09:31:20 UTC** 經使用者核准部署Web Admin品牌更新，維護17秒。程式 release 為 `d531450729b36d46c7948989db4fc255234875b7`，schema `0025_telegram_miniapp_sessions.sql`不變。後台完整藍色系與指定logo已部署；LINE close修復由使用者回報成功，WhatsApp未啟用、政策draft。
 
-## Web Admin品牌樣式（本機完成，已核准提交／推送／部署，執行中）
+## Web Admin品牌樣式（已部署d531450，後台真人外觀驗收待完成）
 
-- 使用者回報LINE返回聊天重測成功，自行完成圖文素材並指定#082850／#305888／#98C0D8／#002048後台新色系及e-qi.org提供的logo，先核准本機修改，現已另核准本批commit／push／同25部署；切換前主站仍83dce1e。
+- 使用者回報LINE返回聊天重測成功，自行完成圖文素材並指定#082850／#305888／#98C0D8／#002048後台新色系及e-qi.org提供的logo，先核准本機修改，另核准本批commit／push／同25部署；已切換至d531450。
 - admin-branding.ts集中tokens／logo／image-only CSP，完整10個後台頁及獨立待審portal、SVG圖表／標籤採新色系。logo原圖色彩／比例保留，側欄上方與手機自適應、雙語alt／no-referrer。四組HTML routes只增加完整指定PNG img-src，不放寬script／connect／frame，不改授權／資料／學員頁。
-- 完整454項驗證通過、無skip，新增品牌／對比／route CSP測試；Chrome44組雙語mobile／desktop合成配置、真實遠端logo載入及零整頁overflow／JS exception通過。補card min-width:0解決手機表格撐大layout，不裁切內容；最終回歸再次454項通過；額外全測試型別檢查仍既有10錯誤、無新增。最終44組Chrome也核對SVG文字新色碼，非正式Authgear／真人驗收。詳見[admin-branding](docs/operations/admin-branding.md)。
+- 完整454項驗證通過、無skip，新增品牌／對比／route CSP測試；Chrome44組雙語mobile／desktop合成配置、真實遠端logo載入及零整頁overflow／JS exception通過。補card min-width:0解決手機表格撐大layout，不裁切內容；最終回歸再次454項通過；額外全測試型別檢查仍既有10錯誤、無新增。最終44組Chrome也核對SVG文字新色碼，非正式Authgear／真人驗收。
+- 程式CI [38128356558](https://github.com/lulu-lovebird/qigong-platform/actions/runs/38128356558)成功，精確git artifact／frozen lockfile／Node24建置及manifest保留；正式快照同25完整62表／4 people／7 check-ins及metadata一致，compiled branded pages／pending／CSP與TG／LINE／sharing／授權交易／mock worker smoke通過，零正式合成session／client／訊息。
+- 最終站外AES-256-GCM DB／roles／env／systemd副本逐一解密雜湊核對，DB實際還原後完整一致、舊83dce1e ready。正式不遷移DB，兩份env雜湊未變，108公開主站HTTPS＋1PNG來源檢查通過；API active／NRestarts0／ExecMainStatus0、timer active、worker Resultsuccess／ExecMainStatus0。
+- 恢復位置/root/qigong-deploy-d531450、/opt/qigong-platform/deployment-tools/d531450、工作站/tmp/qigong-admin-brand-d531450與repo外backups/deployment-d531450、key另置受限backup-keys。同25回退只切回83dce1eAPI／worker／old-release.conf，不還原DB以保留後續寫入；非完整OS／Caddy災復。詳見[admin-branding](docs/operations/admin-branding.md)。
 
 ## LINE自動返回聊天修復（已部署83dce1e，使用者回報重測成功）
 

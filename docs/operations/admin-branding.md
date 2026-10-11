@@ -1,6 +1,6 @@
 # Web Admin藍色系與側欄logo
 
-**本機實作及驗證通過，已核准commit／push／同schema25部署，執行中。** 使用者核准修改管理後台以配合LINE圖文選單品牌；主站仍為83dce1e／schema25，學員頁、Bot、環境設定、資料庫與政策發布不變。
+**已於2026-10-11 09:31:03–09:31:20 UTC部署，停機17秒。** 主站程式`d531450729b36d46c7948989db4fc255234875b7`／schema25，程式CI [38128356558](https://github.com/lulu-lovebird/qigong-platform/actions/runs/38128356558)成功。使用者核准修改管理後台以配合LINE圖文選單品牌；學員頁、Bot、環境設定、資料庫與政策發布不變。
 
 ## 色碼與覆蓋
 
@@ -31,6 +31,13 @@
 - 預覽截圖及一次性preview／CDP scripts只存/tmp/qigong-admin-brand-*，使用無敏感合成資料，不提交品牌圖片或測試資料到Git。
 - 不新增migration或依賴，不改package／lockfile、授權metadata；額外全測試tsc已覆核仍為既有10項錯誤，不把source typecheck通過當作該檢查乾淨。
 
-## 後續
+## 主站部署及回復
 
-使用者已另核准commit／push／部署；必須先確認CI與部署檢查，不能把核准當作已完成。若部署，本批為同schema25視覺更新，需精確artifact／CI、受限API及logo CSP smoke；回退切回matching舊25API／worker，不還原DB以保留之後寫入。真人仍應核對桌機／手機、圖片失敗fallback、keyboard focus及危險操作文字，不使用正式學員資料作合成測試。
+- 精確git archive、完整0001–0025、frozen lockfile／Node24建置，保存source archive、dist／migration checksums及manifest；沒有拿dirty worktree作artifact。
+- 正式快照在獨立無TCP PostgreSQL16 cluster還原，含metadata完整62張應用表／4 people／7 check-ins與來源一致；候選migration重跑零新增、新舊API皆ready。同版compiled管理頁及待審頁雙語palette／logo／exact CSP、TG／LINE／journal來源衝突／撤回／client revoke、CSRF／scope／角色交易及mock worker通過；clone fixtures不帶入主站。
+- 最終暫停API／timer並等worker結束，取得DB／roles／env／systemd副本，以AES-256-GCM送至repo外工作站受限目錄；每份實際解密雜湊核對。DB副本解密串流實際還原，完整資料與metadata和停機基線相同、舊83dce1eAPI ready後才切換。
+- 正式不執行migration、DB及兩份env雜湊完全保留；108項公开主站HTTPS檢查通過，另1項e-qi.org PNG來源500×500／MIME／signature驗證通過，共109。主站有登入管理頁仍需操作者真人確認，不以公開未登入302或clone的mock OIDC當作正式真人外觀驗收。
+- API active／NRestarts0／ExecMainStatus0，timer active、worker Resultsuccess／ExecMainStatus0；沒有真實測試訊息、主站合成管理session／partner client或policy發布，沒有改rich menu／舊Bot。
+- 保留/root/qigong-deploy-d531450、/opt/qigong-platform/deployment-tools/d531450、工作站/tmp/qigong-admin-brand-d531450及repo外backups/deployment-d531450；key另置受限backup-keys。clone已停，證據與83dce1e舊artifact保留；非完整OS／Caddy災復，不宣稱重新驗證每日備份排程。
+- 同25回退須停API／timer並核對在途worker，切回83dce1e artifact／old-release.conf／同版worker，不還原DB以保留之後寫入。若另要退22，須走matching22 DB＋852cd05的獨立核准及對帳，不能binary-only。
+- 真人請重新登入或重新整理管理頁，核對桌機／手機、圖片失敗fallback、keyboard focus及危險操作文字；不使用正式學員資料作合成測試。
