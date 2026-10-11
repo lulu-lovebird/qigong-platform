@@ -1,6 +1,15 @@
 # LINE加入申請LIFF入口與登入回跳
 
-**使用者核准修復、提交／推送及部署；本機驗證通過，待部署。** 主站切換前仍3bdc7c9／schema25；本批不新增migration、改環境、變更Console／Login發布狀態或舊Bot。
+**已於2026-10-11 13:14:00–13:14:19 UTC部署，停機19秒。** 程式`5230f1efd469b54e2422f43292638d3c08a0272b`／schema25，[CI 38141973040](https://github.com/lulu-lovebird/qigong-platform/actions/runs/38141973040)成功。使用者核准修復、提交／推送及部署；本批不新增migration、改環境、變更Console／Login發布狀態或舊Bot。
+
+## 主站驗證及恢復
+
+- 精確git artifact／frozen lockfile／Node24建置及manifest保留；正式快照同25完整62張應用表／4 people／7 check-ins及metadata一致、新舊API相容。compiled新LIFF申請URL及原token＋正確ID token提交pending、無效ID token拒絕、其他LINE／TG／後台brand/CSP／sharing／scope／角色交易／mock worker通過。
+- 最終站外AES-256-GCM DB／roles／env／systemd副本逐一解密雜湊核對，DB實際還原後完整相同、舊3bdc7c9 ready。正式不執行migration、兩份env雜湊不變，沒有主站合成session／client／訊息／policy發布。
+- 112 HTTPS檢查（111主站＋1PNG來源）通過；合成liff.state／SDK參數probe在主站API日誌的req.url為[REDACTED]，以requestId定位且只回覆布林，不輸出其他私人日誌。Caddy access log未啟用、未改proxy；不宣稱外部供應商完全不處理URL。
+- API active／NRestarts0／ExecMainStatus0，timer active、worker Resultsuccess／ExecMainStatus0。LINE App真實授權／SSO仍須操作者從新收到的LIFF私人申請連結重測；不能將mock SDK或token有效當真人證明。
+- 保留/root/qigong-deploy-5230f1e、/opt/qigong-platform/deployment-tools/5230f1e、工作站/tmp/qigong-line-join-5230f1e、repo外backups/deployment-5230f1e，key另置受限backup-keys；clone已停，非完整OS／Caddy災復。
+- 同25回退可停API／timer、核對在途worker後切回3bdc7c9API／worker／old-release.conf，不還原DB以保留之後寫入；重測不刪除／重建已核准學員。若另退22，需matching22 DB＋852cd05及獨立核准／對帳。
 
 ## 原因與修復
 
