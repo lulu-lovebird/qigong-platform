@@ -90,6 +90,8 @@ const fixture = (
   html: string,
   options: {
     loggedIn?: boolean;
+    inClient?: boolean;
+    url?: string;
     idToken?: string;
     init?: () => Promise<void>;
     hash?: string;
@@ -108,16 +110,19 @@ const fixture = (
   application.append(applicationButton);
   get('checkin').hidden = true;
   get('checkin').append(get('methods'), get('submitButton'));
+  const entryUrl = new URL(options.url ?? 'https://checkin.baiyinqigong.org/line/apply#' + token);
   const location = {
-    href: 'https://checkin.baiyinqigong.org/line/apply#' + token,
-    hash: options.hash ?? '#' + token,
-    pathname: '/line/apply',
+    href: entryUrl.href,
+    search: entryUrl.search,
+    hash: options.hash ?? entryUrl.hash,
+    pathname: entryUrl.pathname,
     replace: vi.fn()
   };
   const history = { replaceState: vi.fn() };
   const liff = {
     init: vi.fn(options.init ?? (async () => {})),
     isLoggedIn: vi.fn(() => options.loggedIn ?? true),
+    isInClient: vi.fn(() => options.inClient ?? false),
     getIDToken: vi.fn(() => options.idToken ?? 'verified-id-token'),
     login: vi.fn()
   };
@@ -152,6 +157,8 @@ const fixture = (
     location,
     history,
     liff,
+    URL,
+    URLSearchParams,
     fetch: fetchMock,
     window: { Telegram: { WebApp: telegram } },
     document: {
@@ -267,7 +274,7 @@ describe('shared learner pages without database or real LIFF SDK', () => {
     await setImmediate();
     await setImmediate();
     expect(page.liff.login).toHaveBeenCalledWith({
-      redirectUri: 'https://checkin.baiyinqigong.org/line/apply#' + token
+      redirectUri: 'https://checkin.baiyinqigong.org/line/apply?_line_login_attempt=1#' + token
     });
     expect(page.history.replaceState).not.toHaveBeenCalled();
     expect(page.fetchMock).not.toHaveBeenCalled();
@@ -275,6 +282,51 @@ describe('shared learner pages without database or real LIFF SDK', () => {
     expect(page.get('status').textContent).toContain('LINE 登入');
   });
 
+  it.each([
+    '_line_login_attempt=1',
+    'code=synthetic-callback',
+    'error=access_denied',
+    'liffClientId=123456'
+  ])('does not loop external login on callback %s', async (query) => {
+    const page = fixture(lineApplicationPage('123456-test'), {
+      loggedIn: false,
+      url: 'https://checkin.baiyinqigong.org/line/apply?' + query + '#' + token
+    });
+    await setImmediate();
+    expect(page.liff.login).not.toHaveBeenCalled();
+    expect(page.fetchMock).not.toHaveBeenCalled();
+    expect(page.get('status').textContent).toContain('停止重複');
+  });
+  it('does not start external login when the native bridge has not completed authentication', async () => {
+    const page = fixture(lineApplicationPage('123456-test'), { loggedIn: false, inClient: true });
+    await setImmediate();
+    expect(page.liff.login).not.toHaveBeenCalled();
+    expect(page.fetchMock).not.toHaveBeenCalled();
+  });
+  it('leaves primary SDK parameters intact and does not submit until the secondary redirect', async () => {
+    const page = fixture(lineApplicationPage('123456-test'), {
+      url:
+        'https://checkin.baiyinqigong.org/line/?liff.state=' + encodeURIComponent('/apply#' + token)
+    });
+    await setImmediate();
+    expect(page.liff.init).toHaveBeenCalled();
+    expect(page.history.replaceState).not.toHaveBeenCalled();
+    expect(page.liff.login).not.toHaveBeenCalled();
+    expect(page.fetchMock).not.toHaveBeenCalled();
+  });
+  it('accepts a successfully authenticated secondary callback without looping or dropping its private fragment', async () => {
+    const page = fixture(lineApplicationPage('123456-test'), {
+      inClient: true,
+      url: 'https://checkin.baiyinqigong.org/line/apply?_line_login_attempt=1#' + token
+    });
+    await setImmediate();
+    await submit(page.get('application'));
+    expect(page.liff.login).not.toHaveBeenCalled();
+    expect(requestPayload(page.fetchMock.mock.calls[0]?.[1]?.body)).toMatchObject({
+      token,
+      idToken: 'verified-id-token'
+    });
+  });
   it.each(['application', 'checkin'])(
     'shows %s initialization failures without sending requests',
     async (kind) => {

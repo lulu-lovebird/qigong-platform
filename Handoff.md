@@ -2,6 +2,12 @@
 
 > 最新主站已於 **2026-10-11 12:15:07–12:15:38 UTC** 經使用者核准部署側欄logo同行排版，維護31秒。程式 release 為 `3bdc7c9c0c70a2eb07cacfa05718a11c897773dd`，schema `0025_telegram_miniapp_sessions.sql`不變。logo在「白雁氣功」左側、同一行等高，副標在下一行；色系／CSP／資料／env不變，WhatsApp未啟用、政策draft。
 
+## LINE加入申請登入回跳修復（已核准提交／部署，本機通過）
+
+- 使用者回報加入申請開帳密頁、選LINE應用程式登入又返回，核准修復及部署。一般HTTPS申請入口改configured LIFF `/apply#token`，短效／本人token、ID token驗證及審核不變。
+- LINE工作區／心得init前清fragment問題修正，primary liff.state交SDK轉址、不先清URL／送API；成功secondary才清URL。外部首次login保留fragment、加非敏感回跳標記，失敗callback／native未登入停止反覆登入；沒有跳過身份驗證、存token或放寬Origin。
+- API logger遮蔽req.url以保護LIFF primary query內SDK／申請資料，原header遮蔽保留；Caddy access log唯讀確認未啟用，未修改proxy。完整464項驗證、10個Chrome合成native／external／callback情境通過；額外tsc仍既有10錯誤。不是LINE手機／真SDK認證證明，仍須從最新LIFF加入連結重測。見[line-liff-onboarding](docs/operations/line-liff-onboarding.md)。
+
 ## 側欄logo與品牌標題同行（已部署3bdc7c9）
 
 - 使用者要求logo位於「白雁氣功」左側、與標題等高且同一行；已核准本機修改及直接commit／push／部署。只調整兩個品牌／shell source與測試，不改palette、圖片來源／CSP、待審portal、DB、env或Bot。

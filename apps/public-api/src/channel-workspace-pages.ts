@@ -74,6 +74,8 @@ export const renderChannelWorkspacePage = (
           "\nconst workspaceCredential='';const workspaceAuthorization=async()=>workspaceCredential;\n"
       );
     html = html
+      .replace("history.replaceState(null, '', location.pathname + location.search);", '')
+      .replace("history.replaceState(null,'',location.pathname+location.search);", '')
       .replace(
         'const validToken = /^[A-Za-z0-9_-]{43}$/.test(token)||!!undefined?.initData;',
         'const validToken = true;'

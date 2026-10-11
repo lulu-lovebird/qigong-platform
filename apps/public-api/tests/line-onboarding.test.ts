@@ -182,7 +182,10 @@ describeWithDatabase('LINE onboarding and checkin', () => {
     });
     expect(webhook.statusCode, webhook.body).toBe(200);
     const link = sendReply.mock.calls.at(-1)?.[1] ?? '';
-    const linkToken = link.match(/\/line\/apply#([A-Za-z0-9_-]{43})/)?.[1];
+    const linkToken = link.match(
+      /https:\/\/liff\.line\.me\/123456-test\/apply#([A-Za-z0-9_-]{43})/
+    )?.[1];
+    expect(link).not.toContain('https://checkin.baiyinqigong.org/line/apply');
     expect(linkToken).toBeTruthy();
     const headers = { origin: 'https://checkin.baiyinqigong.org' };
     const details = {
@@ -903,7 +906,7 @@ describeWithDatabase('LINE onboarding and checkin', () => {
         ).statusCode
       ).toBe(200);
       expect((await command()).statusCode).toBe(200);
-      expect(reply.mock.calls.at(-1)![1]).toContain('/line/apply#');
+      expect(reply.mock.calls.at(-1)![1]).toContain('https://liff.line.me/123456-test/apply#');
     } finally {
       await app.close();
       await pool.query("UPDATE platform.learner_privacy_policies SET state='draft'");

@@ -47,11 +47,20 @@ export const languageSwitchScript = (platform: 'telegram' | 'whatsapp', locale: 
 
 export const lineLoginScript = (liffId: string) => `
     const liffId = ${JSON.stringify(liffId).replaceAll('<', '\\u003c')};
-    const loginRedirectUri = location.href;
+    let loginRedirectUri = location.href;
+    const lineInitialQuery = new URLSearchParams(location.search || '');
+    const linePrimaryRedirect = lineInitialQuery.has('liff.state');
+    const lineLoginReturned = ['_line_login_attempt','code','error','liffClientId'].some(key => lineInitialQuery.has(key));
     let idToken = '';
     const lineReady = (async () => {
       await liff.init({ liffId });
+      if (linePrimaryRedirect) throw new Error('正在開啟 LINE 頁面，請稍候；若停留在此頁，請回 LINE 聊天重新取得連結。');
       if (!liff.isLoggedIn()) {
+        if ((typeof liff.isInClient === 'function' && liff.isInClient()) || lineLoginReturned)
+          throw new Error('LINE 登入未完成，已停止重複導向登入；請回 LINE 聊天重新輸入「加入」或「打卡」，使用新 LIFF 連結開啟。');
+        const redirect = new URL(loginRedirectUri);
+        redirect.searchParams.set('_line_login_attempt', '1');
+        loginRedirectUri = redirect.href;
         liff.login({ redirectUri: loginRedirectUri });
         throw new Error('正在前往 LINE 登入，請完成登入後再試。');
       }

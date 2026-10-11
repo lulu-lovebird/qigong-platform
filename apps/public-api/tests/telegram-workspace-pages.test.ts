@@ -123,6 +123,8 @@ const fixture = (
     locale?: 'en' | 'zh_TW';
     channel?: 'line';
     lineNative?: boolean;
+    lineInit?: () => Promise<void>;
+    lineSearch?: string;
     lineCloseAvailable?: boolean;
     lineCloseThrows?: boolean;
     native?: boolean;
@@ -169,7 +171,7 @@ const fixture = (
   const location = {
     hash: options.hash ?? '#' + 'a'.repeat(43),
     pathname: '/telegram/checkin',
-    search: '?lang=en',
+    search: options.lineSearch ?? '?lang=en',
     href: ''
   };
   const history = { replaceState: vi.fn() },
@@ -237,7 +239,7 @@ const fixture = (
     if (options.lineCloseThrows) throw Error('LIFF bridge unavailable');
   });
   const lineSdk = {
-    init: async () => {},
+    init: options.lineInit ?? (async () => {}),
     isLoggedIn: () => true,
     isInClient: () => options.lineNative === true,
     closeWindow: options.lineCloseAvailable === false ? undefined : lineClose,
@@ -355,6 +357,36 @@ describe('Telegram workspace generated scripts and unsaved private drafts', () =
     expect(first.token).toBeUndefined();
     expect(first.userId).toBeUndefined();
     expect(first.locale).toBe('zh_TW');
+  });
+  it('preserves LIFF authentication parameters until initialization resolves', async () => {
+    let complete: () => void = () => {
+      throw Error('Initialization not started');
+    };
+    const pending = new Promise<void>((resolve) => {
+      complete = resolve;
+    });
+    const f = fixture('checkin', {
+      channel: 'line',
+      hash: '#access_token=synthetic-sdk-state',
+      lineInit: () => pending
+    });
+    await tick();
+    expect(f.history.replaceState).not.toHaveBeenCalled();
+    expect(f.fetchMock).not.toHaveBeenCalled();
+    expect(f.location.hash).toBe('#access_token=synthetic-sdk-state');
+    complete();
+    await tick();
+    expect(f.fetchMock).toHaveBeenCalled();
+    expect(f.history.replaceState).toHaveBeenCalledTimes(1);
+  });
+  it('lets the SDK complete a LINE primary redirect without URL cleanup or profile requests', async () => {
+    const f = fixture('checkin', {
+      channel: 'line',
+      lineSearch: '?liff.state=' + encodeURIComponent('/apply#' + 'b'.repeat(43))
+    });
+    await tick();
+    expect(f.history.replaceState).not.toHaveBeenCalled();
+    expect(f.fetchMock).not.toHaveBeenCalled();
   });
   it('closes LIFF only after the confirmed save without waiting for refresh or sending another message', async () => {
     const f = fixture('checkin', { channel: 'line', lineNative: true });

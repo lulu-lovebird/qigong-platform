@@ -206,7 +206,7 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
           const state = result.rows[0]?.status;
           const text =
             state === 'form_required'
-              ? `請在 30 分鐘內填寫加入申請：https://checkin.baiyinqigong.org/line/apply#${link}`
+              ? `請在 30 分鐘內填寫加入申請：${liffBase}/apply#${link}`
               : state === 'approved'
                 ? '已核准。請輸入「打卡」開始。'
                 : state === 'rejected'

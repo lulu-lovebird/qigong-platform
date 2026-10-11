@@ -10,6 +10,20 @@ import {
 import { registerLineOnboarding, type LineConfig } from './line-onboarding.js';
 import { registerWhatsAppOnboarding, type WhatsAppConfig } from './whatsapp-onboarding.js';
 
+// LIFF primary redirects can contain both SDK credentials and private application fragments in the query.
+export const apiLogRedaction = Object.freeze({
+  paths: [
+    'req.url',
+    'req.headers.authorization',
+    'req.headers.cookie',
+    'req.headers.x-line-access-token',
+    'req.headers.x-telegram-init-data',
+    'req.headers.x-telegram-bot-api-secret-token',
+    'res.headers.set-cookie'
+  ],
+  censor: '[REDACTED]'
+});
+
 export const minimumMigrationVersion = '0025_telegram_miniapp_sessions.sql';
 export const maximumMigrationVersion = '0025_telegram_miniapp_sessions.sql';
 const requestIdPattern =
@@ -55,17 +69,7 @@ export const buildApp = ({
         ? false
         : (logger ?? {
             level: process.env.LOG_LEVEL || 'info',
-            redact: {
-              paths: [
-                'req.headers.authorization',
-                'req.headers.cookie',
-                'req.headers.x-line-access-token',
-                'req.headers.x-telegram-init-data',
-                'req.headers.x-telegram-bot-api-secret-token',
-                'res.headers.set-cookie'
-              ],
-              censor: '[REDACTED]'
-            }
+            redact: apiLogRedaction
           }),
     genReqId: (request) => {
       const incoming = request.headers['x-request-id'];
