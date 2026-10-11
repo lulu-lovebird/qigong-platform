@@ -20,7 +20,14 @@
 - 未核准學員點其他格仍須經過資料庫本人／資格檢查；圖文選單不是授權。Developing下測試帳號要有Login channel對應測試權限，不是只有Messaging channel權限。
 - 隱私／使用說明仍可私訊「隱私」閱讀；政策目前draft，圖文選單設定不發布政策或讓舊紀錄自動分享。
 
-## 返回聊天修復（候選，待部署）
+## 返回聊天修復（已部署83dce1e，手機重測待完成）
+
+- **2026-10-11 08:22:49–08:23:06 UTC**部署，停機17秒；程式`83dce1ec8b0ae9b4dfb9add90da34375c938287d`、schema25不變，[CI 38124308193](https://github.com/lulu-lovebird/qigong-platform/actions/runs/38124308193)成功。新artifact來自精確git archive與frozen lockfile／Node24建置，保留manifest與checksums。
+- 正式快照同25演練與重跑零遷移、完整62張應用表／4 people／7 check-ins及metadata雜湊一致，新舊API皆相容；編譯後LINE close markers與兩個signed commands的五個LIFF入口、TG／後台／sharing／scope及mock worker smoke通過，零真實測試訊息。
+- 最終DB／roles／env／systemd站外AES-256-GCM副本逐一解密雜湊核對，DB實際還原至clone後含metadata完整相同、舊75834f6 ready。正式未執行migration、API與worker env兩份內容雜湊未變；切換同25API／worker，API active／NRestarts0／ExecMainStatus0、timer active、worker Resultsuccess／ExecMainStatus0。
+- 108項公開HTTPS檢查通過，主站HTML包含LIFF in-client／closeWindow guard；這不是Android／iOS真實close bridge驗收，待使用者从新LIFF入口重測。
+- 恢復資料：/root/qigong-deploy-83dce1e、/opt/qigong-platform/deployment-tools/83dce1e、工作站/tmp/qigong-line-close-83dce1e，以及repo外backups/deployment-83dce1e，AES key另置受限backup-keys。clone已停、證據保留；不是完整OS／Caddy災復。
+- 同25UI回退可停API／timer並等待在途worker後，切回75834f6 artifact／old-release.conf／同版worker；不要還原DB，保留部署後寫入。若另要退回22，依主站首次部署完整matching22復原邊界，需另核准與對帳。
 
 - 原因：衍生LINE工作區移除了TG SDK，但仍使用TG initData／close guard，沒有呼叫LIFF closeWindow；Bot工作區回覆是一般HTTPS，亦不保證在真正LIFF browser開啟。
 - 修復LINE工作區：確認server成功儲存後才呼叫`liff.closeWindow()`，且必須`liff.isInClient()`、SDK bridge可用、所有日期與時區都沒有其他實際未存草稿。先解除writing／busy與beforeunload guard，不等待profile刷新或聊天摘要送達，不呼叫sendMessages／sendData重發摘要。
@@ -28,7 +35,7 @@
 - 普通瀏覽器／外部登入不強制window.close，手動返回按鈕隱藏；TG與WA保留原有行為。舊聊天中的一般HTTPS連結不會被追溯修改，需重新私訊「打卡」或使用新圖文選單的LIFF URL測試。
 - Bot五個工作區連結從實際LINE_LIFF_ID動態產生，不把部署ID或憑證寫死在程式。加入／政策的短效私人連結與驗證流程不變。
 - 本機完整`pnpm verify` **433項通過、無skip**；新增測試涵蓋commit前不close、commit後只close一次且不refresh、409保留、外部瀏覽器、bridge缺少／throw、另一天／時區草稿及手動確認，signed commands回configured LIFF五個入口。這是合成DOM／mock provider驗證，不是LINE Android／iOS真實bridge證明。
-- 不新增migration；仍exact25。同schema UI修復回退應切回matching舊25 API／worker，不還原DB，以保留後續寫入。主站修復部署及真人重測結果另記錄；已存在的間歇性授權錯誤仍未宣稱修復。
+- 不新增migration；仍exact25。同schema UI修復回退應切回matching舊25 API／worker，不還原DB，以保留後續寫入。主站修復部署證據見上方；真人重測結果仍待記錄，已存在的間歇性授權錯誤仍未宣稱修復。
 
 ## 真人重測
 

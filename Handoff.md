@@ -1,12 +1,14 @@
 # Qigong Platform — 交接摘要
 
-> 最新主站受控試行已於 **2026-10-11 07:18:03–07:18:19 UTC** 經使用者核准部署，維護16秒。程式 release 為 `75834f6ddbd5e484c9003890a265e1e5dc1609d0`，schema `0025_telegram_miniapp_sessions.sql`。LINE API／worker已配置，WhatsApp保持未啟用；政策draft，不自動分享舊資料。真人LINE／LIFF登入與手機收件仍待驗收。
+> 最新主站已於 **2026-10-11 08:22:49–08:23:06 UTC** 經使用者核准部署LINE返回聊天修復，維護17秒。程式 release 為 `83dce1ec8b0ae9b4dfb9add90da34375c938287d`，schema `0025_telegram_miniapp_sessions.sql`不變。LINE首輪登入／Chatbot測試由使用者回報成功；最新close修復須從新LIFF入口手機重測。WhatsApp未啟用，政策draft、不自動分享舊資料。
 
-## LINE自動返回聊天修復（本機驗證通過，待部署）
+## LINE自動返回聊天修復（已部署83dce1e，手機重測待完成）
 
 - 使用者回報LINE首輪測試成功，接著核准修復及部署，自行設定六格圖文選單。首輪成功不代表所有裝置／權限／摘要案例都已驗收。
 - LINE衍生頁此前移除TG SDK卻沿用TG close guard，沒有LIFF closeWindow；修復為只有confirmed save＋LINE in-client bridge＋無其他日期／時區dirty才自動close。失敗／bridge缺少／throw保留頁面；手動返回有dirty確認，不額外發摘要，TG／WA不變。Bot五個工作區改用configured LIFF入口，加入／政策私人URL不變。
-- 完整433項驗證通過、無skip，含新增close／fail／draft／manual guard及signed LIFF links tests；這不是真人SDK驗收。不加migration，仍exact25；同25回退不還原DB。圖文網址及設定／真人重測見[line-rich-menu](docs/operations/line-rich-menu.md)。
+- 完整433項驗證通過、無skip，程式CI [38124308193](https://github.com/lulu-lovebird/qigong-platform/actions/runs/38124308193)成功；額外全測試tsc仍既有10錯誤、無新增。包含新增close／fail／draft／manual guard及signed LIFF links tests；這不是真人SDK驗收。
+- 正式快照同25演練、compiled LINE／TG／後台／sharing及worker mock smoke通過；最終站外AES-256-GCM DB／roles／env／systemd實際解密雜湊核對，DB實際還原後62表／4 people／7 check-ins及metadata完全一致、舊75834f6 ready。正式不執行migration，兩份env未变、108公開HTTPS檢查通過，API active／NRestarts0／ExecMainStatus0、timer active、worker Resultsuccess／ExecMainStatus0。
+- /root/qigong-deploy-83dce1e、/opt/qigong-platform/deployment-tools/83dce1e、工作站/tmp/qigong-line-close-83dce1e與repo外backups/deployment-83dce1e保留、key另置受限backup-keys。仍exact25；同25回退只切回75834f6API／worker／old-release.conf，不還原DB。圖文網址及設定／真人重測見[line-rich-menu](docs/operations/line-rich-menu.md)。
 
 ## LINE主站試行（已部署，使用者回報首輪成功，進一步真人測試待完成）
 
