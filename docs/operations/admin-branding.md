@@ -15,10 +15,15 @@
 
 完整覆蓋總覽、排行榜、功法分析、學員申請審核、管理員授權、私密心得／快速標籤、學員資格、共享歷史、政策頁，以及獨立待審管理員portal。待審頁不使用管理導航、不新增角色或報表存取。
 
-## 側欄logo與標題同行調整（已核准修改及部署，待切換）
+## 側欄logo與標題同行調整（已部署3bdc7c9）
+
+- **2026-10-11 12:15:07–12:15:38 UTC**部署，停機31秒；程式`3bdc7c9c0c70a2eb07cacfa05718a11c897773dd`／schema25，[CI 38138259863](https://github.com/lulu-lovebird/qigong-platform/actions/runs/38138259863)成功。初版品牌更新d531450的部署記錄保留於下方。
+- 正式快照同25完整62表／4 people／7 check-ins及metadata一致，新舊API皆相容；compiled branded/pending、CSP、LINE／TG／sharing／CSRF／scope／角色交易與mock worker通過，零主站合成session／client或真實測試訊息。
+- 最終站外AES-256-GCM DB／roles／env／systemd副本逐一解密雜湊核對，DB實際還原後完整相同、舊d531450 ready；正式不執行migration、兩份env保持不變。108主站HTTPS＋1PNG來源檢查通過，API active／NRestarts0／ExecMainStatus0、timer active、worker Resultsuccess／ExecMainStatus0。
+- 恢復位置/root/qigong-deploy-3bdc7c9、/opt/qigong-platform/deployment-tools/3bdc7c9、工作站/tmp/qigong-admin-logo-inline-3bdc7c9、repo外backups/deployment-3bdc7c9，key另置受限backup-keys。回退只切回d531450同25API／worker／old-release.conf，不還原DB以保留後續寫入；clone已停、證據保留，非完整OS／Caddy災復。
 
 - 使用者要求logo位於「白雁氣功」左側、同一行且等高。brand-title使用flex row／align-items:center，圖片1em正方形、flex不縮小、無margin；標題line-height:1與nowrap，副標在下一行。移除側欄手機80px覆寫，待審portal的獨立112px logo不變。
-- 完整454項驗證與44組Chrome合成雙語390px／1280px配置通過；實際測量圖片／標題高度皆20.796875px、top相同、imageRight小於textLeft、subtitleTop在titleBottom下方，沒有整頁overflow。色系、CSP、圖片來源／alt／no-referrer、DB／env／權限／Bot不變；正式切換與真人檢查待後續記錄。
+- 完整454項驗證與44組Chrome合成雙語390px／1280px配置通過；實際測量圖片／標題高度皆20.796875px、top相同、imageRight小於textLeft、subtitleTop在titleBottom下方，沒有整頁overflow。色系、CSP、圖片來源／alt／no-referrer、DB／env／權限／Bot不變；正式切換已完成；操作者可重新整理後台真人確認，不能以合成量測取代所有裝置驗收。
 
 ## Logo與安全
 

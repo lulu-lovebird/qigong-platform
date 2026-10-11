@@ -1,11 +1,14 @@
 # Qigong Platform — 交接摘要
 
-> 最新主站已於 **2026-10-11 09:31:03–09:31:20 UTC** 經使用者核准部署Web Admin品牌更新，維護17秒。程式 release 為 `d531450729b36d46c7948989db4fc255234875b7`，schema `0025_telegram_miniapp_sessions.sql`不變。後台完整藍色系與指定logo已部署；LINE close修復由使用者回報成功，WhatsApp未啟用、政策draft。
+> 最新主站已於 **2026-10-11 12:15:07–12:15:38 UTC** 經使用者核准部署側欄logo同行排版，維護31秒。程式 release 為 `3bdc7c9c0c70a2eb07cacfa05718a11c897773dd`，schema `0025_telegram_miniapp_sessions.sql`不變。logo在「白雁氣功」左側、同一行等高，副標在下一行；色系／CSP／資料／env不變，WhatsApp未啟用、政策draft。
 
-## 側欄logo與品牌標題同行（已核准修復／提交／部署，待切換）
+## 側欄logo與品牌標題同行（已部署3bdc7c9）
 
 - 使用者要求logo位於「白雁氣功」左側、與標題等高且同一行；已核准本機修改及直接commit／push／部署。只調整兩個品牌／shell source與測試，不改palette、圖片來源／CSP、待審portal、DB、env或Bot。
 - brand-title flex row垂直置中，圖片1em正方形、無margin且不縮小，品牌文字nowrap；副標保持下一行，移除sidebar 80px手機覆寫。完整454項驗證、Chrome44組合成雙語手機／桌機配置通過；測量圖片與標題皆20.796875px、top相同、imageRight小於textLeft，副標在下方。非正式Authgear真人驗收。
+- 程式CI [38138259863](https://github.com/lulu-lovebird/qigong-platform/actions/runs/38138259863)成功；正式快照同25演練、完整62表／4 people／7 check-ins及metadata一致，compiled branded/pending／LINE／TG／sharing／授權與mock worker smoke通過。
+- 最終站外AES-256-GCM DB／roles／env／systemd解密雜湊核對，DB實際還原後完全一致、舊d531450 ready；正式不執行migration、兩份env雜湊不變。108主站HTTPS＋1logo來源檢查通過；API active／NRestarts0／ExecMainStatus0、timer active、worker Resultsuccess／ExecMainStatus0。
+- 恢復位置/root/qigong-deploy-3bdc7c9、/opt/qigong-platform/deployment-tools/3bdc7c9、工作站/tmp/qigong-admin-logo-inline-3bdc7c9與repo外backups/deployment-3bdc7c9、key另置受限backup-keys。同25回退只切回d531450API／worker／old-release.conf，不還原DB以保留後續寫入；非完整OS／Caddy災復。
 
 ## Web Admin品牌樣式（已部署d531450，後台真人外觀驗收待完成）
 
