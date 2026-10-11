@@ -122,6 +122,9 @@ const fixture = (
     hash?: string;
     locale?: 'en' | 'zh_TW';
     channel?: 'line';
+    lineNative?: boolean;
+    lineCloseAvailable?: boolean;
+    lineCloseThrows?: boolean;
     native?: boolean;
     clock?: { value: number };
   } = {}
@@ -230,6 +233,17 @@ const fixture = (
     enableClosingConfirmation: vi.fn(),
     disableClosingConfirmation: vi.fn()
   };
+  const lineClose = vi.fn(() => {
+    if (options.lineCloseThrows) throw Error('LIFF bridge unavailable');
+  });
+  const lineSdk = {
+    init: async () => {},
+    isLoggedIn: () => true,
+    isInClient: () => options.lineNative === true,
+    closeWindow: options.lineCloseAvailable === false ? undefined : lineClose,
+    getIDToken: () => 'verified-line-token',
+    login: vi.fn()
+  };
   new Script(source).runInNewContext({
     document: { getElementById: get, createElement: element, querySelectorAll: all },
     location,
@@ -241,12 +255,7 @@ const fixture = (
         listeners.set(name, handler);
       }
     },
-    liff: {
-      init: async () => {},
-      isLoggedIn: () => true,
-      getIDToken: () => 'verified-line-token',
-      login: vi.fn()
-    },
+    liff: lineSdk,
     fetch: fetchMock,
     Date: new Proxy(Date, {
       get: (target, key) =>
@@ -270,6 +279,7 @@ const fixture = (
     listeners,
     html,
     app,
+    lineClose,
     texts
   };
 };
@@ -345,6 +355,129 @@ describe('Telegram workspace generated scripts and unsaved private drafts', () =
     expect(first.token).toBeUndefined();
     expect(first.userId).toBeUndefined();
     expect(first.locale).toBe('zh_TW');
+  });
+  it('closes LIFF only after the confirmed save without waiting for refresh or sending another message', async () => {
+    const f = fixture('checkin', { channel: 'line', lineNative: true });
+    await tick();
+    expect(f.get('return-chat').hidden).toBe(false);
+    f.all('[data-method]')[0]!.checked = true;
+    await f.all('[data-method]')[0]!.onchange?.();
+    let resolveSave: (response: Response) => void = () => {
+      throw Error('Save not started');
+    };
+    const pending = new Promise<Response>((resolve) => {
+      resolveSave = resolve;
+    });
+    f.fetchMock.mockReturnValueOnce(pending);
+    const saving = f.get('submit').onclick?.();
+    await tick();
+    expect(f.lineClose).not.toHaveBeenCalled();
+    resolveSave(
+      new Response(JSON.stringify({ checkinId: randomUUID(), version: 4, receiptQueued: true }), {
+        status: 200
+      })
+    );
+    await saving;
+    expect(f.lineClose).toHaveBeenCalledTimes(1);
+    expect(f.confirm).not.toHaveBeenCalled();
+    expect(
+      f.fetchMock.mock.calls.filter(([path]) => path === '/line/workspace/profile')
+    ).toHaveLength(1);
+    expect(f.fetchMock.mock.calls.filter(([path]) => path === '/line/workspace/save')).toHaveLength(
+      1
+    );
+    const event = { preventDefault: vi.fn() };
+    await f.listeners.get('beforeunload')?.(event);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+  });
+  it.each([
+    {
+      name: 'failed save',
+      native: true,
+      available: true,
+      throws: false,
+      failed: true,
+      attempts: 0
+    },
+    {
+      name: 'external browser',
+      native: false,
+      available: true,
+      throws: false,
+      failed: false,
+      attempts: 0
+    },
+    {
+      name: 'missing bridge',
+      native: true,
+      available: false,
+      throws: false,
+      failed: false,
+      attempts: 0
+    },
+    {
+      name: 'throwing bridge',
+      native: true,
+      available: true,
+      throws: true,
+      failed: false,
+      attempts: 1
+    }
+  ])(
+    'keeps the LINE page open on $name',
+    async ({ native, available, throws, failed, attempts }) => {
+      const f = fixture('checkin', {
+        channel: 'line',
+        lineNative: native,
+        lineCloseAvailable: available,
+        lineCloseThrows: throws
+      });
+      await tick();
+      f.all('[data-method]')[0]!.checked = true;
+      await f.all('[data-method]')[0]!.onchange?.();
+      if (failed) f.fetchMock.mockResolvedValueOnce(new Response('{}', { status: 409 }));
+      await f.get('submit').onclick?.();
+      expect(f.lineClose).toHaveBeenCalledTimes(attempts);
+      expect(f.location.href).toBe('');
+      expect(f.get('return-chat').hidden).toBe(!native || !available);
+      if (failed) {
+        expect(f.all('[data-method]')[0]!.checked).toBe(true);
+        const event = { preventDefault: vi.fn() };
+        await f.listeners.get('beforeunload')?.(event);
+        expect(event.preventDefault).toHaveBeenCalled();
+      } else
+        expect(
+          f.fetchMock.mock.calls.filter(([path]) => path === '/line/workspace/profile')
+        ).toHaveLength(2);
+    }
+  );
+  it('preserves another LINE date draft and confirms manual return to chat', async () => {
+    const f = fixture('checkin', { channel: 'line', lineNative: true });
+    await tick();
+    f.get('note').value = 'Unsaved today';
+    f.get('note').oninput?.();
+    await f.get('yesterdayTab').onclick?.();
+    f.all('[data-method]')[0]!.checked = true;
+    await f.all('[data-method]')[0]!.onchange?.();
+    await f.get('submit').onclick?.();
+    expect(f.lineClose).not.toHaveBeenCalled();
+    await f.get('todayTab').onclick?.();
+    expect(f.get('note').value).toBe('Unsaved today');
+    f.confirm.mockReturnValueOnce(false);
+    await f.get('return-chat').onclick?.();
+    expect(f.lineClose).not.toHaveBeenCalled();
+    f.confirm.mockReturnValueOnce(true);
+    await f.get('return-chat').onclick?.();
+    expect(f.lineClose).toHaveBeenCalledTimes(1);
+  });
+  it('does not discard an unsaved LINE timezone change after saving', async () => {
+    const f = fixture('checkin', { channel: 'line', lineNative: true });
+    await tick();
+    f.get('zone').value = 'Asia/Taipei';
+    f.all('[data-method]')[0]!.checked = true;
+    await f.all('[data-method]')[0]!.onchange?.();
+    await f.get('submit').onclick?.();
+    expect(f.lineClose).not.toHaveBeenCalled();
   });
   it.each(['checkin', 'leaderboard', 'methods', 'achievements'] as const)(
     'renders a bilingual, syntax-valid %s page with safe dynamic DOM writes',

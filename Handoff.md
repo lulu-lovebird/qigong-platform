@@ -2,7 +2,13 @@
 
 > 最新主站受控試行已於 **2026-10-11 07:18:03–07:18:19 UTC** 經使用者核准部署，維護16秒。程式 release 為 `75834f6ddbd5e484c9003890a265e1e5dc1609d0`，schema `0025_telegram_miniapp_sessions.sql`。LINE API／worker已配置，WhatsApp保持未啟用；政策draft，不自動分享舊資料。真人LINE／LIFF登入與手機收件仍待驗收。
 
-## LINE主站試行（已部署，真人測試待完成）
+## LINE自動返回聊天修復（本機驗證通過，待部署）
+
+- 使用者回報LINE首輪測試成功，接著核准修復及部署，自行設定六格圖文選單。首輪成功不代表所有裝置／權限／摘要案例都已驗收。
+- LINE衍生頁此前移除TG SDK卻沿用TG close guard，沒有LIFF closeWindow；修復為只有confirmed save＋LINE in-client bridge＋無其他日期／時區dirty才自動close。失敗／bridge缺少／throw保留頁面；手動返回有dirty確認，不額外發摘要，TG／WA不變。Bot五個工作區改用configured LIFF入口，加入／政策私人URL不變。
+- 完整433項驗證通過、無skip，含新增close／fail／draft／manual guard及signed LIFF links tests；這不是真人SDK驗收。不加migration，仍exact25；同25回退不還原DB。圖文網址及設定／真人重測見[line-rich-menu](docs/operations/line-rich-menu.md)。
+
+## LINE主站試行（已部署，使用者回報首輪成功，進一步真人測試待完成）
 
 - 使用者明確擴充先前隔離核准範圍，使用既有HTTPS主站部署／測試；不另建網域，不動舊Bot、LINE Console開關或正式政策發布。
 - 程式CI 38055345937成功。正式22快照隔離還原／23–25升級與重跑零新增／舊binary拒絕／受限compiled OIDC、後台、TG、journal及LINE簽章smoke通過，worker含LINE配置為0 onboarding／0 LINE／1 badge／2 mock TG receipts，零真實測試訊息。Messaging token唯讀驗證有效，不代表Login／LIFF真人驗收通過。

@@ -86,6 +86,58 @@ describeWithDatabase('LINE onboarding and checkin', () => {
     await maintenance.end();
   });
 
+  it('uses configured LIFF deep links for checkin and workspace commands without embedding credentials', async () => {
+    const reply = vi.fn(async (token: string, text: string) => {
+      expect(token).toBe('menu-reply');
+      expect(text).toBeTruthy();
+    });
+    const app = buildApp({
+      pool: runtimePool,
+      logger: false,
+      line: {
+        channelSecret: secret,
+        channelAccessToken: 'mock-access-token',
+        loginChannelId: '123456',
+        liffId: '123456-test',
+        reply,
+        verifyIdToken: verify
+      }
+    });
+    try {
+      for (const text of ['打卡', '選單', '排行榜']) {
+        const raw = JSON.stringify({
+          events: [
+            {
+              type: 'message',
+              webhookEventId: randomUUID(),
+              replyToken: 'menu-reply',
+              source: { type: 'user', userId: lineUser },
+              message: { type: 'text', text }
+            }
+          ]
+        });
+        const response = await app.inject({
+          method: 'POST',
+          url: '/line/webhook',
+          headers: {
+            'content-type': 'application/json',
+            'x-line-signature': createHmac('sha256', secret).update(raw).digest('base64')
+          },
+          payload: raw
+        });
+        expect(response.statusCode).toBe(200);
+        const message = reply.mock.calls.at(-1)?.[1];
+        expect(message).toBeDefined();
+        for (const page of ['checkin', 'leaderboard', 'method-analysis', 'achievements', 'journal'])
+          expect(message).toContain('https://liff.line.me/123456-test/' + page);
+        expect(message).not.toContain('https://checkin.baiyinqigong.org/line/');
+        expect(message).not.toContain('mock-access-token');
+        expect(message).not.toContain('idToken');
+      }
+    } finally {
+      await app.close();
+    }
+  });
   it('validates webhook signature and ID token, reviews the application, and checks in once', async () => {
     const app = buildApp({
       pool: runtimePool,

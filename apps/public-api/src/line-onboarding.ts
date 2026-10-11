@@ -45,6 +45,7 @@ const details = z.object({
 });
 
 export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config: LineConfig) => {
+  const liffBase = `https://liff.line.me/${encodeURIComponent(config.liffId)}`;
   const verify =
     config.verifyIdToken ??
     (async (idToken: string) => {
@@ -181,11 +182,11 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
             event.replyToken,
             [
               '白雁氣功｜學員工作區',
-              '練功打卡：https://checkin.baiyinqigong.org/line/checkin',
-              '排行榜：https://checkin.baiyinqigong.org/line/leaderboard',
-              '功法分析：https://checkin.baiyinqigong.org/line/method-analysis',
-              '我的成就／月曆：https://checkin.baiyinqigong.org/line/achievements',
-              '心得分享：https://checkin.baiyinqigong.org/line/journal'
+              `練功打卡：${liffBase}/checkin`,
+              `排行榜：${liffBase}/leaderboard`,
+              `功法分析：${liffBase}/method-analysis`,
+              `我的成就／月曆：${liffBase}/achievements`,
+              `心得分享：${liffBase}/journal`
             ].join('\n')
           );
         } else {
