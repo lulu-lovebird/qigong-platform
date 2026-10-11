@@ -1,15 +1,24 @@
 # Qigong Platform — 交接摘要
 
-> 最新正式環境已於 **2026-10-09 10:02:27–10:02:45 UTC** 經使用者核准部署，維護18秒。程式 release 為 `852cd05ce54c9aac4a2e650fb207d04838760684`，schema `0022_journal_sharing.sql`。私密心得後台、學員跨區主動分享、快速標籤與合作系統唯讀 API 已上線；既有心得仍私密，正式外部 client 為零，官網登入串接另待確認。
+> 最新主站受控試行已於 **2026-10-11 07:18:03–07:18:19 UTC** 經使用者核准部署，維護16秒。程式 release 為 `75834f6ddbd5e484c9003890a265e1e5dc1609d0`，schema `0025_telegram_miniapp_sessions.sql`。LINE API／worker已配置，WhatsApp保持未啟用；政策draft，不自動分享舊資料。真人LINE／LIFF登入與手機收件仍待驗收。
 
-## 候選25提交與隔離試行（已提交／CI成功，本機演練通過）
+## LINE主站試行（已部署，真人測試待完成）
+
+- 使用者明確擴充先前隔離核准範圍，使用既有HTTPS主站部署／測試；不另建網域，不動舊Bot、LINE Console開關或正式政策發布。
+- 程式CI 38055345937成功。正式22快照隔離還原／23–25升級與重跑零新增／舊binary拒絕／受限compiled OIDC、後台、TG、journal及LINE簽章smoke通過，worker含LINE配置為0 onboarding／0 LINE／1 badge／2 mock TG receipts，零真實測試訊息。Messaging token唯讀驗證有效，不代表Login／LIFF真人驗收通過。
+- 最終DB／roles／env／systemd站外AES-256-GCM副本逐一解密核對雜湊，DB實際還原22、完整資料與metadata和停機基線完全相同、舊852cd05 ready，才遷移正式DB。53張原應用表／3 people／6 check-ins保留，升級後62表；僅新shared permission／7映射、metadata及新欄位為預期差異。零acceptance／origin／staff分享，policy active0／draft1。
+- API env未變；worker只追加相同LINE access token，其他內容逐byte保留。API active／NRestarts0／ExecMainStatus0，timer active、worker Resultsuccess／ExecMainStatus0；106公開HTTPS檢查通過。LINE七頁200、空signed webhook200／錯簽章401，WA404。間歇性錯誤根因仍未定位，不放寬授權／不宣稱已修復。
+- 接下來由使用者在新LINE Console Verify並啟用webhook、確認LIFF endpoint／openid及Developing測試角色，私訊「加入」→審核→「打卡」真人測試。詳見[main-site-pilot](docs/operations/main-site-pilot.md)。
+- 恢復須matching22 DB＋852cd05 API／worker及old-release.conf，不可binary-only；開流量後另核准並對帳。/root/qigong-deploy-75834f6、/opt/qigong-platform/deployment-tools/75834f6、工作站/tmp/qigong-main-pilot-75834f6、repo外backups/deployment-75834f6保留，key另置受限backup-keys；非完整OS／Caddy災復。
+
+## 候選25提交與隔離試行歷史（主站新狀態見上方）
 
 - 使用者已核准commit／push、CI及隔離測試部署，使用專用測試帳號先LINE再WhatsApp真人驗收。這不是正式部署、新正式渠道啟用、正式政策發布或舊Bot設定變更的授權。
 - 程式commit／push `75834f6ddbd5e484c9003890a265e1e5dc1609d0`，CI [38055345937](https://github.com/lulu-lovebird/qigong-platform/actions/runs/38055345937) 成功；提交前完整425項通過、無skip。正式仍852cd05／schema22，未連線或修改正式服務。
 - 本機獨立PostgreSQL16及精確git artifact完成全新合成22→25／重跑零新增／舊binary拒絕／受限API及worker空queue smoke；22與25 dumps各實際還原及完整表雜湊／matching readiness通過。非正式快照或真人資料，真實provider發送0，政策draft。
 - loopback API `127.0.0.1:3115`運行compiled buildApp、schema25 ready，但adminAuth／providers皆未配置；不是公開／完整index.ts服務驗收。公開測試HTTPS、專用LINE／LIFF、WA sandbox及測試Authgear設定仍須確認；不得臆測網域／挪用舊渠道。詳見[isolated-channel-pilot](docs/operations/isolated-channel-pilot.md)。
 
-## Telegram固定/start入口與commit後close（候選25）
+## Telegram固定/start入口與commit後close實作歷史（已隨主站25部署）
 
 - 使用者核准本機修正兩項問題，要求/start完成後再自行加入新Bot設定；不動BotFather／憑證／渠道或正式部署。正式仍852cd05／22，未提交／推送。
 - 核對舊bot固定WebApp＋簽章initData（原始碼default1小時）與儲存成功tg.close；正式22則15分钟URLcapability／每user一筆link、沒有close呼叫。新/start與/checkin對有效核准user回5個static按鈕，申請／政策不繞過。
@@ -19,7 +28,7 @@
 - Mini App針對性測試、24→25原links保留／重跑／舊契約拒絕、HMAC／freshness／scope／limiting、renew／close／dirty與官方SDK合成4場景通過；非真人或正式快照。人員核准續查後，最近連續兩次完整 `pnpm verify` 425項通過、無skip，format／lint／source typecheck／build通過；額外全測試tsc仍為既有10錯誤、無新增。診斷期間另重現WA更正409／review權限拒絕、journal coach能力誤判；間歇性根因仍未定位，重跑通過不等於已修復。測試保留無憑證／個人內容的布林診斷；未放寬授權、未新增對外診斷欄位。不可宣稱可正式發布；提交／CI及本機隔離演練狀態見上方，未改Bot設定。見 [telegram-miniapp](docs/operations/telegram-miniapp.md)。
 - 本機API／worker exact25；政策draft不自動發布。提交／推送／CI及隔離試行已核准；正式22→25matching artifact／備份還原另核准，再指引只對新Bot設定start／commands／menubutton；現在正式22尚未套用。
 
-## LINE先行、接續WhatsApp工作區與私人摘要（已完成本機24，整合候選25，尚未提交／部署）
+## LINE先行、接續WhatsApp工作區與私人摘要實作歷史（已隨主站25部署，WA未啟用）
 
 - 使用者核准項目1完整學員工作區＋項目2選單及私人摘要，指定先LINE完成功能驗證後再WA；本機已依序實作。不含提醒、LLM、舊帳號／資料／勳章搬移，沒有真實發送、啟用渠道或正式部署。
 - 新0024、channel-workspace*.ts及channel-practice-receipts.ts：兩渠道打卡、同區遮罩榜、30／90日分析、49勳章／等級／真正月格與逐日歷史、跨區共享與本人發布／撤回。共用21的person preference／revision及23政策／資格邊界，不隱含連結人。
@@ -146,7 +155,7 @@ Node.js 24、pnpm 10.15.1 workspace、strict TypeScript、Fastify 5、PostgreSQL
 | `whatsapp-onboarding.ts`、`whatsapp-client.ts`                             | 程式已部署、管道未啟用；專用 WABA／電話、Cloud API／模板／手機待真人驗收。   |
 | `onboarding-notifications.ts`、`notification-worker.ts`                    | 同版通知 worker 已部署；目前僅配置 Telegram sender。                         |
 | `packages/database/src/`、`packages/config/src/`、`packages/identity/src/` | DB／migration／request context、設定驗證及身份契約。                         |
-| `migrations/0001–0021`                                                     | 已完整套用；歷史 migration 不可改寫，API 最小／最大均為 `0021`。             |
+| `migrations/0001–0025`                                                     | 已完整套用；歷史 migration 不可改寫，API 最小／最大均為 `0025`。             |
 | `apps/public-api/tests/`、`packages/database/tests/`                       | API／授權／報表／通知／整合與 migration 測試。                               |
 | `docs/operations/`、`scripts/backup-remote-postgres.sh`                    | 管道試行、後台驗收、systemd、備份／還原文件。                                |
 | `.github/workflows/ci.yml`、`docs/architecture/`、`docs/adr/`              | PostgreSQL 16 CI、架構契約及決策。                                           |
