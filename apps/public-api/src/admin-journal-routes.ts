@@ -1,3 +1,4 @@
+import { adminContentSecurityPolicy } from './admin-branding.js';
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
@@ -96,10 +97,7 @@ export const registerAdminJournalRoutes = (
       if (!(kind === 'journal' ? allowed.canReadJournal : allowed.canManageTags))
         return reply.code(403).send({ error: 'journal_denied' });
       return reply
-        .header(
-          'content-security-policy',
-          "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-        )
+        .header('content-security-policy', adminContentSecurityPolicy)
         .header('x-content-type-options', 'nosniff')
         .type('text/html; charset=utf-8')
         .send(

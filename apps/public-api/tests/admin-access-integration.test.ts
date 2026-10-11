@@ -1,3 +1,4 @@
+import { adminContentSecurityPolicy, adminLogoUrl } from '../src/admin-branding.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -154,6 +155,8 @@ suite('super admin approval HTTP boundary', () => {
     expect(page.statusCode).toBe(200);
     expect(page.body).toContain('Administrator access request');
     expect(page.headers['cache-control']).toBe('no-store');
+    expect(page.headers['content-security-policy']).toBe(adminContentSecurityPolicy);
+    expect(page.body).toContain(adminLogoUrl);
     expect(page.body).not.toContain('onerror=alert');
     for (const path of [
       '/admin/auth/me',

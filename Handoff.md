@@ -2,7 +2,13 @@
 
 > 最新主站已於 **2026-10-11 08:22:49–08:23:06 UTC** 經使用者核准部署LINE返回聊天修復，維護17秒。程式 release 為 `83dce1ec8b0ae9b4dfb9add90da34375c938287d`，schema `0025_telegram_miniapp_sessions.sql`不變。LINE首輪登入／Chatbot測試由使用者回報成功；最新close修復須從新LIFF入口手機重測。WhatsApp未啟用，政策draft、不自動分享舊資料。
 
-## LINE自動返回聊天修復（已部署83dce1e，手機重測待完成）
+## Web Admin品牌樣式（本機完成，已核准提交／推送／部署，執行中）
+
+- 使用者回報LINE返回聊天重測成功，自行完成圖文素材並指定#082850／#305888／#98C0D8／#002048後台新色系及e-qi.org提供的logo，先核准本機修改，現已另核准本批commit／push／同25部署；切換前主站仍83dce1e。
+- admin-branding.ts集中tokens／logo／image-only CSP，完整10個後台頁及獨立待審portal、SVG圖表／標籤採新色系。logo原圖色彩／比例保留，側欄上方與手機自適應、雙語alt／no-referrer。四組HTML routes只增加完整指定PNG img-src，不放寬script／connect／frame，不改授權／資料／學員頁。
+- 完整454項驗證通過、無skip，新增品牌／對比／route CSP測試；Chrome44組雙語mobile／desktop合成配置、真實遠端logo載入及零整頁overflow／JS exception通過。補card min-width:0解決手機表格撐大layout，不裁切內容；最終回歸再次454項通過；額外全測試型別檢查仍既有10錯誤、無新增。最終44組Chrome也核對SVG文字新色碼，非正式Authgear／真人驗收。詳見[admin-branding](docs/operations/admin-branding.md)。
+
+## LINE自動返回聊天修復（已部署83dce1e，使用者回報重測成功）
 
 - 使用者回報LINE首輪測試成功，接著核准修復及部署，自行設定六格圖文選單。首輪成功不代表所有裝置／權限／摘要案例都已驗收。
 - LINE衍生頁此前移除TG SDK卻沿用TG close guard，沒有LIFF closeWindow；修復為只有confirmed save＋LINE in-client bridge＋無其他日期／時區dirty才自動close。失敗／bridge缺少／throw保留頁面；手動返回有dirty確認，不額外發摘要，TG／WA不變。Bot五個工作區改用configured LIFF入口，加入／政策私人URL不變。

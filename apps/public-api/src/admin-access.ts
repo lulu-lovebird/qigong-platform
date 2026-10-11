@@ -1,3 +1,4 @@
+import { adminContentSecurityPolicy } from './admin-branding.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
@@ -87,10 +88,7 @@ export const registerAdminAccessRoutes = (
     reply
       .header('referrer-policy', 'no-referrer')
       .header('x-content-type-options', 'nosniff')
-      .header(
-        'content-security-policy',
-        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-      )
+      .header('content-security-policy', adminContentSecurityPolicy)
       .type('text/html; charset=utf-8')
       .send(body);
   app.get('/admin/access', opts, async (request, reply) => {

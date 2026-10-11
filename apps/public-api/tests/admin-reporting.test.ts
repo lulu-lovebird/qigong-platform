@@ -1,3 +1,4 @@
+import { adminContentSecurityPolicy, adminLogoUrl } from '../src/admin-branding.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -228,7 +229,8 @@ describeDatabase('restricted administrator reports', () => {
         const response = await app.inject({ method: 'GET', url: page, headers: cookie() });
         expect(response.statusCode).toBe(200);
         expect(response.headers['cache-control']).toBe('no-store');
-        expect(response.headers['content-security-policy']).toContain("frame-ancestors 'none'");
+        expect(response.headers['content-security-policy']).toBe(adminContentSecurityPolicy);
+        expect(response.body).toContain(adminLogoUrl);
         expect(response.body).not.toContain('cdn.jsdelivr');
       }
       const review = await app.inject({

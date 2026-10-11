@@ -1,3 +1,4 @@
+import { adminContentSecurityPolicy, adminLogoUrl } from '../src/admin-branding.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -459,6 +460,15 @@ suite('Journal HTTP identity boundaries, sharing and taxonomy', () => {
     expect((await get()).statusCode).toBe(401);
     for (const response of [limited, revoked, await get()])
       expect(response.body).not.toContain(client.token);
+  });
+  it('serves branded journal and tag pages with the image-only CSP exception', async () => {
+    const auth = await login();
+    for (const path of ['/admin/journal', '/admin/practice-feeling-tags']) {
+      const response = await app.inject({ url: path, headers: auth });
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['content-security-policy']).toBe(adminContentSecurityPolicy);
+      expect(response.body).toContain(adminLogoUrl);
+    }
   });
   it('serves learner sharing without admin or private data in HTML and advertises the fifth Bot entry', async () => {
     for (const lang of ['en', 'zh_TW']) {

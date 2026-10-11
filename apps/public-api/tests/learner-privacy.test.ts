@@ -1,3 +1,4 @@
+import { adminContentSecurityPolicy, adminLogoUrl } from '../src/admin-branding.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -321,9 +322,16 @@ suite('Privacy notice and verified chatbot entry', () => {
     ).toBe(403);
     await root.query('DELETE FROM admin.role_grants WHERE principal_id=$1', [principal]);
     const auth = await login();
-    expect(
-      (await app.inject({ url: '/admin/privacy-policy?lang=en', headers: auth })).statusCode
-    ).toBe(200);
+    for (const path of [
+      '/admin/privacy-policy?lang=en',
+      '/admin/learners',
+      '/admin/shared-journal'
+    ]) {
+      const page = await app.inject({ url: path, headers: auth });
+      expect(page.statusCode).toBe(200);
+      expect(page.headers['content-security-policy']).toBe(adminContentSecurityPolicy);
+      expect(page.body).toContain(adminLogoUrl);
+    }
     expect(
       (
         await app.inject({

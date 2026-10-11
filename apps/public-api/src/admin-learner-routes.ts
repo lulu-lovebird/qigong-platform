@@ -1,3 +1,4 @@
+import { adminContentSecurityPolicy } from './admin-branding.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
@@ -76,10 +77,7 @@ export const registerAdminLearnerRoutes = (
         return reply.code(403).send({ error: 'learner_access_denied' });
       return reply
         .header('x-content-type-options', 'nosniff')
-        .header(
-          'content-security-policy',
-          "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-        )
+        .header('content-security-policy', adminContentSecurityPolicy)
         .type('text/html; charset=utf-8')
         .send(
           renderAdminLearnerPage(
