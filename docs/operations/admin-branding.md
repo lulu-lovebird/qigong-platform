@@ -15,10 +15,15 @@
 
 完整覆蓋總覽、排行榜、功法分析、學員申請審核、管理員授權、私密心得／快速標籤、學員資格、共享歷史、政策頁，以及獨立待審管理員portal。待審頁不使用管理導航、不新增角色或報表存取。
 
+## 側欄logo與標題同行調整（已核准修改及部署，待切換）
+
+- 使用者要求logo位於「白雁氣功」左側、同一行且等高。brand-title使用flex row／align-items:center，圖片1em正方形、flex不縮小、無margin；標題line-height:1與nowrap，副標在下一行。移除側欄手機80px覆寫，待審portal的獨立112px logo不變。
+- 完整454項驗證與44組Chrome合成雙語390px／1280px配置通過；實際測量圖片／標題高度皆20.796875px、top相同、imageRight小於textLeft、subtitleTop在titleBottom下方，沒有整頁overflow。色系、CSP、圖片來源／alt／no-referrer、DB／env／權限／Bot不變；正式切換與真人檢查待後續記錄。
+
 ## Logo與安全
 
 - 使用者指定外部PNG：https://e-qi.org/wp-content/uploads/2024/09/light-mode-logo.png。公開原圖500×500；未下載到repo、未重繪／變色／加filter，圖片自身的紅紫品牌色保留，不將其視為CSS配色。
-- 管理側欄品牌文字／語言／選單上方置入logo；桌機112px、手機80px，保留正方比例及object-fit:contain。待審頁置於標題上方，仍維持獨立流程。雙語alt、明確width／height，無inline onerror script；原品牌文字在圖片不可用時仍存在。
+- 初次d531450部署在管理側欄品牌文字／語言／選單上方置入logo，桌機112px、手機80px；新同行尺寸調整見上方。初版保留正方比例及object-fit:contain。待審頁置於標題上方，仍維持獨立流程。雙語alt、明確width／height，無inline onerror script；原品牌文字在圖片不可用時仍存在。
 - 四組管理HTML routes共用adminContentSecurityPolicy，僅增加`img-src`完整指定PNG URL；script／style／connect／base／form／frame原限制不變，不允許wildcard、外部script或其他圖片來源。
 - 圖片referrerpolicy=no-referrer，管理頁既有no-store／no-referrer不變。遠端logo的可用性與URL內容由提供方控制；未宣稱永久可用。外部logo不是MIT原始碼授權的一部分。
 - 沒有修改principalFor、capabilities、SQL／RLS、CSRF、reason／version、角色／session、hidden權限導航、dirty guard或使用者輸入渲染。

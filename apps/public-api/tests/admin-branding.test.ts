@@ -49,6 +49,13 @@ describe('Admin brand consistency and image isolation', () => {
         for (const color of Object.values(adminBrandColors)) expect(html).toContain(color);
         expect(html).not.toMatch(oldColors);
         expect(html).toContain(renderAdminLogo(locale));
+        expect(html).toContain(
+          '<div class="brand-title">' + renderAdminLogo(locale) + '<span class="brand-title-text">'
+        );
+        expect(html).toContain('height:1em;');
+        expect(html).toContain('flex:0 0 1em; margin:0;');
+        expect(html).toContain('align-items:center; gap:.45em; line-height:1;');
+        expect(html).not.toContain('.sidebar .admin-logo { width:80px; }');
         expect(html.indexOf('class="admin-logo"')).toBeGreaterThan(
           html.indexOf('<aside class="sidebar">')
         );
@@ -75,6 +82,7 @@ describe('Admin brand consistency and image isolation', () => {
       expect(html).not.toMatch(oldColors);
       expect(html).toContain(renderAdminLogo(locale));
       expect(html).not.toContain('id="admin-navigation"');
+      expect(html).not.toContain('<div class="brand-title">');
       expect(html).not.toContain('/admin/api/reports');
       expect(html).toContain('id="pending-language"');
       expect(html).toContain('id="request" hidden');

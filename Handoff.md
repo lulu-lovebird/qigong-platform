@@ -2,6 +2,11 @@
 
 > 最新主站已於 **2026-10-11 09:31:03–09:31:20 UTC** 經使用者核准部署Web Admin品牌更新，維護17秒。程式 release 為 `d531450729b36d46c7948989db4fc255234875b7`，schema `0025_telegram_miniapp_sessions.sql`不變。後台完整藍色系與指定logo已部署；LINE close修復由使用者回報成功，WhatsApp未啟用、政策draft。
 
+## 側欄logo與品牌標題同行（已核准修復／提交／部署，待切換）
+
+- 使用者要求logo位於「白雁氣功」左側、與標題等高且同一行；已核准本機修改及直接commit／push／部署。只調整兩個品牌／shell source與測試，不改palette、圖片來源／CSP、待審portal、DB、env或Bot。
+- brand-title flex row垂直置中，圖片1em正方形、無margin且不縮小，品牌文字nowrap；副標保持下一行，移除sidebar 80px手機覆寫。完整454項驗證、Chrome44組合成雙語手機／桌機配置通過；測量圖片與標題皆20.796875px、top相同、imageRight小於textLeft，副標在下方。非正式Authgear真人驗收。
+
 ## Web Admin品牌樣式（已部署d531450，後台真人外觀驗收待完成）
 
 - 使用者回報LINE返回聊天重測成功，自行完成圖文素材並指定#082850／#305888／#98C0D8／#002048後台新色系及e-qi.org提供的logo，先核准本機修改，另核准本批commit／push／同25部署；已切換至d531450。

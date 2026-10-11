@@ -16,7 +16,9 @@ export const adminBrandStyles = `
 .admin-logo { display:block; width:112px; height:auto; max-width:100%; aspect-ratio:1; object-fit:contain; margin:0 auto 1rem; border-radius:.65rem; background:var(--surface); }
 :where(a,button,input,select,textarea,summary):focus-visible { outline:3px solid var(--brand-secondary); outline-offset:3px; }
 input[type="checkbox"] { accent-color:var(--brand-primary); }
-@media(max-width:760px) { .sidebar .admin-logo { width:80px; } }
+.brand-title { display:flex; align-items:center; gap:.45em; line-height:1; }
+.brand-title .admin-logo { width:1em; height:1em; max-width:none; flex:0 0 1em; margin:0; border-radius:.12em; }
+.brand-title-text { display:block; white-space:nowrap; }
 `;
 
 export const renderAdminLogo = (locale: AdminLocale) =>

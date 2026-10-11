@@ -75,7 +75,7 @@ footer { font-size:.75rem; color:var(--muted); margin-top:2rem; } details summar
 @media(max-width:760px) { .shell { display:block; } .sidebar { padding:1rem; } .brand { margin-bottom:.7rem; } nav { display:flex; flex-wrap:wrap; gap:.3rem; } nav a { padding:.4rem .7rem; } .grid { grid-template-columns:1fr; } .workspace { padding:1rem; } h1 { font-size:1.35rem; } }
 
 .sidebar :where(a,button,select):focus-visible { outline:3px solid var(--brand-accent); outline-offset:3px; }
-</style></head><body><a class="skip" href="#main">${text.skip}</a><div class="shell"><aside class="sidebar">${renderAdminLogo(locale)}<div class="brand">${text.brand}<small>${text.brandSubtitle}</small></div>${languageSwitcher}<nav id="admin-navigation" aria-label="${text.navigation}">${navigation
+</style></head><body><a class="skip" href="#main">${text.skip}</a><div class="shell"><aside class="sidebar"><div class="brand"><div class="brand-title">${renderAdminLogo(locale)}<span class="brand-title-text">${text.brand}</span></div><small>${text.brandSubtitle}</small></div>${languageSwitcher}<nav id="admin-navigation" aria-label="${text.navigation}">${navigation
     .filter((item) => item.page !== 'access' || canManageAdmins)
     .map(
       (item) =>
