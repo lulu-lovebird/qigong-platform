@@ -1,13 +1,15 @@
 # Qigong Platform — 交接摘要
 
-> 最新主站已於 **2026-10-11 13:14:00–13:14:19 UTC** 經使用者核准部署LINE加入申請LIFF／登入回跳修復，維護19秒。程式 release 為 `5230f1efd469b54e2422f43292638d3c08a0272b`，schema `0025_telegram_miniapp_sessions.sql`不變。申請入口改native LIFF，SDK初始化前不清URL、失敗callback停止重導；API req.url日誌遮蔽。側欄logo／色系、資料／env不變，WhatsApp未啟用、政策draft。
+> 最新主站已於 **2026-10-12 09:01:46–09:02:04 UTC** 經使用者核准部署Authgear UserInfo／Email profile修復，維護18秒。程式 release 為 `97de5889ceda9257825f77a35f6e0f9f61b9c83b`，schema `0026_admin_oidc_profile.sql`。Email於申請人下一次完整登入時補齊已驗證值；未改角色／範圍、既有資料或兩份env，沒有自動Email回填。LINE／Telegram功能與樣式維持，WhatsApp未啟用、政策draft。
 
-## Authgear管理員Email修復（候選26，已核准提交／推送／部署，執行中）
+## Authgear管理員Email修復（已部署97de588／schema26，Gmail真人重登驗收待完成）
 
 - 使用者回報Gmail登入申請人Email在Authgear Users存在但後台缺失；唯讀確認主站有email scope／UserInfo，4個principal email皆NULL，未輸出個資／token。找到只讀ID token未讀UserInfo及既有principal DO NOTHING／正常登入不刷新兩個缺口。
 - 候選provider用本次access token讀UserInfo，expected sub與signed ID token sub精確核對，只存verified Email；身份／角色仍issuer＋subject。新增0026 metadata facade在pending及approved callback同交易補名稱／Email，不改角色／範圍／狀態／grant version／既有session，不以Email合併，不清空未取得資料。提示改「尚未取得已驗證 Email」。
 - 完整486項驗證、無skip，格式／lint／source typecheck／build通過，額外tsc仍既有10錯誤。OIDC＋受限DB／HTTP補Email、審核名單讀取、同Email不合併、suspended／wrong sub／unverified拒絕及25→26資料保留／零回填／重跑／新舊contract測試通過；mock不是實際Gmail真人登入。
-- 本機API／worker exact26，worker使用新ops.admin_oidc_profile_schema_ready；未改0001–0025、package／lockfile／主站／env。切換前正式仍5230f1e／25；使用者已核准commit／push／部署，須先確認matching artifact／CI／25快照／備份實際還原，不能將核准當作已完成；回復需matching25 DB＋5230f1eAPI／worker，開流量後另核准與對帳，不可binary-only。
+- 程式CI [38226240055](https://github.com/lulu-lovebird/qigong-platform/actions/runs/38226240055)成功；精確artifact／frozen lockfile／Node24建置及manifest保留。正式25快照隔離還原、26升級／重跑零新增、舊25API拒絕26與新26ready、compiled待審／已核准profile補Email且grant revision不變、審核名單讀取、LINE／TG／brand／sharing／scope／角色交易及mock worker通過，零主站合成profile/session/client或真實測試訊息。
+- 最終站外AES-256-GCM DB／roles／env／systemd副本逐一解密雜湊核對，DB實際還原後含metadata完全一致、舊5230f1eAPI ready；正式只套0026並重跑零新增，62表／6 people／10 check-ins及全部非metadata列指紋保留，角色／session／Email無遷移回填，兩份env雜湊不變。112 HTTPS檢查通過；API active／NRestarts0／ExecMainStatus0、timer active、worker Resultsuccess／ExecMainStatus0，新worker gate true／舊25gate false。
+- 正式API／worker exact26，worker使用ops.admin_oidc_profile_schema_ready。恢復/root/qigong-deploy-97de588、/opt/qigong-platform/deployment-tools/97de588、工作站/tmp/qigong-admin-profile-97de588、repo外backups/deployment-97de588與獨立受限backup-keys保留。回復需matching25 DB＋5230f1eAPI／worker與old-release.conf，開流量後另核准與對帳，不可binary-only；非完整OS／Caddy災復。
 - 部署後申請人需重新登入一次才補profile，刷新列表不等於重新取得Authgear資料；不要刪除／重建principal或重複授權。見[admin-oidc-profile](docs/operations/admin-oidc-profile.md)。
 
 ## LINE加入申請登入回跳修復（已部署5230f1e，手機重測待完成）
