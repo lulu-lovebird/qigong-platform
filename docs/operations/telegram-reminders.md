@@ -1,8 +1,8 @@
-# Telegram單功能入口與提醒（已部署schema28，提醒發送未啟用）
+# Telegram單功能入口與提醒（schema28已部署、排程已啟用；學員預設關閉）
 
 ## 狀態與核准
 
-使用者已核准與WhatsApp更新一起commit、push與部署。主站`79825b9`／schema28、CI38277517503成功，2026-10-12 16:40 UTC切換；單入口／icon生效，提醒預設關閉、21:00、已打卡仍提醒。正式reminder worker flag仍未啟用。憑證／webhook／既有資料不變，不匯入舊Bot設定、不發布政策。見[部署與恢復紀錄](telegram-whatsapp-deployment.md)。
+使用者已核准與WhatsApp更新一起commit、push與部署。主站`79825b9`／schema28、CI38277517503成功，2026-10-12 16:40 UTC切換；單入口／icon生效，提醒預設關閉、21:00、已打卡仍提醒。使用者後續另核准於2026-10-12 17:59 UTC啟用正式reminder worker flag；學員偏好未批量開啟。憑證／webhook／既有資料不變，不匯入舊Bot設定、不發布政策。見[部署與恢復紀錄](telegram-whatsapp-deployment.md)。
 
 28接在WhatsApp27後；本次使用者明確核准兩項一起發布，已用正式26快照演練27＋28。此核准不包含WhatsApp渠道、正式提醒開關或政策自動啟用。
 
@@ -48,7 +48,7 @@ Telegram slash指令不能自動彈出Mini App，仍須點一下Bot回覆中的W
 
 ### 正式開關
 
-worker使用可選的`TELEGRAM_REMINDERS_ENABLED=true`；未提供或`false`不排程、不claim、不發提醒。其他字串拒絕啟動。**本次沒有修改正式env或啟用此開關**。當worker未啟用，設定可保存但不發送；過期預覽不補送。
+worker使用可選的`TELEGRAM_REMINDERS_ENABLED=true`；未提供或`false`不排程、不claim、不發提醒。其他字串拒絕啟動。**2026-10-12 17:59 UTC經使用者另核准只將此worker flag設true**；其餘env bytes／權限保留、API.env不變，WhatsApp未配置。matching28 worker成功、每分鐘timer active，當時0位已開啟學員／0jobs，沒有測試或批量發送。受限設定備份／驗證紀錄位於`/root/qigong-reminder-enable-20261012T175935Z`。當worker未啟用，設定可保存但不發送；過期預覽不補送。
 
 API exact28，worker gate `ops.telegram_reminder_schema_ready()`，architecture `phase-13-telegram-reminders`。原WhatsApp practice停送、LINE／Telegram摘要及各渠道申請結果通知維持。
 

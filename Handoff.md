@@ -1,5 +1,12 @@
 # Qigong Platform — 交接摘要
 
+## 最新運維：Telegram提醒排程已啟用（2026-10-12 17:59 UTC）
+
+- 使用者另行明確核准啟用Telegram提醒。只將protected notification-worker.env的TELEGRAM_REMINDERS_ENABLED設true，其餘bytes／640權限／owner-group保留；API.env hash不變，WhatsApp仍未配置。未改學員提醒偏好、未發布政策、未改程式或schema。
+- 暫停timer並等待worker結束，atomic換env後驗證compiled flag=true，執行matching28 worker成功並恢復每分鐘timer；API/timer active，worker Resultsuccess/status0，實際日誌telegram_reminders_processed0。當時setting0／enabled0／jobs0，沒有任何測試或批量提醒發送。
+- 只有學員主動/remind on或/remind 21且資格／必要同意有效才排程；預設仍off。/remindtest可由學員主動驗收本人預覽，off停止待送。WhatsApp仍等Meta配置。部署程式仍79825b9／schema28。
+- 原worker.env受限備份與change evidence保留/root/qigong-reminder-enable-20261012T175935Z；停發只需另核准將flag設false，不回復整份舊env以免覆寫後續其他配置。下方deployment關閉狀態是16:40部署當時的歷史紀錄。
+
 ## 最新部署：Telegram／WhatsApp一起發布79825b9／schema28
 
 - 使用者明確核准commit、push、部署兩項更新。程式79825b9b78802aff58667bf7fcd168a7a9a4a8bf、CI38277517503成功／543 tests；正式26→28只新增27與28并重跑零新增，原62表／6 people／10 check-ins與所有非metadata列指紋保留，新4表空、無同意／origin／session／reminder回填。
