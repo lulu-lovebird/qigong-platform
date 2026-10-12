@@ -5,7 +5,8 @@ import { z } from 'zod';
 import { renderApplicationPage } from './application-page.js';
 import { registerTelegramWorkspace } from './telegram-workspace.js';
 import { registerLearnerJournalRoutes } from './journal-routes.js';
-import { journalTexts } from './journal-locale.js';
+import { telegramFeatureButtons } from './telegram-feature-buttons.js';
+import { handleTelegramReminder, parseTelegramReminder } from './telegram-reminders.js';
 import { registerTelegramMiniapp } from './telegram-miniapp-auth.js';
 import {
   beginLearnerPrivacy,
@@ -13,8 +14,7 @@ import {
   isLearnerPrivacyError
 } from './learner-privacy-routes.js';
 import { learnerPrivacyTexts } from './learner-privacy-locale.js';
-import { telegramWorkspacePaths, type TelegramWorkspacePage } from './telegram-workspace-pages.js';
-import { telegramWorkspaceTexts } from './telegram-workspace-locale.js';
+
 import { learnerLocale, learnerTexts, localeQuery } from './learner-locale.js';
 import {
   enrichPracticeHistory,
@@ -136,6 +136,7 @@ export const registerTelegramOnboarding = (
       /^\/(checkin|leaderboard|methods|methodanalysis|achievements|history|mystats|badges|journal|share)(?:@\w+)?(?:\s|$)/i.exec(
         message.text ?? ''
       );
+    const reminderCommand = /^\/(remind|remindtest)(?:@\w+)?(?:\s|$)/i.test(message.text ?? '');
     const privacyCommand = /^(?:\/(privacy|terms)(?:@\w+)?|隱私|條款)\s*$/i.test(
       message.text ?? ''
     );
@@ -144,6 +145,7 @@ export const registerTelegramOnboarding = (
       !workspaceCommand &&
       !privacyCommand &&
       !languageCommand &&
+      !reminderCommand &&
       !/^\/(start|apply)(?:@\w+)?(?:\s|$)/i.test(message.text ?? '')
     ) {
       return { ok: true };
@@ -185,6 +187,18 @@ export const registerTelegramOnboarding = (
         }
         return { ok: true };
       }
+      if (reminderCommand && parseTelegramReminder(message.text ?? '')?.action === 'off') {
+        const response = await handleTelegramReminder(
+          pool,
+          request.id,
+          parsed.data.update_id,
+          String(message.from.id),
+          locale,
+          message.text ?? ''
+        );
+        if (response) await sendMessage(message.chat.id, response);
+        return { ok: true };
+      }
       const privacyToken = createHmac('sha256', config.webhookSecret)
         .update('privacy:' + parsed.data.update_id + ':' + message.from.id)
         .digest('base64url');
@@ -220,6 +234,18 @@ export const registerTelegramOnboarding = (
         );
         return { ok: true };
       }
+      if (reminderCommand) {
+        const response = await handleTelegramReminder(
+          pool,
+          request.id,
+          parsed.data.update_id,
+          String(message.from.id),
+          locale,
+          message.text ?? ''
+        );
+        if (response) await sendMessage(message.chat.id, response);
+        return { ok: true };
+      }
       const isStart = /^\/start(?:@\w+)?(?:\s|$)/i.test(message.text ?? '');
       if (workspaceCommand || isStart) {
         const readiness = await withRequestContext(
@@ -232,25 +258,16 @@ export const registerTelegramOnboarding = (
             ])
         );
         if (readiness.rows[0]?.ready) {
-          const labels = telegramWorkspaceTexts(locale);
-          const buttons = [
-            ...(Object.keys(telegramWorkspacePaths) as TelegramWorkspacePage[]).map((page) => ({
-              text: labels[page],
-              url:
-                'https://checkin.baiyinqigong.org' +
-                telegramWorkspacePaths[page] +
-                localeQuery(locale)
-            })),
-            {
-              text: journalTexts(locale).feed,
-              url: 'https://checkin.baiyinqigong.org/telegram/journal' + localeQuery(locale)
-            }
-          ];
+          const buttons = telegramFeatureButtons(locale, workspaceCommand?.[1]);
           await sendMessage(
             message.chat.id,
-            locale === 'en'
-              ? 'Welcome to Baiyin Qigong. Choose a feature below to open the Mini App.'
-              : '歡迎使用白雁氣功打卡小幫手，請點下方功能按鈕直接開啟。',
+            workspaceCommand
+              ? locale === 'en'
+                ? 'Tap below to open this feature.'
+                : '請點下方按鈕開啟此功能。'
+              : locale === 'en'
+                ? 'Welcome to Baiyin Qigong. Choose a feature below to open the Mini App.'
+                : '歡迎使用白雁氣功打卡小幫手，請點下方功能按鈕直接開啟。',
             buttons
           );
           return { ok: true };

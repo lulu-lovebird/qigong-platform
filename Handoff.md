@@ -1,8 +1,27 @@
 # Qigong Platform — 交接摘要
 
+## Telegram單功能入口／icon與reminder（本機schema28候選，未提交／部署／啟用）
+
+- 使用者確認：各slash功能回單一對應WebApp按鈕，/start保留五個入口；✅打卡、🏆排行榜、📈功法分析、🏮成就沿用舊Bot，📝心得新增。不是slash自動彈出Mini App，仍點一下按鈕；身份／審核／隱私檢查未放寬。
+- 新0028 reminders預設關閉、21:00、已打卡仍提醒；/remind read/on/off/hour/tz、/remindtest本人預覽5分鐘限制，提醒時區與practice timezone獨立；不匯入舊Bot設定、不複製LLM／節氣／私人成果內容。signed private webhook update-ID／subject-hash／fingerprint重放防護，off在必要同意／資格失效仍可關閉本人的提醒。
+- 新settings／update-ledger／outbox三表強制RLS、無runtime表權限；每日identity＋local date唯一job，100位入列分批不餓死后續、25位claim／5並行／5秒HTTPtimeout，2分鐘lease、最多5次重試／backoff、1小時daily window及5分鐘preview expiry，pre-send重查資格／同意／設定revision。off／suspend／渠道關閉／身份撤銷取消unsent與leased；不保證exactly-once或已接受in-flight召回。
+- 可選worker TELEGRAM_REMINDERS_ENABLED，缺省／false停排程，僅true啟用，其餘字串拒絕；正式env未修改、無真實測試訊息。API exact28／worker ops.telegram_reminder_schema_ready／phase-13-telegram-reminders；既有WA停summary／LINE-TG摘要／申請结果維持。
+- 完整543 tests無skip，格式／lint／source typecheck／build通過；額外tsc仍既有10錯誤、新檔無新增。單入口別名／icon、設定與replay／非法值／off、signed webhook、當日去重與已打卡仍发、預覽期限／rate／lease／backoff／權限／同意、半小時與DST通過；125位合成入列100＋25／5輪發送／並行<=5通過。27→28upgrade／重跑保留全部非metadata表指紋（含WA session及principal），零三表回填，新舊API／worker gate匹配。provider是mock，不是手機送達或正式負載驗收。
+- 候選28接在尚未發布WA27之後，工作區保留兩項修改；不得把Telegram部署核准當作WA27部署核准。發布須先決定分離artifact或明確核准兩項範圍，再做正式快照clone／最終加密備份實際還原／matching API-worker與真人驗收，不能直接部署混合工作區。主站仍97de588／26，政策draft；未commit／push／部署／改正式憑證、webhook或排程開關。
+- 見[telegram-reminders](docs/operations/telegram-reminders.md)，含部署後BotFather icon／remind清單；證據/tmp/qigong-telegram-reminders-{verify-final,all-types-final}.log。提醒停止可另核准關flag，schema回退仍需matching DB／程式與新寫入對帳；不是binary-only。原untracked web-admin-permissions-review.md仍排除。
+
+## WhatsApp固定書籤／記住30天／停送打卡摘要（本機schema27候選，未提交或部署）
+
+- 使用者核准開始本機實作；首次私人checkin連結一次交換裝置cookie，預設勾選「這是我的裝置，記住30天」，明示共用／公共裝置取消勾選，須點擊登入。固定720小時，取消為15分鐘；長憑證只在Secure／HttpOnly cookie，DB僅雜湊，Cookie寫入Origin＋CSRF，每請求重查核准／active渠道／資格／必要同意。單裝置登出與資格撤銷可失效；新連結不默默切換身份。
+- 固定書籤https://checkin.baiyinqigong.org/whatsapp/checkin，五頁cookie認證／雙語／未存草稿離開確認；修正匿名既開書籤收到同頁新fragment不重載及手機長URL溢出。網站登入不是WhatsApp官方配對，不延長service window，跨瀏覽器cookie容器須分別登入。
+- 新0027不改0001–0026，沒有session／同意／核准回填；停止WA practice enqueue、取消舊pending／sending、worker移除WA practice sender、保存／更正／舊request重試receiptQueuedfalse。LINE／TG摘要及WA申請結果通知保持；無法召回已外部接受的in-flight訊息。API exact27／worker ops.whatsapp_browser_schema_ready／phase-12-whatsapp-browser。
+- 完整520 tests無skip，格式／lint／source typecheck／build通過；額外tsc仍既有10錯誤、新檔無新增。合成26→27所有非metadata／WA取消工作表指紋保留，LINE receipt保留、零session回填、重跑及新舊gate通過。20個390／1280雙語五頁Chrome布局與真cookie jar／期限／短link到期書籤／dirty logout／零summary通過；Meta transport mock、local adapter僅測試改Origin，不是Meta／正式HTTPS／手機驗收。
+- preview與測試同時使用55440曾觸發受控角色依賴保護，停止preview後相關與完整verify通過；不稱為先前間歇性問題已修復。所有預覽／Chrome已停、合成DB／角色清理。證據/tmp/qigong-whatsapp-browser-{verify-final,all-types}.log、preview／cdp scripts及synthetic screenshots；見[whatsapp-browser](docs/operations/whatsapp-browser.md)。
+- 未commit／push／部署、未啟用WA、未改憑證／Meta assets／政策draft，主站仍97de588／26。發布另核准、正式26clone／matching API-worker／最終加密備份實際還原與真人驗收；27回26須matching DB＋97de588，不可binary-only。原untracked web-admin-permissions-review.md繼續排除。
+
 > 最新主站已於 **2026-10-12 09:01:46–09:02:04 UTC** 經使用者核准部署Authgear UserInfo／Email profile修復，維護18秒。程式 release 為 `97de5889ceda9257825f77a35f6e0f9f61b9c83b`，schema `0026_admin_oidc_profile.sql`。Email於申請人下一次完整登入時補齊已驗證值；未改角色／範圍、既有資料或兩份env，沒有自動Email回填。LINE／Telegram功能與樣式維持，WhatsApp未啟用、政策draft。
 
-## Authgear管理員Email修復（已部署97de588／schema26，Gmail真人重登驗收待完成）
+## Authgear管理員Email修復（已部署97de588／schema26，使用者已確認Gmail重登可讀Email）
 
 - 使用者回報Gmail登入申請人Email在Authgear Users存在但後台缺失；唯讀確認主站有email scope／UserInfo，4個principal email皆NULL，未輸出個資／token。找到只讀ID token未讀UserInfo及既有principal DO NOTHING／正常登入不刷新兩個缺口。
 - 候選provider用本次access token讀UserInfo，expected sub與signed ID token sub精確核對，只存verified Email；身份／角色仍issuer＋subject。新增0026 metadata facade在pending及approved callback同交易補名稱／Email，不改角色／範圍／狀態／grant version／既有session，不以Email合併，不清空未取得資料。提示改「尚未取得已驗證 Email」。
@@ -10,7 +29,7 @@
 - 程式CI [38226240055](https://github.com/lulu-lovebird/qigong-platform/actions/runs/38226240055)成功；精確artifact／frozen lockfile／Node24建置及manifest保留。正式25快照隔離還原、26升級／重跑零新增、舊25API拒絕26與新26ready、compiled待審／已核准profile補Email且grant revision不變、審核名單讀取、LINE／TG／brand／sharing／scope／角色交易及mock worker通過，零主站合成profile/session/client或真實測試訊息。
 - 最終站外AES-256-GCM DB／roles／env／systemd副本逐一解密雜湊核對，DB實際還原後含metadata完全一致、舊5230f1eAPI ready；正式只套0026並重跑零新增，62表／6 people／10 check-ins及全部非metadata列指紋保留，角色／session／Email無遷移回填，兩份env雜湊不變。112 HTTPS檢查通過；API active／NRestarts0／ExecMainStatus0、timer active、worker Resultsuccess／ExecMainStatus0，新worker gate true／舊25gate false。
 - 正式API／worker exact26，worker使用ops.admin_oidc_profile_schema_ready。恢復/root/qigong-deploy-97de588、/opt/qigong-platform/deployment-tools/97de588、工作站/tmp/qigong-admin-profile-97de588、repo外backups/deployment-97de588與獨立受限backup-keys保留。回復需matching25 DB＋5230f1eAPI／worker與old-release.conf，開流量後另核准與對帳，不可binary-only；非完整OS／Caddy災復。
-- 部署後申請人需重新登入一次才補profile，刷新列表不等於重新取得Authgear資料；不要刪除／重建principal或重複授權。見[admin-oidc-profile](docs/operations/admin-oidc-profile.md)。
+- 使用者部署後重新登入已回報「可以讀到 email 了」，Gmail Email實際使用驗收完成；刷新列表不等於重新取得Authgear資料。其他申請人需完整重登一次，勿刪除／重建principal或重複授權。見[admin-oidc-profile](docs/operations/admin-oidc-profile.md)。
 
 ## LINE加入申請登入回跳修復（已部署5230f1e，手機重測待完成）
 

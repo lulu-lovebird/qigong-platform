@@ -248,7 +248,7 @@ describeWithDatabase('WhatsApp restricted-role onboarding and practice', () => {
             payload: { token }
           })
         ).statusCode
-      ).toBe(409);
+      ).toBe(401);
       expect((await apply(details)).statusCode).toBe(200);
       expect((await apply(details)).statusCode).toBe(409);
       const telegram = await pool.query<{ id: string }>(
@@ -329,7 +329,7 @@ describeWithDatabase('WhatsApp restricted-role onboarding and practice', () => {
         'UPDATE identity.person_interaction_channels SET valid_to=CURRENT_TIMESTAMP WHERE person_id=$1',
         [waPerson]
       );
-      expect((await request('history')).statusCode).toBe(409);
+      expect((await request('history')).statusCode).toBe(401);
       await expect(runtime.query('SELECT * FROM platform.whatsapp_events')).rejects.toThrow(
         'permission denied'
       );
@@ -487,7 +487,7 @@ describeWithDatabase('WhatsApp restricted-role onboarding and practice', () => {
       await pool.query(
         "UPDATE platform.whatsapp_links SET expires_at=CURRENT_TIMESTAMP-INTERVAL '1 second' WHERE subject='886912345605' AND purpose='checkin'"
       );
-      expect((await request('history')).statusCode).toBe(409);
+      expect((await request('history')).statusCode).toBe(401);
       expect(
         (
           await app.inject({
@@ -497,7 +497,7 @@ describeWithDatabase('WhatsApp restricted-role onboarding and practice', () => {
             payload: { token, locale: 'en' }
           })
         ).statusCode
-      ).toBe(403);
+      ).toBe(401);
     } finally {
       await app.close();
     }
@@ -566,8 +566,9 @@ describeWithDatabase('WhatsApp restricted-role onboarding and practice', () => {
         expect(recipient).toBe(user);
         expect(summary).not.toContain('Private WA journal');
       });
-      expect(await deliverChannelPracticeReceipts(pool, 'whatsapp', sender, () => {}, 3)).toBe(1);
-      expect(sender).toHaveBeenCalledTimes(1);
+      expect(saved.json<{ receiptQueued: boolean }>().receiptQueued).toBe(false);
+      expect(await deliverChannelPracticeReceipts(pool, 'whatsapp', sender, () => {}, 3)).toBe(0);
+      expect(sender).not.toHaveBeenCalled();
       const event = body('workspace-interactive-' + randomUUID(), 'unused', user);
       Object.assign(event.entry[0]!.changes[0]!.value.messages[0]!, {
         type: 'interactive',

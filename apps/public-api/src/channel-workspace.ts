@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
+import { whatsappWorkspaceCredentialSchema } from './whatsapp-browser-session.js';
 import { practiceNoteSchema } from './practice-notes.js';
 import { journalPublishInput } from './journal-routes.js';
 import { isLearnerPrivacyError } from './learner-privacy-routes.js';
@@ -24,7 +25,7 @@ export const registerChannelWorkspace = (
   const credential =
     provider === 'line'
       ? z.object({ idToken: z.string().min(1).max(4096), locale }).strict()
-      : z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/), locale }).strict();
+      : whatsappWorkspaceCredentialSchema;
   const reportInput = credential
     .extend({
       view: z.enum(['leaderboard', 'methods', 'achievements', 'history']),

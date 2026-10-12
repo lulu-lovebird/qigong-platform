@@ -19,6 +19,7 @@ describeWithDatabase('repository migrations', () => {
   let pool: Pool;
   let dispose: () => Promise<void>;
   let migrationsDirectory: string;
+  let profileMigrationsDirectory: string;
 
   // Controlled roles are cluster-wide; dispose each migrated DB before replaying the chain.
   beforeEach(async () => {
@@ -27,6 +28,13 @@ describeWithDatabase('repository migrations', () => {
     dispose = () => database.dispose();
     // Keep historical upgrade cases pinned to their schema25 artifact.
     migrationsDirectory = await mkdtemp(path.join(tmpdir(), 'qigong-historical-chain-'));
+    profileMigrationsDirectory = await mkdtemp(path.join(tmpdir(), 'qigong-profile-chain-'));
+    for (const name of await readdir(currentMigrationsDirectory))
+      if (name.endsWith('.sql') && name < '0027_')
+        await copyFile(
+          path.join(currentMigrationsDirectory, name),
+          path.join(profileMigrationsDirectory, name)
+        );
     for (const name of await readdir(currentMigrationsDirectory))
       if (name.endsWith('.sql') && name < '0026_')
         await copyFile(
@@ -38,6 +46,7 @@ describeWithDatabase('repository migrations', () => {
   afterEach(async () => {
     await dispose();
     await rm(migrationsDirectory, { recursive: true, force: true });
+    await rm(profileMigrationsDirectory, { recursive: true, force: true });
   });
 
   it('applies the checked-in chain idempotently and satisfies readiness', async () => {
@@ -46,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0026_admin_oidc_profile.sql'
+      '0028_telegram_reminders.sql'
     );
 
     expect(first.applied).toEqual([
@@ -75,13 +84,15 @@ describeWithDatabase('repository migrations', () => {
       '0023_learner_privacy_consent.sql',
       '0024_learner_workspaces.sql',
       '0025_telegram_miniapp_sessions.sql',
-      '0026_admin_oidc_profile.sql'
+      '0026_admin_oidc_profile.sql',
+      '0027_whatsapp_browser_sessions.sql',
+      '0028_telegram_reminders.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0026_admin_oidc_profile.sql',
+      currentVersion: '0028_telegram_reminders.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0026_admin_oidc_profile.sql',
+      maximumVersion: '0028_telegram_reminders.sql',
       ready: true
     });
   });
@@ -120,11 +131,11 @@ describeWithDatabase('repository migrations', () => {
     expect(
       (await pool.query('SELECT ops.telegram_miniapp_schema_ready() ready')).rows[0].ready
     ).toBe(true);
-    expect((await runMigrations(pool, currentMigrationsDirectory, 'profile-new')).applied).toEqual([
+    expect((await runMigrations(pool, profileMigrationsDirectory, 'profile-new')).applied).toEqual([
       '0026_admin_oidc_profile.sql'
     ]);
     expect(
-      (await runMigrations(pool, currentMigrationsDirectory, 'profile-repeat')).applied
+      (await runMigrations(pool, profileMigrationsDirectory, 'profile-repeat')).applied
     ).toEqual([]);
     expect(await Promise.all(tables.map(hash))).toEqual(before);
     expect(

@@ -1,3 +1,4 @@
+import { whatsappBrowserBootstrap, whatsappLoginMarkup } from './whatsapp-browser-bootstrap.js';
 import type { LearnerLocale } from './learner-locale.js';
 import { telegramWorkspaceTexts } from './telegram-workspace-locale.js';
 import { lineLoginScript } from './application-page.js';
@@ -116,8 +117,12 @@ export const renderChannelWorkspacePage = (
         ...original,
         saved:
           lang === 'en'
-            ? 'Check-in saved. A private summary may be sent within the WhatsApp service window; no notes or feelings are sent.'
-            : '打卡已儲存；僅在 WhatsApp 服務窗口內可傳送私人摘要，不含心得或感受。',
+            ? 'Check-in saved on the website. No WhatsApp summary is sent.'
+            : '打卡已儲存於網頁，不回傳 WhatsApp 聊天摘要。',
+        expired:
+          lang === 'en'
+            ? 'Login expired or access unavailable. Send checkin in WhatsApp and open a new private link.'
+            : '登入已到期或資格／同意無法使用，請回 WhatsApp 輸入 checkin 並開啟新連結。',
         savedRefresh:
           lang === 'en'
             ? 'Saved. Refresh failed; your saved input is retained. Reload before another correction.'
@@ -128,10 +133,40 @@ export const renderChannelWorkspacePage = (
       'workspaceText=' + JSON.stringify(next)
     );
   }
-  if (channel.platform === 'whatsapp')
-    html = html.replace(
-      'CHANNEL_AUTH_BOOTSTRAP',
-      "const workspaceCredential=/^([A-Za-z0-9_-]{43})(?:[?&]|$)/.exec(location.hash.slice(1))?.[1]||'';const workspaceAuthorization=async()=>workspaceCredential;history.replaceState(null,'',location.pathname+location.search);"
-    );
+  if (channel.platform === 'whatsapp') {
+    html = html
+      .replace('</style>', '#wa-bookmark{overflow-wrap:anywhere}</style>')
+      .replace('<main>', '<main>' + whatsappLoginMarkup(lang))
+      .replace('CHANNEL_AUTH_BOOTSTRAP', whatsappBrowserBootstrap(lang));
+    html = html
+      .replace(
+        'const validToken = /^[A-Za-z0-9_-]{43}$/.test(token)||!!undefined?.initData;',
+        'const validToken = true;'
+      )
+      .replace('if(!/^[A-Za-z0-9_-]{43}$/.test(token)&&!undefined?.initData)', 'if(false)')
+      .replaceAll('JSON.stringify({token,locale,...values})', 'JSON.stringify({locale,...values})')
+      .replaceAll(
+        "headers:{'content-type':'application/json'}",
+        "credentials:'same-origin',headers:{'content-type':'application/json','x-whatsapp-csrf-token':whatsappCsrf()}"
+      )
+      .replace(
+        'const body=await response.json();',
+        'const body=await response.json();if(response.status===401)whatsappAuthExpired();'
+      )
+      .replace(
+        "if(!r.ok){const e=new Error('journal');",
+        "if(r.status===401)whatsappAuthExpired();if(!r.ok){const e=new Error('journal');"
+      );
+    if (page === 'journal')
+      html = html.replace(
+        'const mayLeave=()=>!busy&&(!dirty()||confirm(t.discard));',
+        'const mayLeave=()=>!busy&&(!dirty()||confirm(t.discard));window.whatsappMayLeave=()=>{if(!mayLeave())return false;leaving=true;closing();return true;};window.whatsappLeaveCancelled=()=>{leaving=false;closing();};'
+      );
+    else
+      html = html.replace(
+        'const mayLeave = (includeZone=true) => !busy && (!dirty(includeZone)||window.confirm(t.discard));',
+        'const mayLeave = (includeZone=true) => !busy && (!dirty(includeZone)||window.confirm(t.discard));window.whatsappMayLeave=()=>{if(!mayLeave())return false;leaving=true;syncClosing();return true;};window.whatsappLeaveCancelled=()=>{leaving=false;syncClosing();};'
+      );
+  }
   return html.replaceAll('Telegram', channel.platform === 'line' ? 'LINE' : 'WhatsApp');
 };

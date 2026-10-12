@@ -7,8 +7,12 @@ import {
 } from './telegram-practice-receipts.js';
 import { z } from 'zod';
 import {
+  createTelegramReminderSender,
+  deliverTelegramReminders,
+  telegramReminderWorkerEnabled
+} from './telegram-reminders.js';
+import {
   createLinePracticeSender,
-  createWhatsAppPracticeSender,
   deliverChannelPracticeReceipts
 } from './channel-practice-receipts.js';
 import {
@@ -30,6 +34,7 @@ const lineToken = process.env.LINE_CHANNEL_ACCESS_TOKEN
   ? z.string().min(20).parse(process.env.LINE_CHANNEL_ACCESS_TOKEN)
   : undefined;
 const whatsapp = loadWhatsAppNotificationConfig(process.env);
+const remindersEnabled = telegramReminderWorkerEnabled(process.env.TELEGRAM_REMINDERS_ENABLED);
 const pool = createPool(environment);
 pool.on('error', () => console.error('notification worker database connection failed'));
 
@@ -39,11 +44,13 @@ try {
     'qigong_worker_runtime',
     { requestId: randomUUID() },
     (client) =>
-      client.query<{ ready: boolean }>('SELECT ops.admin_oidc_profile_schema_ready() ready')
+      client.query<{ ready: boolean }>('SELECT ops.telegram_reminder_schema_ready() ready')
   );
   if (!schema.rows[0]?.ready) throw new Error('Notification worker schema mismatch');
-  // At most six transport attempts total: onboarding3 plus practice3 shared
-  // across configured channels. Preserve the existing 60s transport budget.
+  // Existing notification/practice lanes retain their six-attempt bound.
+  // Explicitly enabled reminders add at most25 attempts, five concurrent, each5s.
+  // The lanes run in parallel, preserving the60s transport budget (DB waits excluded).
+  // WhatsApp practice summaries stay disabled; application decisions are unchanged.
   // Never close the pool while another lane runs.
   const outcomes = await Promise.allSettled([
     deliverOnboardingNotifications(
@@ -60,7 +67,7 @@ try {
       pool,
       createTelegramPracticeSender(token),
       (_error, id) => console.error('Telegram practice receipt delivery failed', { id }),
-      lineToken && whatsapp ? 1 : lineToken || whatsapp ? 2 : 3
+      lineToken ? 2 : 3
     ).then((processed) =>
       console.log(JSON.stringify({ event: 'telegram_practice_receipts_processed', processed }))
     ),
@@ -77,18 +84,12 @@ try {
           )
         ]
       : []),
-    ...(whatsapp
+    ...(remindersEnabled
       ? [
-          deliverChannelPracticeReceipts(
-            pool,
-            'whatsapp',
-            createWhatsAppPracticeSender(whatsapp),
-            (_error, id) => console.error('WhatsApp practice receipt delivery failed', { id }),
-            1
+          deliverTelegramReminders(pool, createTelegramReminderSender(token), (_error, id) =>
+            console.error('Telegram reminder delivery failed', { id })
           ).then((processed) =>
-            console.log(
-              JSON.stringify({ event: 'whatsapp_practice_receipts_processed', processed })
-            )
+            console.log(JSON.stringify({ event: 'telegram_reminders_processed', processed }))
           )
         ]
       : []),

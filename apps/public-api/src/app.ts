@@ -17,6 +17,7 @@ export const apiLogRedaction = Object.freeze({
     'req.headers.authorization',
     'req.headers.cookie',
     'req.headers.x-line-access-token',
+    'req.headers.x-whatsapp-csrf-token',
     'req.headers.x-telegram-init-data',
     'req.headers.x-telegram-bot-api-secret-token',
     'res.headers.set-cookie'
@@ -24,8 +25,8 @@ export const apiLogRedaction = Object.freeze({
   censor: '[REDACTED]'
 });
 
-export const minimumMigrationVersion = '0026_admin_oidc_profile.sql';
-export const maximumMigrationVersion = '0026_admin_oidc_profile.sql';
+export const minimumMigrationVersion = '0028_telegram_reminders.sql';
+export const maximumMigrationVersion = '0028_telegram_reminders.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

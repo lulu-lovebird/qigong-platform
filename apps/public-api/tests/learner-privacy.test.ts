@@ -283,7 +283,7 @@ suite('Privacy notice and verified chatbot entry', () => {
     expect((await privacyPost({ token: secret })).statusCode).toBe(200);
     sendMessage.mockClear();
     expect((await webhook('/checkin')).statusCode).toBe(200);
-    expect(sendMessage.mock.calls[0]?.[2]).toHaveLength(5);
+    expect(sendMessage.mock.calls[0]?.[2]).toHaveLength(1);
     sendMessage.mockClear();
     expect((await webhook('/privacy')).statusCode).toBe(200);
     expect(sendMessage.mock.calls[0]?.[1]).toContain('/privacy?platform=telegram');

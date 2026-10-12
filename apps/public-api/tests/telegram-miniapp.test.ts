@@ -221,7 +221,7 @@ suite('Telegram static launch and verified exchange', () => {
       });
       expect(response.statusCode).toBe(200);
       const buttons = sendMessage.mock.calls.at(-1)?.[2];
-      expect(buttons).toHaveLength(5);
+      expect(buttons).toHaveLength(command === '/start' ? 5 : 1);
       expect(buttons?.every((b) => !b.url.includes('#'))).toBe(true);
       expect(sendMessage.mock.calls.at(-1)?.[1]).not.toContain('15');
     }

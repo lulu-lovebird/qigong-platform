@@ -278,7 +278,7 @@ suite('LINE full learner workspace and private summary', () => {
         ['whatsapp', credential, randomUUID(), ['dayan_chu'], 'WA private note', []]
       )
     ).rows[0]!.data;
-    expect(saved.receiptQueued).toBe(true);
+    expect(saved.receiptQueued).toBe(false);
     expect(
       (
         await query<{ data: { badges: unknown[] } }>(
@@ -287,25 +287,13 @@ suite('LINE full learner workspace and private summary', () => {
         )
       ).rows[0]!.data.badges
     ).toHaveLength(49);
-    const receipt = (
-      await query<{ id: string; lease_id: string }>(
-        'SELECT * FROM ops.claim_channel_practice_receipts($1,3)',
-        ['whatsapp'],
-        true
-      )
-    ).rows[0]!;
+    expect(
+      (await query('SELECT * FROM ops.claim_channel_practice_receipts($1,3)', ['whatsapp'], true))
+        .rowCount
+    ).toBe(0);
     await pool.query(
       "UPDATE platform.whatsapp_service_windows SET expires_at=clock_timestamp()-INTERVAL '1 second'"
     );
-    expect(
-      (
-        await query<{ allowed: boolean }>(
-          'SELECT ops.channel_practice_receipt_allowed($1,$2) allowed',
-          [receipt.id, receipt.lease_id],
-          true
-        )
-      ).rows[0]!.allowed
-    ).toBe(false);
     const changed = (
       await query<{ data: { receiptQueued: boolean } }>(
         'SELECT platform.channel_workspace_save($1,$2,$3,CURRENT_DATE,$4,$5,$6,$7) data',

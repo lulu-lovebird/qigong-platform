@@ -1,3 +1,8 @@
+import {
+  registerWhatsAppBrowserSessions,
+  resolveWhatsAppWorkspaceCredential,
+  whatsappWorkspaceCredentialSchema
+} from './whatsapp-browser-session.js';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
@@ -123,16 +128,12 @@ export const registerWhatsAppOnboarding = (
     (config.sendText
       ? (recipient: string, text: string) => sendText(recipient, text)
       : createWhatsAppWorkspaceMenuSender(config));
+  registerWhatsAppBrowserSessions(app, pool);
   registerChannelWorkspace(
     app,
     pool,
     { platform: 'whatsapp' },
-    (request) => {
-      const parsed = z
-        .object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) })
-        .safeParse(request.body);
-      return parsed.success ? parsed.data.token : null;
-    },
+    (request) => resolveWhatsAppWorkspaceCredential(pool, request),
     false
   );
   for (const kind of ['apply', 'checkin'] as const) {
@@ -329,6 +330,9 @@ export const registerWhatsAppOnboarding = (
                   token;
                 const menu = [
                   texts.checkinLink,
+                  locale === 'en'
+                    ? 'On your own device, sign in and remember it for 30 days; then bookmark the fixed check-in page. Check-ins do not send chat summaries.'
+                    : '自己的裝置可登入並記住30天，再將固定打卡頁加入書籤；打卡不回傳聊天摘要。',
                   labels.checkin + ' ' + link('checkin'),
                   labels.leaderboard + ' ' + link('leaderboard'),
                   labels.methods + ' ' + link('method-analysis'),
@@ -402,12 +406,16 @@ export const registerWhatsAppOnboarding = (
     reply.header('cache-control', 'no-store');
     if (!validOrigin(request.headers.origin, request.headers['content-type']))
       return reply.code(403).send({ error: 'invalid_origin' });
-    const parsed = credentials.extend({ locale: z.enum(['zh_TW', 'en']) }).safeParse(request.body);
+    const parsed = whatsappWorkspaceCredentialSchema
+      .extend({ locale: z.enum(['zh_TW', 'en']) })
+      .safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_language' });
     try {
+      const credential = await resolveWhatsAppWorkspaceCredential(pool, request);
+      if (!credential) return reply.code(401).send({ error: 'invalid_workspace_identity' });
       await withRequestContext(pool, 'qigong_api_runtime', { requestId: request.id }, (client) =>
         client.query('SELECT platform.set_whatsapp_locale_by_token($1,$2)', [
-          parsed.data.token,
+          credential,
           parsed.data.locale
         ])
       );
@@ -437,6 +445,8 @@ export const registerWhatsAppOnboarding = (
       if (!parsed.success) return reply.code(400).send({ error: 'invalid_checkin_submission' });
       const data = parsed.data;
       try {
+        const credential = await resolveWhatsAppWorkspaceCredential(pool, request);
+        if (!credential) return reply.code(401).send({ error: 'invalid_workspace_identity' });
         return await withRequestContext(
           pool,
           'qigong_api_runtime',
@@ -444,7 +454,7 @@ export const registerWhatsAppOnboarding = (
           async (client) => {
             const identity = await client.query<{ subject: string }>(
               "SELECT platform.whatsapp_link_subject($1,'checkin') AS subject",
-              [data.token]
+              [credential]
             );
             const subject = identity.rows[0]!.subject;
             if (name === 'methods')

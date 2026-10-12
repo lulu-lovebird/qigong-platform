@@ -470,7 +470,7 @@ suite('Journal HTTP identity boundaries, sharing and taxonomy', () => {
       expect(response.body).toContain(adminLogoUrl);
     }
   });
-  it('serves learner sharing without admin or private data in HTML and advertises the fifth Bot entry', async () => {
+  it('serves learner sharing without admin or private data in HTML and advertises its single Bot entry', async () => {
     for (const lang of ['en', 'zh_TW']) {
       const page = await app.inject('/telegram/journal?lang=' + lang);
       expect(page.statusCode).toBe(200);
@@ -499,6 +499,6 @@ suite('Journal HTTP identity boundaries, sharing and taxonomy', () => {
         (button) => button.url.includes('/telegram/journal') && !button.url.includes('#')
       )
     ).toBe(true);
-    expect(sendMessage.mock.calls[0]![2]).toHaveLength(5);
+    expect(sendMessage.mock.calls[0]![2]).toHaveLength(1);
   });
 });
