@@ -1,6 +1,16 @@
 # Qigong Platform — 交接摘要
 
-## Telegram單功能入口／icon與reminder（本機schema28候選，未提交／部署／啟用）
+## 最新部署：Telegram／WhatsApp一起發布79825b9／schema28
+
+- 使用者明確核准commit、push、部署兩項更新。程式79825b9b78802aff58667bf7fcd168a7a9a4a8bf、CI38277517503成功／543 tests；正式26→28只新增27與28并重跑零新增，原62表／6 people／10 check-ins與所有非metadata列指紋保留，新4表空、無同意／origin／session／reminder回填。
+- 正式切換2026-10-12 16:40:30–16:40:47 UTC，17秒；先前因/tmp加密工具遺失造成16:38:13–16:38:37約24秒停站，未遷移即恢復26。找到保留工具並驗證round-trip後重取最終備份，兩次維護均記錄。
+- 最終站外AES-GCM DB／roles／env-systemd逐一解密hash核對，roles設定重套及DB實際隔離還原，完整相同、旧97de588 API ready才正式migration。所有歷史migrations未重寫。compiled admin／Authgear profile／LINE-TG／journal／scope／brand及新單入口icon／reminder replay／WA Cookie-CSRF-logout-save-retry通過；隔離worker暫時開提醒且mock transport驗證preview1、WA summary0，零真人測試訊息。
+- 113主站＋1PNG共114HTTPS checks，實際synthetic LIFF probe req.url REDACTED；APIactive/NRestarts0/status0、timeractive、matching worker Resultsuccess/status0。API exact28，新ops.telegram_reminder_schema_ready true、舊27／26gate false。
+- **兩份正式env未改；WhatsApp仍disabled，Telegram reminder worker仍disabled，policy仍draft。**單入口icon已上線；/remind可存本人設定，但真實預覽／每日發送待另核准啟用flag。Meta Business Portfolio與assets完成後才另配置／啟用WA。正式0WA session／0reminder設定／0jobs／0activepolicy；沒有合成主站learner、principal或partner client。
+- 恢復/root/qigong-deploy-79825b9、deployment-tools/79825b9、停止的rehearsal79825b9、受限站外backups/deployment-79825b9與獨立key保留。28→26需matching26 DB＋97de588 API-worker／old-release.conf，不可binary-only；開流量後另核准對帳，不保證OS／Caddy災復。
+- 詳見[telegram-whatsapp-deployment](docs/operations/telegram-whatsapp-deployment.md)。原untracked web-admin-permissions-review.md仍未提交。下列本機候選段落為先前實作紀錄，發布狀態以上方為準。
+
+## Telegram單功能入口／icon與reminder（本機實作紀錄；後續已部署28，發送開關未啟用）
 
 - 使用者確認：各slash功能回單一對應WebApp按鈕，/start保留五個入口；✅打卡、🏆排行榜、📈功法分析、🏮成就沿用舊Bot，📝心得新增。不是slash自動彈出Mini App，仍點一下按鈕；身份／審核／隱私檢查未放寬。
 - 新0028 reminders預設關閉、21:00、已打卡仍提醒；/remind read/on/off/hour/tz、/remindtest本人預覽5分鐘限制，提醒時區與practice timezone獨立；不匯入舊Bot設定、不複製LLM／節氣／私人成果內容。signed private webhook update-ID／subject-hash／fingerprint重放防護，off在必要同意／資格失效仍可關閉本人的提醒。
@@ -10,7 +20,7 @@
 - 候選28接在尚未發布WA27之後，工作區保留兩項修改；不得把Telegram部署核准當作WA27部署核准。發布須先決定分離artifact或明確核准兩項範圍，再做正式快照clone／最終加密備份實際還原／matching API-worker與真人驗收，不能直接部署混合工作區。主站仍97de588／26，政策draft；未commit／push／部署／改正式憑證、webhook或排程開關。
 - 見[telegram-reminders](docs/operations/telegram-reminders.md)，含部署後BotFather icon／remind清單；證據/tmp/qigong-telegram-reminders-{verify-final,all-types-final}.log。提醒停止可另核准關flag，schema回退仍需matching DB／程式與新寫入對帳；不是binary-only。原untracked web-admin-permissions-review.md仍排除。
 
-## WhatsApp固定書籤／記住30天／停送打卡摘要（本機schema27候選，未提交或部署）
+## WhatsApp固定書籤／記住30天／停送打卡摘要（本機實作紀錄；後續隨28部署，渠道未啟用）
 
 - 使用者核准開始本機實作；首次私人checkin連結一次交換裝置cookie，預設勾選「這是我的裝置，記住30天」，明示共用／公共裝置取消勾選，須點擊登入。固定720小時，取消為15分鐘；長憑證只在Secure／HttpOnly cookie，DB僅雜湊，Cookie寫入Origin＋CSRF，每請求重查核准／active渠道／資格／必要同意。單裝置登出與資格撤銷可失效；新連結不默默切換身份。
 - 固定書籤https://checkin.baiyinqigong.org/whatsapp/checkin，五頁cookie認證／雙語／未存草稿離開確認；修正匿名既開書籤收到同頁新fragment不重載及手機長URL溢出。網站登入不是WhatsApp官方配對，不延長service window，跨瀏覽器cookie容器須分別登入。
@@ -19,7 +29,7 @@
 - preview與測試同時使用55440曾觸發受控角色依賴保護，停止preview後相關與完整verify通過；不稱為先前間歇性問題已修復。所有預覽／Chrome已停、合成DB／角色清理。證據/tmp/qigong-whatsapp-browser-{verify-final,all-types}.log、preview／cdp scripts及synthetic screenshots；見[whatsapp-browser](docs/operations/whatsapp-browser.md)。
 - 未commit／push／部署、未啟用WA、未改憑證／Meta assets／政策draft，主站仍97de588／26。發布另核准、正式26clone／matching API-worker／最終加密備份實際還原與真人驗收；27回26須matching DB＋97de588，不可binary-only。原untracked web-admin-permissions-review.md繼續排除。
 
-> 最新主站已於 **2026-10-12 09:01:46–09:02:04 UTC** 經使用者核准部署Authgear UserInfo／Email profile修復，維護18秒。程式 release 為 `97de5889ceda9257825f77a35f6e0f9f61b9c83b`，schema `0026_admin_oidc_profile.sql`。Email於申請人下一次完整登入時補齊已驗證值；未改角色／範圍、既有資料或兩份env，沒有自動Email回填。LINE／Telegram功能與樣式維持，WhatsApp未啟用、政策draft。
+> 最新主站為 `79825b9b78802aff58667bf7fcd168a7a9a4a8bf`／`0028_telegram_reminders.sql`，於2026-10-12 16:40 UTC完成核准部署。Authgear verified Email修復保留；角色／範圍／既有資料及兩份env未變。Telegram單功能入口已生效，WhatsApp与Telegram提醒發送開關未啟用，policy draft。
 
 ## Authgear管理員Email修復（已部署97de588／schema26，使用者已確認Gmail重登可讀Email）
 

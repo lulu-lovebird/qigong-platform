@@ -1,10 +1,10 @@
-# WhatsApp固定書籤與裝置登入（schema27本機候選）
+# WhatsApp固定書籤與裝置登入（隨schema28部署，渠道未啟用）
 
-> 本檔記錄schema27的實作與驗證；後續Telegram提醒已形成未發布schema28整合候選，其API／worker契約及發布範圍請見[telegram-reminders](telegram-reminders.md)。主站仍26，兩項變更均未核准部署。
+> 本檔記錄schema27功能邊界；使用者已核准與Telegram28一起部署，主站79825b9／exact28。WhatsApp仍未配置或啟用；見[部署與恢復紀錄](telegram-whatsapp-deployment.md)。
 
 ## 狀態與核准範圍
 
-本機實作完成，尚未提交、推送、部署或啟用WhatsApp。主站仍是`97de5889ceda9257825f77a35f6e0f9f61b9c83b`／schema26。Meta Business Portfolio權限、App／WABA／電話／範本及真人手機驗收仍待完成；沒有改憑證、渠道開關或發布隱私政策。
+程式已提交、推送並部署`79825b9b78802aff58667bf7fcd168a7a9a4a8bf`／schema28，WhatsApp未啟用、routes404。Meta Business Portfolio權限、App／WABA／電話／範本及真人手機驗收仍待完成；沒有改憑證、渠道開關或發布政策。
 
 本方案是網站裝置登入，不是WhatsApp官方「連結裝置」，沒有配對碼。書籤不構成永久資格，也不延長WhatsApp service window；停止練習摘要是產品決策，不以任何未驗證的費率改動為依據。
 

@@ -1,10 +1,10 @@
-# Telegram單功能入口與提醒（本機schema28候選）
+# Telegram單功能入口與提醒（已部署schema28，提醒發送未啟用）
 
 ## 狀態與核准
 
-使用者核准本機實作單一功能入口／icon與提醒：預設關閉、21:00、已打卡仍提醒。尚未提交、推送、部署或啟用正式提醒。主站仍為`97de588`／schema26，Meta／LINE／Telegram憑證、webhook與既有資料不變；不匯入舊Bot設定，不發布隱私政策。
+使用者已核准與WhatsApp更新一起commit、push與部署。主站`79825b9`／schema28、CI38277517503成功，2026-10-12 16:40 UTC切換；單入口／icon生效，提醒預設關閉、21:00、已打卡仍提醒。正式reminder worker flag仍未啟用。憑證／webhook／既有資料不變，不匯入舊Bot設定、不發布政策。見[部署與恢復紀錄](telegram-whatsapp-deployment.md)。
 
-候選28接在未發布WhatsApp27後，目前工作區包含兩項本機修改。**Telegram發布核准不得視為WhatsApp27發布核准**；發布前須另外決定分離artifact或明確核准兩項範圍，不可直接將整個工作區部署到主站。
+28接在WhatsApp27後；本次使用者明確核准兩項一起發布，已用正式26快照演練27＋28。此核准不包含WhatsApp渠道、正式提醒開關或政策自動啟用。
 
 ## Bot入口與icon
 
