@@ -64,6 +64,19 @@ export const verifiedAdminClaimsSchema = z.object({
 
 export type VerifiedAdminClaims = z.infer<typeof verifiedAdminClaimsSchema>;
 
+const verifiedAdminUserInfoSchema = z.object({
+  sub: z.string().min(1),
+  email: z.email().max(320).optional(),
+  email_verified: z.boolean().optional(),
+  name: z.string().min(1).max(200).optional()
+});
+
+export const validateVerifiedAdminUserInfo = (userinfo: unknown, expectedSubject: string) => {
+  const parsed = verifiedAdminUserInfoSchema.parse(userinfo);
+  if (parsed.sub !== expectedSubject) throw new Error('Admin UserInfo subject mismatch');
+  return parsed;
+};
+
 // This validates the claims contract AFTER an OIDC library has verified signature,
 // expiry, nonce, issuer and audience. It must never be used on an unverified JWT.
 export const validateVerifiedAdminClaims = (

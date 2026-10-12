@@ -24,8 +24,8 @@ export const apiLogRedaction = Object.freeze({
   censor: '[REDACTED]'
 });
 
-export const minimumMigrationVersion = '0025_telegram_miniapp_sessions.sql';
-export const maximumMigrationVersion = '0025_telegram_miniapp_sessions.sql';
+export const minimumMigrationVersion = '0026_admin_oidc_profile.sql';
+export const maximumMigrationVersion = '0026_admin_oidc_profile.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

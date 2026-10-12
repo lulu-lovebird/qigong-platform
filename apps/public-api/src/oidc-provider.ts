@@ -1,5 +1,9 @@
 import * as oidc from 'openid-client';
-import { loadAdminOidcEnvironment, validateVerifiedAdminClaims } from '@qigong/identity';
+import {
+  loadAdminOidcEnvironment,
+  validateVerifiedAdminClaims,
+  validateVerifiedAdminUserInfo
+} from '@qigong/identity';
 import type { AdminAuthProvider } from './admin-auth.js';
 
 export const createAdminOidcProvider = async (): Promise<AdminAuthProvider> => {
@@ -30,11 +34,25 @@ export const createAdminOidcProvider = async (): Promise<AdminAuthProvider> => {
         idTokenExpected: true
       });
       const claims = validateVerifiedAdminClaims(tokens.claims(), environment);
+      const userinfo = configuration.serverMetadata().userinfo_endpoint
+        ? validateVerifiedAdminUserInfo(
+            await oidc.fetchUserInfo(configuration, tokens.access_token, claims.sub),
+            claims.sub
+          )
+        : undefined;
+      // UserInfo is authoritative when it supplies an email. Never treat an unverified
+      // value as verified, or use email/name to identify or authorize another account.
+      const name = userinfo?.name ?? claims.name;
+      const email = userinfo?.email ?? claims.email;
+      const emailVerified =
+        userinfo?.email !== undefined
+          ? userinfo.email_verified === true
+          : claims.email_verified === true;
       return {
         iss: claims.iss,
         sub: claims.sub,
-        ...(claims.name ? { name: claims.name } : {}),
-        ...(claims.email && claims.email_verified === true ? { verifiedEmail: claims.email } : {})
+        ...(name ? { name } : {}),
+        ...(email && emailVerified ? { verifiedEmail: email } : {})
       };
     }
   };

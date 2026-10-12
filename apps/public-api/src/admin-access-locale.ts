@@ -45,7 +45,7 @@ const en = {
   revokeAllConfirm:
     'Remove ALL administrative access from this account? This does not delete the Authgear account or learner data.',
   scheduled: 'Scheduled (requires controlled review before removal)',
-  emailUnavailable: 'Email not provided by Authgear',
+  emailUnavailable: 'Verified email not available',
   suspended: 'Suspended',
   disabled: 'Disabled',
   super_admin: 'Super admin',
@@ -167,7 +167,7 @@ const zh: Record<keyof typeof en, string> = {
   revokeAll: '移除全部管理權限',
   revokeAllConfirm: '確認移除此帳號的全部管理權限？不會刪除 Authgear 帳號或學員資料。',
   scheduled: '尚未生效（撤銷須先經受控檢查）',
-  emailUnavailable: 'Authgear 未提供 Email',
+  emailUnavailable: '尚未取得已驗證 Email',
   suspended: '停用中',
   disabled: '已停用',
   super_admin: '最高管理員',

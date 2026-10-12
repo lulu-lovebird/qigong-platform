@@ -38,7 +38,8 @@ try {
     pool,
     'qigong_worker_runtime',
     { requestId: randomUUID() },
-    (client) => client.query<{ ready: boolean }>('SELECT ops.telegram_miniapp_schema_ready() ready')
+    (client) =>
+      client.query<{ ready: boolean }>('SELECT ops.admin_oidc_profile_schema_ready() ready')
   );
   if (!schema.rows[0]?.ready) throw new Error('Notification worker schema mismatch');
   // At most six transport attempts total: onboarding3 plus practice3 shared

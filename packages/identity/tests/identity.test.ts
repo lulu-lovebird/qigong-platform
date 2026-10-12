@@ -3,6 +3,7 @@ import {
   loadAdminOidcEnvironment,
   loadOidcEnvironment,
   validateVerifiedAdminClaims,
+  validateVerifiedAdminUserInfo,
   validateVerifiedWebsiteClaims
 } from '../src/index.js';
 
@@ -35,6 +36,34 @@ describe('Authgear administrator identity contract', () => {
     ).toBe('admin-subject-123');
   });
 
+  it('accepts UserInfo metadata only for the authenticated immutable subject', () => {
+    expect(
+      validateVerifiedAdminUserInfo(
+        {
+          sub: 'admin-one',
+          email: 'admin@example.invalid',
+          email_verified: true,
+          name: 'Administrator'
+        },
+        'admin-one'
+      )
+    ).toMatchObject({ sub: 'admin-one', email_verified: true });
+    expect(() =>
+      validateVerifiedAdminUserInfo(
+        { sub: 'another-admin', email: 'admin@example.invalid', email_verified: true },
+        'admin-one'
+      )
+    ).toThrow('Admin UserInfo subject mismatch');
+    expect(() =>
+      validateVerifiedAdminUserInfo({ email: 'admin@example.invalid' }, 'admin-one')
+    ).toThrow();
+    expect(() =>
+      validateVerifiedAdminUserInfo({ sub: 'admin-one', email: 'not-an-email' }, 'admin-one')
+    ).toThrow();
+    expect(() =>
+      validateVerifiedAdminUserInfo({ sub: 'admin-one', email_verified: 'true' }, 'admin-one')
+    ).toThrow();
+  });
   it('rejects claims for another issuer, audience or authorized party', () => {
     const claims = {
       iss: adminEnvironment.ADMIN_OIDC_ISSUER_URL,

@@ -21,6 +21,7 @@ interface AccountList {
     principalId: string;
     subject: string;
     grantVersion: number;
+    email: string | null;
     canRevokeAll: boolean;
     grants: Array<{ id: string; role: string }>;
   }>;
@@ -39,6 +40,7 @@ suite('super admin approval HTTP boundary', () => {
   let loginRole: string;
   let region: string;
   let subject: string;
+  let profileEmail: string | undefined;
   const provider: AdminAuthProvider = {
     callbackUrl: 'https://platform.example/admin/auth/callback',
     begin: async (_v, state) => new URL('https://auth.example/authorize?state=' + state),
@@ -46,7 +48,7 @@ suite('super admin approval HTTP boundary', () => {
       iss: 'https://auth.example',
       sub: subject,
       name: '<img src=x onerror=alert(1)>',
-      verifiedEmail: 'verified@example.com'
+      ...(profileEmail ? { verifiedEmail: profileEmail } : {})
     })
   };
   const signIn = async (who: string): Promise<Session> => {
@@ -92,6 +94,7 @@ suite('super admin approval HTTP boundary', () => {
     return submitted.json<Status>();
   };
   beforeEach(async () => {
+    profileEmail = 'verified@example.com';
     if (!new URL(url!).pathname.toLowerCase().includes('test'))
       throw new Error('TEST_DATABASE_URL database name must contain test');
     maintenance = new pg.Client({ connectionString: url! });
@@ -147,6 +150,72 @@ suite('super admin approval HTTP boundary', () => {
     await root?.end();
     await maintenance?.query(`DROP DATABASE ${databaseName}`);
     await maintenance?.end();
+  });
+  it('backfills verified email on pending re-login without changing the account or access request', async () => {
+    profileEmail = undefined;
+    const first = await signIn('profile-pending');
+    const before = (await get('/admin/access/status', first)).json<Status>();
+    expect(
+      (await root.query('SELECT email FROM admin.principals WHERE id=$1', [before.principalId]))
+        .rows[0].email
+    ).toBeNull();
+    profileEmail = 'pending@example.invalid';
+    await signIn('profile-pending');
+    expect(
+      (await root.query('SELECT email FROM admin.principals WHERE id=$1', [before.principalId]))
+        .rows[0].email
+    ).toBe('pending@example.invalid');
+    expect((await get('/admin/access/status', first)).json<Status>()).toMatchObject({
+      principalId: before.principalId,
+      version: before.version,
+      status: 'draft'
+    });
+    expect(
+      (
+        await root.query('SELECT * FROM admin.role_grants WHERE principal_id=$1', [
+          before.principalId
+        ])
+      ).rows
+    ).toEqual([]);
+    const reviewer = await signIn('root');
+    const roster = (
+      await get('/admin/api/access/accounts?status=all', reviewer)
+    ).json<AccountList>();
+    expect(roster.entries.find((entry) => entry.principalId === before.principalId)?.email).toBe(
+      'pending@example.invalid'
+    );
+    profileEmail = undefined;
+    await signIn('profile-pending');
+    expect(
+      (await root.query('SELECT email FROM admin.principals WHERE id=$1', [before.principalId]))
+        .rows[0].email
+    ).toBe('pending@example.invalid');
+  });
+  it('refreshes an authorized profile without merging equal emails, altering grants or losing existing sessions', async () => {
+    profileEmail = undefined;
+    const admin = await signIn('root');
+    const id = (await get('/admin/auth/me', admin)).json<{ principalId: string }>().principalId;
+    const grants = (await root.query('SELECT * FROM admin.role_grants WHERE principal_id=$1', [id]))
+      .rows;
+    const version = (
+      await root.query('SELECT access_grant_version FROM admin.principals WHERE id=$1', [id])
+    ).rows[0].access_grant_version;
+    profileEmail = 'same@example.invalid';
+    await signIn('root');
+    const pending = await signIn('different-subject');
+    const other = (await get('/admin/access/status', pending)).json<Status>();
+    expect(other.principalId).not.toBe(id);
+    expect(
+      (await root.query('SELECT email FROM admin.principals WHERE id=$1', [id])).rows[0].email
+    ).toBe(profileEmail);
+    expect(
+      (await root.query('SELECT * FROM admin.role_grants WHERE principal_id=$1', [id])).rows
+    ).toEqual(grants);
+    expect(
+      (await root.query('SELECT access_grant_version FROM admin.principals WHERE id=$1', [id]))
+        .rows[0].access_grant_version
+    ).toBe(version);
+    expect((await get('/admin/auth/me', admin)).statusCode).toBe(200);
   });
   it('routes new verified accounts to a private portal with no normal session or management access', async () => {
     const s = await signIn('candidate');

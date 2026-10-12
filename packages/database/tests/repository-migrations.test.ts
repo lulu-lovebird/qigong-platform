@@ -10,7 +10,7 @@ import { createIsolatedTestDatabase } from './test-database.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
-const migrationsDirectory = path.resolve(
+const currentMigrationsDirectory = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../migrations'
 );
@@ -18,25 +18,35 @@ const migrationsDirectory = path.resolve(
 describeWithDatabase('repository migrations', () => {
   let pool: Pool;
   let dispose: () => Promise<void>;
+  let migrationsDirectory: string;
 
   // Controlled roles are cluster-wide; dispose each migrated DB before replaying the chain.
   beforeEach(async () => {
     const database = await createIsolatedTestDatabase(databaseUrl!);
     pool = database.pool;
     dispose = () => database.dispose();
+    // Keep historical upgrade cases pinned to their schema25 artifact.
+    migrationsDirectory = await mkdtemp(path.join(tmpdir(), 'qigong-historical-chain-'));
+    for (const name of await readdir(currentMigrationsDirectory))
+      if (name.endsWith('.sql') && name < '0026_')
+        await copyFile(
+          path.join(currentMigrationsDirectory, name),
+          path.join(migrationsDirectory, name)
+        );
   });
 
   afterEach(async () => {
     await dispose();
+    await rm(migrationsDirectory, { recursive: true, force: true });
   });
 
   it('applies the checked-in chain idempotently and satisfies readiness', async () => {
-    const first = await runMigrations(pool, migrationsDirectory, 'vitest');
-    const second = await runMigrations(pool, migrationsDirectory, 'vitest');
+    const first = await runMigrations(pool, currentMigrationsDirectory, 'vitest');
+    const second = await runMigrations(pool, currentMigrationsDirectory, 'vitest');
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0025_telegram_miniapp_sessions.sql'
+      '0026_admin_oidc_profile.sql'
     );
 
     expect(first.applied).toEqual([
@@ -64,17 +74,83 @@ describeWithDatabase('repository migrations', () => {
       '0022_journal_sharing.sql',
       '0023_learner_privacy_consent.sql',
       '0024_learner_workspaces.sql',
-      '0025_telegram_miniapp_sessions.sql'
+      '0025_telegram_miniapp_sessions.sql',
+      '0026_admin_oidc_profile.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0025_telegram_miniapp_sessions.sql',
+      currentVersion: '0026_admin_oidc_profile.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0025_telegram_miniapp_sessions.sql',
+      maximumVersion: '0026_admin_oidc_profile.sql',
       ready: true
     });
   });
 
+  it('upgrades 0025 to the profile contract without backfilling emails, changing permissions or invalidating sessions', async () => {
+    await runMigrations(pool, migrationsDirectory, 'profile-old');
+    const id = (
+      await pool.query<{ id: string }>(
+        "INSERT INTO admin.principals(oidc_issuer,oidc_subject,display_name) VALUES('https://profile.example.invalid','preserved','Preserved administrator') RETURNING id"
+      )
+    ).rows[0]!.id;
+    await pool.query(
+      "INSERT INTO admin.role_grants(principal_id,role_id,scope_type,reason) SELECT $1,id,'global','Preserved grant' FROM admin.roles WHERE code='global_viewer'",
+      [id]
+    );
+    await pool.query(
+      "INSERT INTO admin.sessions(token_hash,principal_id,expires_at) VALUES(public.digest('synthetic','sha256'),$1,clock_timestamp()+INTERVAL '1 hour')",
+      [id]
+    );
+    const tables = (
+      await pool.query<{ schema: string; name: string }>(
+        "SELECT schemaname schema,tablename name FROM pg_tables WHERE schemaname IN ('identity','core','platform','admin','audit','ops') AND NOT(schemaname='core' AND tablename='platform_metadata') ORDER BY 1,2"
+      )
+    ).rows;
+    const hash = async (t: { schema: string; name: string }) =>
+      (
+        await pool.query<{ hash: string }>(
+          "SELECT md5(coalesce(jsonb_agg(to_jsonb(r) ORDER BY to_jsonb(r)::text)::text,'')) hash FROM " +
+            t.schema +
+            '.' +
+            t.name +
+            ' r'
+        )
+      ).rows[0]!.hash;
+    const before = await Promise.all(tables.map(hash));
+    expect(
+      (await pool.query('SELECT ops.telegram_miniapp_schema_ready() ready')).rows[0].ready
+    ).toBe(true);
+    expect((await runMigrations(pool, currentMigrationsDirectory, 'profile-new')).applied).toEqual([
+      '0026_admin_oidc_profile.sql'
+    ]);
+    expect(
+      (await runMigrations(pool, currentMigrationsDirectory, 'profile-repeat')).applied
+    ).toEqual([]);
+    expect(await Promise.all(tables.map(hash))).toEqual(before);
+    expect(
+      (await pool.query('SELECT email FROM admin.principals WHERE id=$1', [id])).rows[0].email
+    ).toBeNull();
+    expect(
+      (
+        await getMigrationStatus(
+          pool,
+          '0025_telegram_miniapp_sessions.sql',
+          '0025_telegram_miniapp_sessions.sql'
+        )
+      ).ready
+    ).toBe(false);
+    expect(
+      (await getMigrationStatus(pool, '0026_admin_oidc_profile.sql', '0026_admin_oidc_profile.sql'))
+        .ready
+    ).toBe(true);
+    expect(
+      (
+        await pool.query(
+          'SELECT ops.admin_oidc_profile_schema_ready() current,ops.telegram_miniapp_schema_ready() previous'
+        )
+      ).rows[0]
+    ).toEqual({ current: true, previous: false });
+  });
   it('upgrades 0021 with explicit regional consent boundaries and targeted session revocation', async () => {
     const staging = await mkdtemp(path.join(tmpdir(), 'qigong-journal-upgrade-'));
     try {

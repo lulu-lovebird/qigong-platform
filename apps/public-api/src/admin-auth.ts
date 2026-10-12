@@ -101,12 +101,21 @@ export const registerAdminRoutes = (
         pool,
         'qigong_api_runtime',
         { requestId: request.id },
-        (client) =>
-          client.query<{ allowed: boolean }>('SELECT admin.create_session($1, $2, $3) AS allowed', [
-            session,
-            claims.iss,
-            claims.sub
-          ])
+        async (client) => {
+          const result = await client.query<{ allowed: boolean }>(
+            'SELECT admin.create_session($1, $2, $3) AS allowed',
+            [session, claims.iss, claims.sub]
+          );
+          if (result.rows[0]?.allowed) {
+            const refreshed = await client.query<{ ok: boolean }>(
+              'SELECT admin.refresh_verified_profile($1,$2,$3,$4) ok',
+              [claims.iss, claims.sub, claims.name ?? null, claims.verifiedEmail ?? null]
+            );
+            if (refreshed.rows[0]?.ok !== true)
+              throw new Error('Administrator profile unavailable');
+          }
+          return result;
+        }
       );
       const csrf = token();
       if (!allowed.rows[0]?.allowed) {
@@ -115,11 +124,21 @@ export const registerAdminRoutes = (
           pool,
           'qigong_api_runtime',
           { requestId: request.id },
-          (client) =>
-            client.query<{ allowed: boolean }>(
+          async (client) => {
+            const result = await client.query<{ allowed: boolean }>(
               'SELECT admin.begin_access_login($1,$2,$3,$4,$5) allowed',
               [pending, claims.iss, claims.sub, claims.name ?? null, claims.verifiedEmail ?? null]
-            )
+            );
+            if (result.rows[0]?.allowed) {
+              const refreshed = await client.query<{ ok: boolean }>(
+                'SELECT admin.refresh_verified_profile($1,$2,$3,$4) ok',
+                [claims.iss, claims.sub, claims.name ?? null, claims.verifiedEmail ?? null]
+              );
+              if (refreshed.rows[0]?.ok !== true)
+                throw new Error('Administrator profile unavailable');
+            }
+            return result;
+          }
         );
         if (!registered.rows[0]?.allowed)
           return reply
