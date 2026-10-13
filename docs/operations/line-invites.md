@@ -1,8 +1,8 @@
-# LINE持有者邀請與自動核准（本機schema29候選）
+# LINE持有者邀請與自動核准（已部署schema29，真人驗收待完成）
 
 ## 核准與狀態
 
-使用者核准開始本機實作：加好友後填基本資料，以邀請token自動核准；既有已核准、有效LINE身份再次開同入口直接進打卡、不耗額度。尚未commit／push／部署、未建立正式邀請、未改LINE Console／憑證／政策。主站仍79825b9／schema28，Telegram提醒開關維持先前核准的true；WhatsApp未啟用。
+使用者核准開始本機實作：加好友後填基本資料，以邀請token自動核准；既有已核准、有效LINE身份再次開同入口直接進打卡、不耗額度。已經使用者另外核准commit／push／部署`0410e5f`／schema29，2026-10-13 05:43 UTC切換，CI38351901085／570 tests成功；正式邀請尚未建立，未改LINE Console／憑證／政策。Telegram提醒開關保持true；WhatsApp未配置。見[部署／實際恢復證據](line-invite-deployment.md)。
 
 這是**bearer invitation**，不是指定名冊驗證。任何取得連結的人都可能加入；轉傳不能保證是原指定學員。姓名／Email／電話都是自述資料，不用來查找或合併已有LINE／Telegram／WhatsApp身份。
 
@@ -46,4 +46,4 @@ DB／HTTP／VM包含Super／runtime權限、secret hash與列表遮蔽、預設7
 
 28→29合成升級／重跑保留所有非metadata表指紋（含LINE shortlink、identity、principal及啟用的reminder setting），新邀請／兌換表空、零自動核准回填；舊API／worker gate拒絕29，新gate通過。API exact29／worker `ops.line_invite_schema_ready()`、architecture `phase-14-line-invites`。
 
-Mock friendship／LIFF與VM不是真人LINE身份或加好友驗收。仍須另外核准commit／push／部署，正式28快照clone／最終加密備份實際還原與matching API-worker，並確認Console與真人手機測試。29不能binary-only回28；流量後回復須對帳新申請／身份／邀請額度／通知，不能直接覆寫新資料。
+Mock friendship／LIFF與VM不是真人LINE身份或加好友驗收。本次commit／push／部署已另核准，正式28快照clone／最終加密備份實際還原與matching API-worker已完成；仍須確認Console與真人手機測試。29不能binary-only回28；流量後回復須對帳新申請／身份／邀請額度／通知，不能直接覆寫新資料。

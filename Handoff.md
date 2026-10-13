@@ -1,6 +1,16 @@
 # Qigong Platform — 交接摘要
 
-## LINE邀請網址＋token自動核准（本機schema29候選，未提交／部署）
+## 最新部署：LINE邀請預核准0410e5f／schema29
+
+- 使用者核准commit／push／部署。程式0410e5fee4ef2cf3964ab8ef4a196904a1f4e069、CI38351901085成功／570 tests；正式2026-10-13 05:42:59–05:43:16 UTC維護17秒，只套0029並重跑零新增。原66表／11people／13checkins及全部非metadata列指紋保留，新invite／redemption表空，無正式邀請或自動核准回填。
+- 正式28clone及roles實際還原，28→29upgrade／reapply、舊79825b9 ready／新gate匹配通過；最終站外AES-GCM DB／roles／env-systemd逐一解密hash、roles設定實際重套＋DB實際還原，完整相同／舊API ready才切主站。原歷史migrations與依賴未變。
+- compiled受限admin／Authgear profile／grant revision／LINE-TG／journal／sharing／brand／scope及邀請管理雙語／CSRF／one-time hash secret／server friend／quota並行最後一位／重試／撤銷與舊資格通過；mock worker驗證核准通知。僅隔離合成資料，沒有正式新learner／admin session／client或真人測試發送。
+- 主站124＋1PNG共125HTTPS checks通過，/line/invite200、Super管理入口/admin/line-invites、guest管理302/API401、Origin/schema拒絕正常；real synthetic LIFF probe req.url REDACTED。API active/NRestarts0/status0、timeractive、workerResultsuccess/status0，exact29／ops.line_invite_schema_ready true、舊28gatefalse。
+- 兩份env hash不變，Telegram reminders flag true保留、WA unconfigured／policy draft。LINE Console／openid-profile scope／correct linked OA未改，friendship是mock而非真人驗收，配置不足fail closed；學員可由Super建立1人邀請做真人測試。
+- 恢復/root/qigong-deploy-0410e5f、deployment-tools/0410e5f、已停止rehearsal0410e5f、站外受限backups/deployment-0410e5f與獨立key保留。29→28需matching28DB＋79825b9 API-worker與old-release.conf，不可binary-only；流量後另核准對帳新身份／額度／通知／reminder寫入，不保證OS-Caddy災復。
+- 詳見[line-invite-deployment](docs/operations/line-invite-deployment.md)。原untracked web-admin-permissions-review.md持續排除；既有間歇性回歸未宣稱修復。下列候選段落是部署前實作記錄，最新狀態以上方為準。
+
+## LINE邀請網址＋token自動核准（本機實作紀錄，後續已部署29）
 
 - 使用者確認本機實作：新學員先驗證LINE身份／加好友／必要同意再填基本資料，自動核准；已有有效approved LINE identity重開入口直接configured LIFF checkin，不查邀請expiry／quota／revocation／issuer、不耗額度。pending／rejected／suspended／linked-but-ineligible不覆蓋，不批量核准舊申請。一般加入仍人工審核，Name／Email／phone不查找或合併身份。
 - 新0029新增hashed invitation與redemption forced-RLS兩表，Super-only建立／列出／帶revision與reason撤銷，預設tw-general／7天／100人，可配置1–30天／1–10000。raw256bit token只在建立時回LIFF/invite#token一次、列表與audit不含秘密；共享bearer转傳可讓非指定人加入，需期限／quota／撤銷，非指定名冊證明。issuer失去Super則新加入失效，舊學員自有資格不受影響。
@@ -48,7 +58,7 @@
 - preview與測試同時使用55440曾觸發受控角色依賴保護，停止preview後相關與完整verify通過；不稱為先前間歇性問題已修復。所有預覽／Chrome已停、合成DB／角色清理。證據/tmp/qigong-whatsapp-browser-{verify-final,all-types}.log、preview／cdp scripts及synthetic screenshots；見[whatsapp-browser](docs/operations/whatsapp-browser.md)。
 - 未commit／push／部署、未啟用WA、未改憑證／Meta assets／政策draft，主站仍97de588／26。發布另核准、正式26clone／matching API-worker／最終加密備份實際還原與真人驗收；27回26須matching DB＋97de588，不可binary-only。原untracked web-admin-permissions-review.md繼續排除。
 
-> 最新主站為 `79825b9b78802aff58667bf7fcd168a7a9a4a8bf`／`0028_telegram_reminders.sql`，於2026-10-12 16:40 UTC完成核准部署。Authgear verified Email修復保留；角色／範圍／既有資料及兩份env未變。Telegram單功能入口已生效，WhatsApp与Telegram提醒發送開關未啟用，policy draft。
+> 最新主站為 `0410e5fee4ef2cf3964ab8ef4a196904a1f4e069`／`0029_line_invites.sql`，2026-10-13 05:43 UTC完成核准部署。LINE邀請入口及Super管理頁已生效；Telegram單功能入口與已核准的reminder啟用保持，WhatsApp未配置、policy draft。Authgear verified Email／原資料与scope保留，两份env未改。
 
 ## Authgear管理員Email修復（已部署97de588／schema26，使用者已確認Gmail重登可讀Email）
 
