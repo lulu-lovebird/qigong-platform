@@ -10,6 +10,7 @@ import { renderReviewPage } from '../src/admin-pages.js';
 import { renderAccessPendingPage, renderAdminAccessPage } from '../src/admin-access-pages.js';
 import { renderAdminJournalPage } from '../src/admin-journal-pages.js';
 import { renderAdminLearnerPage } from '../src/admin-learner-pages.js';
+import { renderAdminLineInvites } from '../src/admin-line-invite-pages.js';
 import type { AdminLocale } from '../src/admin-locale.js';
 
 const renderers: Readonly<Record<AdminPage, (locale: AdminLocale) => string>> = {
@@ -22,7 +23,8 @@ const renderers: Readonly<Record<AdminPage, (locale: AdminLocale) => string>> = 
   tags: (locale) => renderAdminJournalPage('tags', locale, true),
   learners: (locale) => renderAdminLearnerPage('learners', locale, true),
   shared: (locale) => renderAdminLearnerPage('shared', locale, true),
-  privacy: (locale) => renderAdminLearnerPage('privacy', locale, true)
+  privacy: (locale) => renderAdminLearnerPage('privacy', locale, true),
+  invites: renderAdminLineInvites
 };
 const oldColors = /#(?:285c3b|203027|193e2b|366448|62976e|61746b|edf3ee|82352f|a12c24)\b/i;
 const luminance = (hex: string) => {

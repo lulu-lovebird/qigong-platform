@@ -1,5 +1,17 @@
 # Qigong Platform — 交接摘要
 
+## LINE邀請網址＋token自動核准（本機schema29候選，未提交／部署）
+
+- 使用者確認本機實作：新學員先驗證LINE身份／加好友／必要同意再填基本資料，自動核准；已有有效approved LINE identity重開入口直接configured LIFF checkin，不查邀請expiry／quota／revocation／issuer、不耗額度。pending／rejected／suspended／linked-but-ineligible不覆蓋，不批量核准舊申請。一般加入仍人工審核，Name／Email／phone不查找或合併身份。
+- 新0029新增hashed invitation與redemption forced-RLS兩表，Super-only建立／列出／帶revision與reason撤銷，預設tw-general／7天／100人，可配置1–30天／1–10000。raw256bit token只在建立時回LIFF/invite#token一次、列表與audit不含秘密；共享bearer转傳可讓非指定人加入，需期限／quota／撤銷，非指定名冊證明。issuer失去Super則新加入失效，舊學員自有資格不受影響。
+- Global grant／subject／invite locks、post-lock expiry／issuer／region／privacy重查，atomic建立person／LINE identity／primary region／active interaction／approved application／redeem／counter與標準決策通知；無admin roles。普通LINE submit同subject lock防交錯。
+- 新/line/invite/status與redeem嚴格body／Origin，每次ID token服務端驗證；新加入者access token client_id／exp、profile userId與verified sub精確匹配、server friendship boolean true。LIFF Console需openid＋profile、Login channel與正確Messaging bot同Provider且linked OA；缺配置或provider故障fail closed，未改Console。
+- privacy proof用channelSecret HMAC per-subject／5min桶產生15min獨立證明，不用共享invite；URL只存邀請cap，SDK init完成後清URI，memory-only；必要同意預設unchecked／version-hash／reflectionfalse，不發布draft或開分享。新學生頁、Super雙語brand管理頁與capability nav／CSRF沿用原admin session。
+- API exact29／worker ops.line_invite_schema_ready／phase-14-line-invites。28→29合成upgrade與reapply原表指紋完全相同，新2表空；零新邀請／自動核准／reminder變更，舊API／worker gate拒絕，新ready。歷史0001–0028未改，依賴／license／正式settings未改。
+- 完整570 tests無skip、format／lint／source typecheck／build通過，額外all-test tsc仍既有10錯誤、新檔無新增。DB9／HTTP與friendship9／VM7、brand新增頁、quota並行／issuer等待／被撤销账户／独立同意／既有有效身份與manual path通過；mock／VM不是真人LIFF或加好友驗收。
+- 本輪仍觀察到既有privacy practice-identity-unavailable、TG menu缺buttons與reminder batch0的間歇性回歸；targeted與最終verify通過，不宣稱rerun修復。保留無PII的ready／privacy-required／channel-age／job-count／expiry診斷供下次重現；一次fixture遺漏randomBytes造成cleanup失敗的6個invite-http測試DB已按deployed_by標記清理並加cleanup guard，不碰其他資料。
+- 主站仍79825b9／28、Telegram提醒flag true、WA disabled／policy draft；未commit／push／部署、未建立正式邀請、未改LINE Console或憑證，原untracked web-admin-permissions-review.md保留。見[line-invites](docs/operations/line-invites.md)，證據/tmp/qigong-line-invites-{verify-final,all-types-final}.log；發布另核准、正式28clone／最終加密備份實際還原／matching API-worker与真人驗收。29回28需matching DB＋79825b9，流量後對帳新授權／額度／通知，不可binary-only。
+
 ## 最新運維：Telegram提醒排程已啟用（2026-10-12 17:59 UTC）
 
 - 使用者另行明確核准啟用Telegram提醒。只將protected notification-worker.env的TELEGRAM_REMINDERS_ENABLED設true，其餘bytes／640權限／owner-group保留；API.env hash不變，WhatsApp仍未配置。未改學員提醒偏好、未發布政策、未改程式或schema。

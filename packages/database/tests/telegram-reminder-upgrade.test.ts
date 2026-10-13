@@ -13,7 +13,11 @@ suite('Telegram reminder migration compatibility', () => {
   it('upgrades27 without changing existing records or enrolling anyone in reminders and rejects old API/worker contracts', async () => {
     const db = await createIsolatedTestDatabase(url!),
       old = await mkdtemp(path.join(tmpdir(), 'qigong-reminder27-'));
+    const current = await mkdtemp(path.join(tmpdir(), 'qigong-reminder28-chain-'));
     try {
+      for (const file of await readdir(directory))
+        if (file.endsWith('.sql') && file < '0029_')
+          await copyFile(path.join(directory, file), path.join(current, file));
       for (const file of await readdir(directory))
         if (file.endsWith('.sql') && file < '0028_')
           await copyFile(path.join(directory, file), path.join(old, file));
@@ -57,10 +61,10 @@ suite('Telegram reminder migration compatibility', () => {
           )
         ).rows[0]!.hash;
       const before = await Promise.all(tables.map(hash));
-      expect((await runMigrations(db.pool, directory, 'reminder-new')).applied).toEqual([
+      expect((await runMigrations(db.pool, current, 'reminder-new')).applied).toEqual([
         '0028_telegram_reminders.sql'
       ]);
-      expect((await runMigrations(db.pool, directory, 'reminder-repeat')).applied).toEqual([]);
+      expect((await runMigrations(db.pool, current, 'reminder-repeat')).applied).toEqual([]);
       expect(await Promise.all(tables.map(hash))).toEqual(before);
       for (const table of [
         'platform.telegram_reminder_settings',
@@ -96,6 +100,7 @@ suite('Telegram reminder migration compatibility', () => {
     } finally {
       await db.dispose();
       await rm(old, { recursive: true, force: true });
+      await rm(current, { recursive: true, force: true });
     }
   });
 });

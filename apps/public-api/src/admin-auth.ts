@@ -7,6 +7,7 @@ import { accessCookie, registerAdminAccessRoutes } from './admin-access.js';
 import { renderReviewPage } from './admin-pages.js';
 import { registerAdminJournalRoutes } from './admin-journal-routes.js';
 import { registerAdminLearnerRoutes } from './admin-learner-routes.js';
+import { registerAdminLineInvites } from './admin-line-invite-routes.js';
 import {
   adminLocaleCookie,
   adminNameColumn,
@@ -60,7 +61,8 @@ const callbackUrl = (provider: AdminAuthProvider, request: FastifyRequest) => {
 export const registerAdminRoutes = (
   app: FastifyInstance,
   pool: Pool,
-  provider: AdminAuthProvider
+  provider: AdminAuthProvider,
+  lineLiffId?: string
 ) => {
   app.get('/admin/auth/login', async (request, reply) => {
     const state = token();
@@ -434,6 +436,18 @@ export const registerAdminRoutes = (
       timingSafeEqual(sha256(value), sha256(saved))
     );
   });
+
+  if (lineLiffId)
+    registerAdminLineInvites(app, pool, lineLiffId, principalFor, (request) => {
+      const value = request.headers['x-csrf-token'],
+        saved = cookies(request)[csrfCookie];
+      return (
+        typeof value === 'string' &&
+        typeof saved === 'string' &&
+        saved.length > 0 &&
+        timingSafeEqual(sha256(value), sha256(saved))
+      );
+    });
 
   app.post('/admin/auth/logout', async (request, reply) => {
     const values = cookies(request);

@@ -407,7 +407,15 @@ suite('Telegram workspace HTTP, bot menu and durable delivery integration', () =
       expect(response.statusCode).toBe(200);
       const call = sendMessage.mock.calls.at(-1)!;
       expect(call[0]).toBe(Number(subject));
-      expect(call[2]).toHaveLength(1);
+      const diagnostic = !call[2]
+        ? (
+            await root.query(
+              "SELECT platform.telegram_workspace_ready($1) ready,platform.privacy_status('telegram',$1)->>'required' privacy_required,(SELECT min(extract(epoch FROM clock_timestamp()-ch.valid_from)) FROM identity.person_interaction_channels ch WHERE ch.person_id=$2) channel_age_seconds,(SELECT status FROM identity.people WHERE id=$2) person_status",
+              [subject, person]
+            )
+          ).rows[0]
+        : undefined;
+      expect(call[2], JSON.stringify(diagnostic)).toHaveLength(1);
       expect(call[2]?.every((button) => !button.url.includes('#'))).toBe(true);
     }
     const count = sendMessage.mock.calls.length;
@@ -483,8 +491,7 @@ suite('Telegram workspace HTTP, bot menu and durable delivery integration', () =
       runtime,
       'qigong_worker_runtime',
       { requestId: randomUUID() },
-      (client) =>
-        client.query<{ ready: boolean }>('SELECT ops.telegram_reminder_schema_ready() ready')
+      (client) => client.query<{ ready: boolean }>('SELECT ops.line_invite_schema_ready() ready')
     );
     expect(ready.rows[0]!.ready).toBe(true);
     await expect(

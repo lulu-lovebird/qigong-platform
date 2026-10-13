@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
+import { registerLineInvites } from './line-invites.js';
 import {
   enrichPracticeHistory,
   isPracticeNoteConflict,
@@ -23,6 +24,7 @@ export interface LineConfig {
   loginChannelId: string;
   liffId: string;
   verifyIdToken?: (idToken: string) => Promise<string>;
+  verifyFriendship?: (accessToken: string, subject: string) => Promise<boolean>;
   reply?: (replyToken: string, text: string) => Promise<void>;
 }
 
@@ -66,6 +68,13 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
         throw new Error('Invalid LINE ID token');
       return parsed.data.sub;
     });
+  registerLineInvites(app, pool, {
+    liffId: config.liffId,
+    loginChannelId: config.loginChannelId,
+    privacySecret: config.channelSecret,
+    verifyIdToken: verify,
+    ...(config.verifyFriendship ? { verifyFriendship: config.verifyFriendship } : {})
+  });
   const replyMessage =
     config.reply ??
     (async (replyToken: string, text: string) => {

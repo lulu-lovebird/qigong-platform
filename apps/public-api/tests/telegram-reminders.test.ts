@@ -362,8 +362,18 @@ suite('Signed Telegram reminders and restricted durable delivery', () => {
       await new Promise((resolve) => setTimeout(resolve, 1));
       active--;
     });
-    for (let batch = 0; batch < 5; batch++)
-      expect(await deliverTelegramReminders(runtime, sender, () => {})).toBe(25);
+    for (let batch = 0; batch < 5; batch++) {
+      const delivered = await deliverTelegramReminders(runtime, sender, () => {});
+      const diagnostic =
+        delivered !== 25
+          ? (
+              await db.pool.query(
+                'SELECT j.status,count(*)::int count,min(extract(epoch FROM j.expires_at-clock_timestamp())) expires_seconds,min(extract(epoch FROM clock_timestamp()-ch.valid_from)) channel_age_seconds,count(*) FILTER(WHERE ops.telegram_reminder_eligible(j.id))::int eligible FROM ops.telegram_reminders j JOIN identity.person_interaction_channels ch ON ch.platform_identity_id=j.identity_id GROUP BY j.status'
+              )
+            ).rows
+          : undefined;
+      expect(delivered, JSON.stringify(diagnostic)).toBe(25);
+    }
     expect(sender).toHaveBeenCalledTimes(125);
     expect(peak).toBeLessThanOrEqual(5);
   });

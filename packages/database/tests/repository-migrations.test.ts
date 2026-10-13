@@ -55,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0028_telegram_reminders.sql'
+      '0029_line_invites.sql'
     );
 
     expect(first.applied).toEqual([
@@ -86,13 +86,14 @@ describeWithDatabase('repository migrations', () => {
       '0025_telegram_miniapp_sessions.sql',
       '0026_admin_oidc_profile.sql',
       '0027_whatsapp_browser_sessions.sql',
-      '0028_telegram_reminders.sql'
+      '0028_telegram_reminders.sql',
+      '0029_line_invites.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0028_telegram_reminders.sql',
+      currentVersion: '0029_line_invites.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0028_telegram_reminders.sql',
+      maximumVersion: '0029_line_invites.sql',
       ready: true
     });
   });

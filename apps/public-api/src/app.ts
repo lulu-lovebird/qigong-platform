@@ -25,8 +25,8 @@ export const apiLogRedaction = Object.freeze({
   censor: '[REDACTED]'
 });
 
-export const minimumMigrationVersion = '0028_telegram_reminders.sql';
-export const maximumMigrationVersion = '0028_telegram_reminders.sql';
+export const minimumMigrationVersion = '0029_line_invites.sql';
+export const maximumMigrationVersion = '0029_line_invites.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -117,7 +117,7 @@ export const buildApp = ({
 
   registerLearnerPrivacyRoutes(app, pool);
   registerExternalJournalRoutes(app, pool);
-  if (adminAuth) registerAdminRoutes(app, pool, adminAuth);
+  if (adminAuth) registerAdminRoutes(app, pool, adminAuth, line?.liffId);
   if (telegramOnboarding) registerTelegramOnboarding(app, pool, telegramOnboarding);
   if (line) registerLineOnboarding(app, pool, line);
   if (whatsapp) registerWhatsAppOnboarding(app, pool, whatsapp);

@@ -193,7 +193,7 @@ suite('Authenticated administrator metadata refresh without authorization change
           { requestId: randomUUID() },
           (c) =>
             c.query(
-              'SELECT ops.telegram_reminder_schema_ready() current,ops.whatsapp_browser_schema_ready() previous'
+              'SELECT ops.line_invite_schema_ready() current,ops.telegram_reminder_schema_ready() previous'
             )
         )
       ).rows[0]

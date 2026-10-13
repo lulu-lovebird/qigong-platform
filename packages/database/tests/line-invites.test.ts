@@ -1,0 +1,261 @@
+import { randomBytes, randomUUID } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import pg from 'pg';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { runMigrations, withRequestContext, type Pool } from '../src/index.js';
+import { createIsolatedTestDatabase } from './test-database.js';
+const base = process.env.TEST_DATABASE_URL,
+  suite = base ? describe : describe.skip;
+const directory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../migrations');
+suite('Hashed scoped LINE invitations and atomic learner approval', () => {
+  let db: Awaited<ReturnType<typeof createIsolatedTestDatabase>>,
+    runtime: Pool,
+    role: string,
+    actor: string,
+    other: string,
+    region: string,
+    cap: string,
+    invite: { id: string; revision: number },
+    grant: string;
+  const subject = 'U' + 'a'.repeat(32);
+  const query = <Row extends Record<string, unknown>>(
+    sql: string,
+    values: unknown[] = [],
+    principal: string | null = actor,
+    worker = false
+  ) =>
+    withRequestContext(
+      runtime,
+      worker ? 'qigong_worker_runtime' : 'qigong_api_runtime',
+      { requestId: randomUUID(), ...(principal ? { principalId: principal } : {}) },
+      (c) => c.query<Row>(sql, values)
+    );
+  const create = async (limit = 100) => {
+    cap = randomBytes(32).toString('base64url');
+    invite = (
+      await query<{ data: { id: string; revision: number } }>(
+        'SELECT admin.create_line_invite($1,$2,$3,$4,$5,$6) data',
+        [
+          cap,
+          'Synthetic invite',
+          'tw-general',
+          new Date(Date.now() + 7 * 86400000).toISOString(),
+          limit,
+          'Synthetic reviewed invite'
+        ]
+      )
+    ).rows[0]!.data;
+  };
+  const redeem = (id = subject, token = cap) =>
+    query<{ data: { status: string; alreadyMember: boolean } }>(
+      'SELECT platform.redeem_line_invite($1,$2,$3,$4,$5) data',
+      [id, token, 'Synthetic learner', 'same@example.invalid', '+65960000001'],
+      null
+    );
+  beforeEach(async () => {
+    db = await createIsolatedTestDatabase(base!);
+    await runMigrations(db.pool, directory, 'line-invite-test');
+    role = 'qigong_invite_test_' + randomUUID().replaceAll('-', '');
+    const password = randomBytes(24).toString('hex');
+    await db.pool.query(`CREATE ROLE ${role} LOGIN NOINHERIT NOBYPASSRLS PASSWORD '${password}'`);
+    await db.pool.query(`GRANT qigong_api_runtime,qigong_worker_runtime TO ${role}`);
+    const url = new URL(db.databaseUrl);
+    url.username = role;
+    url.password = password;
+    runtime = new pg.Pool({ connectionString: url.href });
+    actor = (
+      await db.pool.query<{ id: string }>(
+        "INSERT INTO admin.principals(oidc_issuer,oidc_subject,display_name) VALUES('https://invite.example.invalid','super','Synthetic super') RETURNING id"
+      )
+    ).rows[0]!.id;
+    other = (
+      await db.pool.query<{ id: string }>(
+        "INSERT INTO admin.principals(oidc_issuer,oidc_subject,display_name) VALUES('https://invite.example.invalid','other','Synthetic other') RETURNING id"
+      )
+    ).rows[0]!.id;
+    grant = (
+      await db.pool.query<{ id: string }>(
+        "INSERT INTO admin.role_grants(principal_id,role_id,scope_type,valid_from,reason) SELECT $1,id,'global',clock_timestamp()-INTERVAL '1 day','Synthetic super' FROM admin.roles WHERE code='super_admin' RETURNING id",
+        [actor]
+      )
+    ).rows[0]!.id;
+    region = (
+      await db.pool.query<{ id: string }>(
+        "WITH g AS(INSERT INTO core.regions(code,region_type,name_zh_tw,name_en) VALUES('invite-global','global','全球','Global') RETURNING id),k AS(INSERT INTO core.regions(parent_region_id,code,region_type,name_zh_tw,name_en) SELECT id,'invite-country','country','國家','Country' FROM g RETURNING id) INSERT INTO core.regions(parent_region_id,code,region_type,name_zh_tw,name_en,default_timezone) SELECT id,'tw-general','operational','台灣','Taiwan','Asia/Taipei' FROM k RETURNING id"
+      )
+    ).rows[0]!.id;
+    await create();
+  });
+  afterEach(async () => {
+    await runtime.end();
+    await db.pool.query(`DROP OWNED BY ${role}`);
+    await db.pool.query(`DROP ROLE ${role}`);
+    await db.dispose();
+  });
+  it('limits management to active super, hashes the secret, and never lists it', async () => {
+    await expect(query('SELECT admin.line_invite_list()', [], other)).rejects.toThrow('denied');
+    await expect(query('SELECT * FROM platform.line_invites')).rejects.toThrow();
+    await expect(query('SELECT admin.line_invite_list()', [], null, true)).rejects.toThrow();
+    const list = (await query<{ data: unknown }>('SELECT admin.line_invite_list() data')).rows[0]!
+      .data;
+    expect(JSON.stringify(list)).not.toContain(cap);
+    expect(
+      (
+        await db.pool.query(
+          'SELECT token_hash=public.digest($1,$2) matched FROM platform.line_invites',
+          [cap, 'sha256']
+        )
+      ).rows[0]!.matched
+    ).toBe(true);
+  });
+  it('atomically creates a new person, exact verified identity, region and one normal notification without admin roles', async () => {
+    const grantsBefore = (await db.pool.query('SELECT * FROM admin.role_grants')).rows;
+    expect((await redeem()).rows[0]!.data).toEqual({ status: 'approved', alreadyMember: false });
+    expect((await redeem()).rows[0]!.data.alreadyMember).toBe(true);
+    expect((await db.pool.query('SELECT uses FROM platform.line_invites')).rows[0]!.uses).toBe(1);
+    expect((await db.pool.query('SELECT * FROM identity.people')).rowCount).toBe(1);
+    expect((await db.pool.query('SELECT * FROM ops.onboarding_notifications')).rowCount).toBe(1);
+    expect((await db.pool.query('SELECT * FROM admin.role_grants')).rows).toEqual(grantsBefore);
+    expect(
+      (await db.pool.query('SELECT region_id FROM core.person_region_assignments')).rows[0]!
+        .region_id
+    ).toBe(region);
+    expect(
+      (await db.pool.query('SELECT practice_timezone FROM identity.people')).rows[0]!
+        .practice_timezone
+    ).toBe('Asia/Taipei');
+  });
+  it('does not identify or merge learners by identical email, name or phone', async () => {
+    await redeem();
+    await redeem('U' + 'b'.repeat(32));
+    expect((await db.pool.query('SELECT * FROM identity.people')).rowCount).toBe(2);
+    expect((await db.pool.query('SELECT uses FROM platform.line_invites')).rows[0]!.uses).toBe(2);
+  });
+  it('enforces the last quota atomically under concurrent different-user and same-user retries', async () => {
+    await create(1);
+    const results = await Promise.allSettled([
+      redeem(subject),
+      redeem('U' + 'b'.repeat(32)),
+      redeem('U' + 'c'.repeat(32))
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect((await db.pool.query('SELECT * FROM platform.line_invite_redemptions')).rowCount).toBe(
+      1
+    );
+    const approved = (
+      await db.pool.query<{ external_subject_id: string }>(
+        'SELECT external_subject_id FROM identity.platform_identities'
+      )
+    ).rows[0]!.external_subject_id;
+    const retry = await Promise.all([redeem(approved), redeem(approved)]);
+    expect(retry.every((r) => r.rows[0]!.data.alreadyMember)).toBe(true);
+    expect(
+      (await db.pool.query('SELECT uses FROM platform.line_invites WHERE id=$1', [invite.id]))
+        .rows[0]!.uses
+    ).toBe(1);
+  });
+  it('lets existing authorized learners bypass expired/revoked/exhausted/unknown invitations without changing profile', async () => {
+    await redeem();
+    const before = (await db.pool.query('SELECT * FROM identity.onboarding_applications')).rows;
+    await query('SELECT admin.revoke_line_invite($1,$2,$3)', [
+      invite.id,
+      invite.revision,
+      'Synthetic revoke'
+    ]);
+    expect((await redeem(subject, 'z'.repeat(43))).rows[0]!.data.alreadyMember).toBe(true);
+    expect(
+      (
+        await query<{ data: { status: string } }>(
+          'SELECT platform.line_invite_state($1,$2) data',
+          [subject, cap],
+          null
+        )
+      ).rows[0]!.data.status
+    ).toBe('approved');
+    expect((await db.pool.query('SELECT * FROM identity.onboarding_applications')).rows).toEqual(
+      before
+    );
+    await expect(redeem('U' + 'b'.repeat(32))).rejects.toThrow('unavailable');
+  });
+  it('does not override pending/rejected/suspended identities or grant implicit restoration', async () => {
+    await db.pool.query(
+      "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id) VALUES('line',$1,'Pending',$2)",
+      [subject, region]
+    );
+    await expect(redeem()).rejects.toThrow('unavailable');
+    expect((await db.pool.query('SELECT uses FROM platform.line_invites')).rows[0]!.uses).toBe(0);
+    const fresh = 'U' + 'b'.repeat(32);
+    await redeem(fresh);
+    const person = (
+      await db.pool.query<{ person_id: string }>(
+        'SELECT person_id FROM identity.platform_identities'
+      )
+    ).rows[0]!.person_id;
+    await db.pool.query(
+      'UPDATE identity.person_interaction_channels SET valid_to=clock_timestamp() WHERE person_id=$1',
+      [person]
+    );
+    await db.pool.query("UPDATE identity.people SET status='suspended' WHERE id=$1", [person]);
+    await expect(redeem(fresh)).rejects.toThrow('unavailable');
+  });
+  it('rechecks issuer permission after waiting and honors stale revoke versions', async () => {
+    await expect(
+      query('SELECT admin.revoke_line_invite($1,$2,$3)', [invite.id, 42, 'Stale'])
+    ).rejects.toThrow('conflict');
+    const client = await db.pool.connect();
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(1919,1)');
+    const pending = redeem();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await client.query(
+      "UPDATE admin.role_grants SET valid_to=clock_timestamp()-INTERVAL '1 second' WHERE id=$1",
+      [grant]
+    );
+    await client.query('COMMIT');
+    client.release();
+    await expect(pending).rejects.toThrow('unavailable');
+    expect((await db.pool.query('SELECT uses FROM platform.line_invites')).rows[0]!.uses).toBe(0);
+  });
+  it('requires current privacy acceptance for new and already approved users while allowing normal manual applications unchanged', async () => {
+    await redeem();
+    await db.pool.query("UPDATE platform.learner_privacy_policies SET state='active'");
+    expect(
+      (
+        await query<{ data: { status: string } }>(
+          'SELECT platform.line_invite_state($1,$2) data',
+          [subject, cap],
+          null
+        )
+      ).rows[0]!.data.status
+    ).toBe('privacy');
+    await expect(redeem('U' + 'b'.repeat(32))).rejects.toThrow('privacy acceptance required');
+    await db.pool.query("UPDATE platform.learner_privacy_policies SET state='draft'");
+    const otherId = 'U' + 'b'.repeat(32),
+      short = randomBytes(32).toString('base64url');
+    await query('SELECT platform.begin_line_link($1,$2)', [otherId, short], null);
+    expect(
+      (
+        await query<{ state: string }>(
+          'SELECT platform.submit_line_application($1,$2,$3,$4,$5,$6) state',
+          [otherId, short, 'Manual', 'manual@example.invalid', '+65960000002', 'tw-general'],
+          null
+        )
+      ).rows[0]!.state
+    ).toBe('pending');
+  });
+  it('rejects expired invitations, inactive regions and invalid input without consuming quota', async () => {
+    await expect(
+      query(
+        'SELECT platform.redeem_line_invite($1,$2,$3,$4,$5)',
+        [subject, cap, 'Fake', 'invalid', 'bad'],
+        null
+      )
+    ).rejects.toThrow('invalid');
+    await db.pool.query(
+      "UPDATE platform.line_invites SET created_at=clock_timestamp()-INTERVAL '2 days',expires_at=clock_timestamp()-INTERVAL '1 second'"
+    );
+    await expect(redeem()).rejects.toThrow('unavailable');
+    expect((await db.pool.query('SELECT uses FROM platform.line_invites')).rows[0]!.uses).toBe(0);
+  });
+});
