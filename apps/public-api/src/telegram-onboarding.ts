@@ -6,6 +6,7 @@ import { renderApplicationPage } from './application-page.js';
 import { registerTelegramWorkspace } from './telegram-workspace.js';
 import { registerLearnerJournalRoutes } from './journal-routes.js';
 import { telegramFeatureButtons } from './telegram-feature-buttons.js';
+import { handleReviewNotificationBind } from './review-notifications.js';
 import { handleTelegramReminder, parseTelegramReminder } from './telegram-reminders.js';
 import { registerTelegramMiniapp } from './telegram-miniapp-auth.js';
 import {
@@ -131,6 +132,24 @@ export const registerTelegramOnboarding = (
       message.from.is_bot
     ) {
       return { ok: true };
+    }
+    if (/^\/admin_notify(?:@\w+)?(?:\s|$)/i.test(message.text ?? '')) {
+      try {
+        await sendMessage(
+          message.chat.id,
+          await handleReviewNotificationBind(
+            pool,
+            request.id,
+            message.text ?? '',
+            String(message.from.id),
+            config.webhookSecret
+          )
+        );
+        return { ok: true };
+      } catch {
+        app.log.error({ requestId: request.id }, 'Reviewer channel binding unavailable');
+        return reply.code(503).send({ error: 'review_channel_unavailable' });
+      }
     }
     const workspaceCommand =
       /^\/(checkin|leaderboard|methods|methodanalysis|achievements|history|mystats|badges|journal|share)(?:@\w+)?(?:\s|$)/i.exec(

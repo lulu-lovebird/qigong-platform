@@ -18,7 +18,8 @@ export type AdminPage =
   | 'learners'
   | 'shared'
   | 'privacy'
-  | 'invites';
+  | 'invites'
+  | 'notifications';
 const navigation: ReadonlyArray<{ page: AdminPage; path: string; label: AdminTextKey }> = [
   { page: 'overview', path: '/admin/', label: 'navOverview' },
   { page: 'leaderboard', path: '/admin/leaderboard', label: 'navLeaderboard' },
@@ -30,7 +31,8 @@ const navigation: ReadonlyArray<{ page: AdminPage; path: string; label: AdminTex
   { page: 'learners', path: '/admin/learners', label: 'navLearners' },
   { page: 'shared', path: '/admin/shared-journal', label: 'navShared' },
   { page: 'privacy', path: '/admin/privacy-policy', label: 'navPrivacy' },
-  { page: 'invites', path: '/admin/line-invites', label: 'navInvites' }
+  { page: 'invites', path: '/admin/line-invites', label: 'navInvites' },
+  { page: 'notifications', path: '/admin/notifications', label: 'navNotifications' }
 ];
 
 // All shell inputs come from source-controlled page definitions, never user data.

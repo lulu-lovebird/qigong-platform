@@ -7,6 +7,11 @@ import {
 } from './telegram-practice-receipts.js';
 import { z } from 'zod';
 import {
+  reviewNotificationsEnabled,
+  deliverReviewNotifications,
+  createReviewNotificationSender
+} from './review-notifications.js';
+import {
   createTelegramReminderSender,
   deliverTelegramReminders,
   telegramReminderWorkerEnabled
@@ -35,6 +40,7 @@ const lineToken = process.env.LINE_CHANNEL_ACCESS_TOKEN
   : undefined;
 const whatsapp = loadWhatsAppNotificationConfig(process.env);
 const remindersEnabled = telegramReminderWorkerEnabled(process.env.TELEGRAM_REMINDERS_ENABLED);
+const reviewEnabled = reviewNotificationsEnabled(process.env.REVIEW_NOTIFICATIONS_ENABLED);
 const pool = createPool(environment);
 pool.on('error', () => console.error('notification worker database connection failed'));
 
@@ -43,7 +49,8 @@ try {
     pool,
     'qigong_worker_runtime',
     { requestId: randomUUID() },
-    (client) => client.query<{ ready: boolean }>('SELECT ops.line_profile_schema_ready() ready')
+    (client) =>
+      client.query<{ ready: boolean }>('SELECT ops.review_notification_schema_ready() ready')
   );
   if (!schema.rows[0]?.ready) throw new Error('Notification worker schema mismatch');
   // Existing notification/practice lanes retain their six-attempt bound.
@@ -89,6 +96,15 @@ try {
             console.error('Telegram reminder delivery failed', { id })
           ).then((processed) =>
             console.log(JSON.stringify({ event: 'telegram_reminders_processed', processed }))
+          )
+        ]
+      : []),
+    ...(reviewEnabled
+      ? [
+          deliverReviewNotifications(pool, createReviewNotificationSender(token), (_error, id) =>
+            console.error('Reviewer notification delivery failed', { id })
+          ).then((processed) =>
+            console.log(JSON.stringify({ event: 'review_notifications_processed', processed }))
           )
         ]
       : []),

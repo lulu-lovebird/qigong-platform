@@ -12,7 +12,11 @@ suite('LINE provider display metadata upgrade', () => {
   it('upgrades30 without copying self-reported names or changing existing private data, authorization or publications', async () => {
     const db = await createIsolatedTestDatabase(base!),
       old = await mkdtemp(path.join(tmpdir(), 'qigong-profile30-'));
+    const current = await mkdtemp(path.join(tmpdir(), 'qigong-profile31-chain-'));
     try {
+      for (const file of await readdir(directory))
+        if (file.endsWith('.sql') && file < '0032_')
+          await copyFile(path.join(directory, file), path.join(current, file));
       for (const file of await readdir(directory))
         if (file.endsWith('.sql') && file < '0031_')
           await copyFile(path.join(directory, file), path.join(old, file));
@@ -42,10 +46,10 @@ suite('LINE provider display metadata upgrade', () => {
           )
         ).rows[0]!.hash;
       const before = await Promise.all(tables.map(hash));
-      expect((await runMigrations(db.pool, directory, 'profile-new')).applied).toEqual([
+      expect((await runMigrations(db.pool, current, 'profile-new')).applied).toEqual([
         '0031_line_verified_profile_names.sql'
       ]);
-      expect((await runMigrations(db.pool, directory, 'profile-repeat')).applied).toEqual([]);
+      expect((await runMigrations(db.pool, current, 'profile-repeat')).applied).toEqual([]);
       expect(await Promise.all(tables.map(hash))).toEqual(before);
       expect((await db.pool.query('SELECT * FROM platform.line_verified_profiles')).rowCount).toBe(
         0
@@ -78,6 +82,7 @@ suite('LINE provider display metadata upgrade', () => {
     } finally {
       await db.dispose();
       await rm(old, { recursive: true, force: true });
+      await rm(current, { recursive: true, force: true });
     }
   });
 });

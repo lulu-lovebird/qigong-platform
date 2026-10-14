@@ -1,5 +1,14 @@
 # Qigong Platform — 交接摘要
 
+## Telegram管理員私人待審通知（本機schema32候選，未提交／部署／啟用）
+
+- 使用者核准先用Telegram私聊主動通知新管理員與完整新學員申請。新0032四forced-RLS tables(preferences／hashed link challenges／events／deliveries)，无runtime直接表權限、无历史pending回填／自動綁定／opt-in／授權或person合併。現有申請人核准/拒絕outbox保持，LINE invite直接approved不產待審事件。
+- /admin/notifications由正常Authgear session、CSRF/Origin發起10min高熵指令；private signed Telegram /admin_notify token取得server HMAC6位碼，仅hash储存，仍需本人后台登录+正确码+revision最后确认。5錯失效、wrong-attempt commit不会rollback，subject不能綁多個principal，新begin撤舊challenge但不改原binding。通知type默认off；save opt-in、language、本人test5min limit／10minexpiry、disconnect cancel unsent，無姓名/email/phone推定綁定。綁定command在learner privacy gate前處理，仅验证private chat.id=from.id非Bot，不要求同時為learner；无group alert。
+- 事件admin draft/rejected→pending version、student資料完整pending（骨架/登入/metadata刷新/重試不發），pending改region產新scope且旧event失效；role/grant期限、can_manage_access_target（Master request僅Super／self不審）、can_review_application依原授權動態算，private owner probe set principal後始終restore。queue/claim/pre-send重查pending/version/region/grants/binding/prefs revision，處理/撤權/停用/改區/解绑取消，explicit newprefs revision可重queue cancelled但sent不重复。
+- 私聊僅kind/region/筆數與正常HTTPS admin登入入口，无name/email/phone/reason、token link或chat approval。個人state只masked last4、scope pending/unrouted/failed、最近20事件，無收件人不丟棄。worker REVIEW_NOTIFICATIONS_ENABLED可選defaultfalse，true才queue200／最多5 merged50-event leases並行、30sec merge wait／2minlease／5secHTTP／8 retry backoff<=15min；不能召回inflight或承諾exactly-once。mainenv未改／无真人訊息。
+- 全套629tests（DB156/API465/config2/identity6）通过format/lint/sourceTS/build；extra alltest TS既有10错误，新檔無新增。DB11/API7/brand新頁覆蓋双向码/hashed secret/CSRF/body impersonation/private signed/group deny/opt-in off defaults/scope/Master/resolved-region move/invite-no-review/context restore/last grant expiry/lease/retry/sent dedup/101 burst50-50-1/test rate/noPII；31→32upgrade/reapply全部非metadata oldrow hash保留，四表空，旧API/worker拒絕、新ready。mock非真人送達。
+- API exact0032_review_notifications.sql／worker ops.review_notification_schema_ready／phase-17-review-notifications，歷史0001–0031／依賴未改；主站仍fee82ba/31，learner reminder flag true／WA未配置／policy draft，未commit/push/deploy/正式通知開關或Bot Console修改。見[review-notifications](docs/operations/review-notifications.md)，證據/tmp/qigong-review-notifications-{verify-final,all-types-final}.log；发布/flag activation另核准、正式31clone／最终加密备份实际还原／matching API-worker及管理員真人綁定驗收。32回31需matching31DB＋fee82ba，不可binary-only；原untracked web-admin-permissions-review.md仍排除。
+
 ## 最新部署：LINE已驗證暱稱fee82ba／schema31
 
 - 使用者核准commit/push/deploy并要求continue。初版5278dae未部署，隔離smoke抓到SSR仍留「代號遮罩」與新JSON說明不一致，修正＋新增測試後部署fee82bab37d84bb1d0a9cde259bdc797fc1460b5；CI38527337097成功／609tests。
