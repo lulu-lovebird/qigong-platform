@@ -1,6 +1,16 @@
 # Qigong Platform — 交接摘要
 
-## Telegram管理員私人待審通知（本機schema32候選，未提交／部署／啟用）
+## 最新部署：Telegram私人待審通知8f98da9／schema32（發送開關未啟用）
+
+- 使用者核准commit/push/deploy。程式8f98da918b5b951a5360479ba4a56dce3bc1af7b、CI38610844698成功／629tests。正式2026-10-14 18:04:21–18:04:39 UTC維護18秒，只套0032/reapply零新增；原69表／12people／16checkins及所有非metadata指紋保留，新四表空，无historical events／binding／opt-in／role或consent回填。
+- 正式31clone與roles實際還原、完整指紋一致、旧fee82baAPI ready／32upgrade/reapply通過；最終站外AES-GCM DB/roles/env-systemd逐一decrypt-hash、roles設定重套＋DB实际clone還原相同／旧31ready才正式migration切换。歷史migrations與deps不變。
+- compiled受限admin/Authgear verified profile與grant revision/LINE-TG/journal/sharing/brand/scope、新雙向private binding/group deny/CSRF/revision/default opt-out/last4 mask/complete learner event/noPII-state/test rate通過；僅隔離worker override review=true且mock送2組/3 deliverysent，無真人msg、正式bind或合成申請。
+- 135主站＋1PNG共136HTTPS checks通过，通知頁/admin/notifications/routes已註冊、guest302/API401寫入拒絕；actualsynthetic req.url REDACTED。APIactive/NRestarts0/status0、timeractive、workerResultsuccess/status0，exact32/ops.review_notification_schema_ready true／旧31gatefalse。
+- **正式REVIEW_NOTIFICATIONS_ENABLED仍缺省false**；部署未開發送、未批量綁定或訂閱。learner reminders true保持、WA unconfigured／policy draft，env兩份bytehash、webhook/BotConsole/credentials未改。個人可登入通知頁自行產指令→Bot私聊取6位碼→後台確認→opt-in；要实际alert／test另核准开启review worker flag。
+- 恢復/root/qigong-deploy-8f98da9、deployment-tools/8f98da9、已停止rehearsal-8f98da9、站外受限backups/deployment-8f98da9和独立key保留。32→31需matching31DB＋fee82baAPI-worker與old-release.conf，不可binary-only；流量後另核准对帳events/bindings/prefs/delivery與其他寫入，不保證OS/Caddy或in-flight recall。見[review-notification-deployment](docs/operations/review-notification-deployment.md)。
+- 原untracked web-admin-permissions-review.md持續排除，既有間歇性回歸不稱已修復。下方candidate为發布前紀錄，以此部署段落為最新狀態。
+
+## Telegram管理員私人待審通知（本機實作紀錄，後續已部署32、發送未啟用）
 
 - 使用者核准先用Telegram私聊主動通知新管理員與完整新學員申請。新0032四forced-RLS tables(preferences／hashed link challenges／events／deliveries)，无runtime直接表權限、无历史pending回填／自動綁定／opt-in／授權或person合併。現有申請人核准/拒絕outbox保持，LINE invite直接approved不產待審事件。
 - /admin/notifications由正常Authgear session、CSRF/Origin發起10min高熵指令；private signed Telegram /admin_notify token取得server HMAC6位碼，仅hash储存，仍需本人后台登录+正确码+revision最后确认。5錯失效、wrong-attempt commit不会rollback，subject不能綁多個principal，新begin撤舊challenge但不改原binding。通知type默认off；save opt-in、language、本人test5min limit／10minexpiry、disconnect cancel unsent，無姓名/email/phone推定綁定。綁定command在learner privacy gate前處理，仅验证private chat.id=from.id非Bot，不要求同時為learner；无group alert。
@@ -106,7 +116,7 @@
 - preview與測試同時使用55440曾觸發受控角色依賴保護，停止preview後相關與完整verify通過；不稱為先前間歇性問題已修復。所有預覽／Chrome已停、合成DB／角色清理。證據/tmp/qigong-whatsapp-browser-{verify-final,all-types}.log、preview／cdp scripts及synthetic screenshots；見[whatsapp-browser](docs/operations/whatsapp-browser.md)。
 - 未commit／push／部署、未啟用WA、未改憑證／Meta assets／政策draft，主站仍97de588／26。發布另核准、正式26clone／matching API-worker／最終加密備份實際還原與真人驗收；27回26須matching DB＋97de588，不可binary-only。原untracked web-admin-permissions-review.md繼續排除。
 
-> 最新主站為 `fee82bab37d84bb1d0a9cde259bdc797fc1460b5`／`0031_line_verified_profile_names.sql`，2026-10-14 07:28 UTC完成核准部署。LINE排行榜與LINE stream的LINE作者用verified LINE nickname，尚無姓名匿名；手機10筆lazyload／邀請保留，TG reminder啟用，WA未配置／policy draft。原身份／權限／資料及env未改。
+> 最新主站為 `8f98da918b5b951a5360479ba4a56dce3bc1af7b`／`0032_review_notifications.sql`，2026-10-14 18:04 UTC完成核准部署。我的通知設定可雙向綁定Telegram，review發送開關缺省false；原LINE nickname／lazyload／invite保留，learner reminder true、WA unconfigured／policy draft，原資料／權限与env未改。
 
 ## Authgear管理員Email修復（已部署97de588／schema26，使用者已確認Gmail重登可讀Email）
 

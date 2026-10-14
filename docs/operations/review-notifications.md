@@ -1,6 +1,6 @@
-# Telegram私人待審通知（本機schema32候選）
+# Telegram私人待審通知（已部署schema32，發送開關未啟用）
 
-使用者核准先實作Telegram私聊通知新管理員／學員申請。尚未commit/push/deploy、未改正式env／webhook／Bot commands／憑證／政策，未建立正式綁定或發送真人訊息。主站仍fee82ba／schema31，既有Telegram learner reminders啟用、WhatsApp未配置；新review worker flag缺省false。
+使用者核准先實作Telegram私聊通知新管理員／學員申請。已另經使用者核准commit/push/deploy 8f98da9／schema32，2026-10-14 18:04 UTC切換、CI38610844698／629tests成功。正式env／webhook／Bot commands／憑證／政策未改，未建立正式綁定或發送真人訊息；learner reminders啟用、WhatsApp未配置，新review worker flag缺省false維持。見[部署與實際恢復證據](review-notification-deployment.md)。
 
 ## 管理員操作
 
@@ -46,4 +46,4 @@ DB11／HTTP7覆蓋雙向碼與wrong-code persistence、token hash／masked desti
 
 31→32合成upgrade/reapply保留所有非metadata舊表指紋与歷史pending，新四表空、無歷史事件或自動訂閱；旧API/worker gate拒絕32，新ready。Mock provider與code不是Telegram真人送達或重放防護的全域exactly-once證明。
 
-發布另核准，正式31快照clone、最終站外加密backup實際還原與matching API-worker，再由管理員真人綁定／勾選與測試收件。32→31需matching31DB＋fee82ba，不可binary-only，流量後需對帳新events/偏好/綁定/alerts與其他寫入；不保證OS/Caddy災復。
+本次發布已另核准，正式31快照clone／最終站外加密backup實際還原與matching API-worker完成；仍由管理員真人綁定／勾選，另外核准啟用review flag後測試收件。32→31需matching31DB＋fee82ba，不可binary-only，流量後需對帳新events/偏好/綁定/alerts與其他寫入；不保證OS/Caddy災復。
