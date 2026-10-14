@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { verifyLineIdentity } from '../src/line-profile.js';
+import { renderChannelWorkspacePage } from '../src/channel-workspace-pages.js';
 const subject = 'U' + 'a'.repeat(32),
   claims = {
     sub: subject,
@@ -10,6 +11,16 @@ const subject = 'U' + 'a'.repeat(32),
   };
 afterEach(() => vi.unstubAllGlobals());
 describe('Server-verified LINE display metadata', () => {
+  it('replaces both server-rendered and browser-configured ranking privacy text only on LINE', () => {
+    const html = renderChannelWorkspacePage(
+      { platform: 'line', liffId: '123-profile' },
+      'leaderboard'
+    );
+    expect(html).toContain('已驗證 LINE 暱稱');
+    expect(html).not.toContain('其他人的身份以代號遮罩');
+    const wa = renderChannelWorkspacePage({ platform: 'whatsapp' }, 'leaderboard');
+    expect(wa).toContain('其他人的身份以代號遮罩');
+  });
   it('takes a nickname only from the verified endpoint response bound to the exact channel and subject', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(claims));
     vi.stubGlobal('fetch', fetch);

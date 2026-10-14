@@ -113,16 +113,15 @@ export const renderChannelWorkspacePage = (
         );
     }
     if (page === 'leaderboard') {
-      const original = telegramWorkspaceTexts(lang);
-      html = html.replace(
-        'workspaceText=' + JSON.stringify(original),
-        'workspaceText=' +
-          JSON.stringify({
-            ...original,
-            rankingPrivacy:
-              '僅顯示同地區已核准 LINE 學員的已驗證 LINE 暱稱；尚未取得暱稱時顯示匿名學員，不使用申請表姓名、Email 或電話。暱稱只是顯示資訊，不影響身份或權限。最多列出30位，同天數並列。'
-          })
-      );
+      const original = telegramWorkspaceTexts(lang),
+        rankingPrivacy =
+          '僅顯示同地區已核准 LINE 學員的已驗證 LINE 暱稱；尚未取得暱稱時顯示匿名學員，不使用申請表姓名、Email 或電話。暱稱只是顯示資訊，不影響身份或權限。最多列出30位，同天數並列。';
+      html = html
+        .replace(
+          'workspaceText=' + JSON.stringify(original),
+          'workspaceText=' + JSON.stringify({ ...original, rankingPrivacy })
+        )
+        .replaceAll(original.rankingPrivacy, rankingPrivacy);
     }
     if (page === 'journal') {
       const original = journalTexts(lang);
