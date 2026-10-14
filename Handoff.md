@@ -1,6 +1,16 @@
 # Qigong Platform — 交接摘要
 
-## LINE手機心得流10筆cursor／lazyload／as-of統計（本機schema30候選，未提交或部署）
+## 最新部署：LINE手機心得流e2e9a4b／schema30
+
+- 使用者核准commit／push／部署。程式e2e9a4baaa6d4c109360bbe3bf1edc98ca7f39c4、CI38491423796成功／588 tests。正式2026-10-14 00:47:23–00:47:41 UTC維護18秒，只套0030／重跑零新增，原68表／11people／14checkins與全部非metadata列指紋保留，無新tables／資料回填。
+- 正式29clone＋roles實際隔離還原、指紋相同、舊0410e5f API ready／30upgrade／repeat通過；最終站外AES-GCM DB/roles/env-systemd逐一decrypt-hash，roles設定重套與DB實際還原、完整相同／旧29ready才正式切換。
+- compiled受限admin/Authgear verified profile與grant version/LINE-TG/journal/share撤銷/brand/scope與cursor10/keyset/asof25-26/historyRegionTime/noPrivateSource/old20/ownEditor保留通過，matching worker(mock)正常；只有隔離合成資料，無正式fixture、真人測試訊息。
+- 126主站＋1PNG共127HTTPS checks通過，LINEjournal stream/sentinel/loadmore/stats/publish sourceHash已生效，malformed cursor rejected；實際synthetic LIFF query req.url REDACTED。APIactive/NRestarts0/status0、timeractive、workerResultsuccess/status0，exact30／ops.line_journal_stream_schema_ready true／舊29gatefalse。
+- 两份正式env hash不變、Telegram reminder flag true保留、WA unconfigured／policy draft；richmenu/LIFF/Console/憑證未改。請從LINE richmenu重新開journal測首10＋lazy10／longtext／統計／我的心得草稿；只讀目前允許的share snapshot，真人手機／SDK驗收仍待完成。
+- 恢復/root/qigong-deploy-e2e9a4b、deployment-tools/e2e9a4b、已停止rehearsal-e2e9a4b、站外受限backups/deployment-e2e9a4b與独立key保留。30→29需matching29DB＋0410e5f API-worker及old-release.conf，不可binary-only、開流量後另核准對帳；不是完整OS/Caddy災復。見[line-journal-stream-deployment](docs/operations/line-journal-stream-deployment.md)。
+- 原untracked web-admin-permissions-review.md仍排除，既有間歇性回歸不稱已修復。以下候選段落為發布前實作紀錄，最新狀態以此部署段落為準。
+
+## LINE手機心得流10筆cursor／lazyload／as-of統計（本機實作紀錄，後續已部署30）
 
 - 使用者確認先只改LINE journal feed，保留我的心得20筆編輯／sourceHash-version／草稿與其他渠道／staff／external API。新0030新增platform.line_journal_stream(subject,cursor) facade，當前可見share作者alias＋歷史checkin地區／date／提交及分享時間與IANA timezone、截止practice_date的currentStreak／totalDays、published notes／methods／tags；不回person/identity IDs、原私密note或逐日history。聚合可包含未分享練功的日期數量，但不回日期／內容；LINE分享help／mine help／publish confirm明示新增公開aggregate，政策未發布／hash未改。
 - first cursor:null→10rows，keyset published_at＋UUID（equal timestamp不重複）、server upper boundary、每輪候選11／計數最多10，nextCursor／hasMore；cursor strict／future拒絕／30min到期須refresh，每批viewer與author資格／consent／active-share再查。非MVCC snapshot，撤回作者與新publishes影響後續讀取，已讀不能立即召回；非cursor舊LINE page仍20。
@@ -68,7 +78,7 @@
 - preview與測試同時使用55440曾觸發受控角色依賴保護，停止preview後相關與完整verify通過；不稱為先前間歇性問題已修復。所有預覽／Chrome已停、合成DB／角色清理。證據/tmp/qigong-whatsapp-browser-{verify-final,all-types}.log、preview／cdp scripts及synthetic screenshots；見[whatsapp-browser](docs/operations/whatsapp-browser.md)。
 - 未commit／push／部署、未啟用WA、未改憑證／Meta assets／政策draft，主站仍97de588／26。發布另核准、正式26clone／matching API-worker／最終加密備份實際還原與真人驗收；27回26須matching DB＋97de588，不可binary-only。原untracked web-admin-permissions-review.md繼續排除。
 
-> 最新主站為 `0410e5fee4ef2cf3964ab8ef4a196904a1f4e069`／`0029_line_invites.sql`，2026-10-13 05:43 UTC完成核准部署。LINE邀請入口及Super管理頁已生效；Telegram單功能入口與已核准的reminder啟用保持，WhatsApp未配置、policy draft。Authgear verified Email／原資料与scope保留，两份env未改。
+> 最新主站為 `e2e9a4baaa6d4c109360bbe3bf1edc98ca7f39c4`／`0030_line_journal_stream.sql`，2026-10-14 00:47 UTC完成核准部署。LINE手機心得流10筆lazyload／統計與邀請功能已生效，Telegram reminder保持啟用；WhatsApp未配置、policy draft。Authgear verified Email／原資料／scope及env保留。
 
 ## Authgear管理員Email修復（已部署97de588／schema26，使用者已確認Gmail重登可讀Email）
 

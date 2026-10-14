@@ -1,8 +1,8 @@
-# LINE手機心得流（本機schema30候選）
+# LINE手機心得流（已部署schema30，真人手機驗收待完成）
 
 ## 範圍
 
-使用者核准本機調整LINE rich menu `/journal`的社群心得流：手機單欄卡片、每次10筆、向下lazy load10筆，以及截至該笔練功日期的連續／累計天數。沒有commit／push／部署；主站仍0410e5f／schema29，LINE Console／rich menu／憑證、正式Telegram reminder flag與WhatsApp配置未改，policy仍draft。
+使用者核准本機調整LINE rich menu `/journal`的社群心得流：手機單欄卡片、每次10筆、向下lazy load10筆，以及截至該笔練功日期的連續／累計天數。已另經使用者核准commit／push／部署e2e9a4b／schema30，2026-10-14 00:47 UTC切換，CI38491423796／588 tests成功。LINE Console／rich menu／憑證、Telegram reminder true與WhatsApp未配置保持，policy draft。見[部署與實際恢復證據](line-journal-stream-deployment.md)。
 
 「我的心得」保留20筆頁碼、sourceHash／revision、獨立草稿、發布／撤回與外部分享勾選。Telegram／WhatsApp、staff及external journal query不變。分享流程對LINE作者新增統計公開告知／發布確認文字，但不發布政策、不回填或公開舊私密原文。
 
@@ -41,4 +41,4 @@
 - 29→30合成upgrade／reapply沒有新table或既有row變更，所有非metadata表hash與原community／staff／external／own／publish function definitions完全保留；新API／worker契約ready、旧29拒絕。
 - API exact30，worker `ops.line_journal_stream_schema_ready()`，architecture `phase-15-line-journal-stream`。歷史0001–0029／依賴／政策文件未改。
 
-commit／push／部署另核准，正式29快照clone／最終站外加密備份實際還原／matching API-worker後再測真人手機。30不可binary-only回29，流量後回復需對帳新寫入。既有間歇性practice identity／TG response問題有保留非敏感fixture診斷，不把rerun通過稱為已修復。
+本次commit／push／部署已另核准，正式29快照clone／最終站外加密備份實際還原與matching API-worker驗證完成，仍需真人手機驗收。30不可binary-only回29，流量後回復需對帳新寫入。既有間歇性practice identity／TG response問題有保留非敏感fixture診斷，不把rerun通過稱為已修復。
