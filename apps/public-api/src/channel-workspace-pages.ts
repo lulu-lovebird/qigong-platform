@@ -7,6 +7,7 @@ import {
   telegramWorkspaceBootstrap,
   type TelegramWorkspacePage
 } from './telegram-workspace-pages.js';
+import { journalTexts } from './journal-locale.js';
 import { renderLearnerJournalPage } from './learner-journal-pages.js';
 export type WorkspaceChannel = { platform: 'line'; liffId: string } | { platform: 'whatsapp' };
 export type ChannelWorkspacePage = TelegramWorkspacePage | 'journal';
@@ -110,6 +111,27 @@ export const renderChannelWorkspacePage = (
           previousButton,
           "if($('return-chat')){const button=$('return-chat');button.hidden=true;lineReady.then(()=>{button.hidden=!canCloseLine();}).catch(()=>{button.hidden=true;});button.onclick=()=>{if(mayLeave())closeMiniapp();};}"
         );
+    }
+    if (page === 'leaderboard') {
+      const original = telegramWorkspaceTexts(lang);
+      html = html.replace(
+        'workspaceText=' + JSON.stringify(original),
+        'workspaceText=' +
+          JSON.stringify({
+            ...original,
+            rankingPrivacy:
+              '僅顯示同地區已核准 LINE 學員的已驗證 LINE 暱稱；尚未取得暱稱時顯示匿名學員，不使用申請表姓名、Email 或電話。暱稱只是顯示資訊，不影響身份或權限。最多列出30位，同天數並列。'
+          })
+      );
+    }
+    if (page === 'journal') {
+      const original = journalTexts(lang);
+      html = html
+        .replaceAll(
+          original.streamNotice,
+          'LINE作者對此心得流顯示已驗證的LINE暱稱，尚未取得時顯示匿名學員；其他渠道作者保留分享暱稱。卡片含練功地區、時間及截止當次日期的連續／累計統計，不公開私密原文或逐日歷史。'
+        )
+        .replaceAll(original.alias, '其他分享渠道／外部分享使用的暱稱（LINE心得流使用LINE暱稱）');
     }
     html = html.replace('<option value="en">English</option>', '');
   }

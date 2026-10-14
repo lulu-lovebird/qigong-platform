@@ -43,8 +43,7 @@ try {
     pool,
     'qigong_worker_runtime',
     { requestId: randomUUID() },
-    (client) =>
-      client.query<{ ready: boolean }>('SELECT ops.line_journal_stream_schema_ready() ready')
+    (client) => client.query<{ ready: boolean }>('SELECT ops.line_profile_schema_ready() ready')
   );
   if (!schema.rows[0]?.ready) throw new Error('Notification worker schema mismatch');
   // Existing notification/practice lanes retain their six-attempt bound.

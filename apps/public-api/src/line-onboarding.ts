@@ -1,8 +1,13 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
 import { registerLineInvites } from './line-invites.js';
+import {
+  verifyLineIdentity,
+  verifiedLineIdentitySchema,
+  type VerifiedLineIdentity
+} from './line-profile.js';
 import {
   enrichPracticeHistory,
   isPracticeNoteConflict,
@@ -24,6 +29,7 @@ export interface LineConfig {
   loginChannelId: string;
   liffId: string;
   verifyIdToken?: (idToken: string) => Promise<string>;
+  verifyIdentity?: (idToken: string) => Promise<VerifiedLineIdentity>;
   verifyFriendship?: (accessToken: string, subject: string) => Promise<boolean>;
   reply?: (replyToken: string, text: string) => Promise<void>;
 }
@@ -48,26 +54,32 @@ const details = z.object({
 
 export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config: LineConfig) => {
   const liffBase = `https://liff.line.me/${encodeURIComponent(config.liffId)}`;
-  const verify =
-    config.verifyIdToken ??
-    (async (idToken: string) => {
-      const response = await fetch('https://api.line.me/oauth2/v2.1/verify', {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ id_token: idToken, client_id: config.loginChannelId }),
-        signal: AbortSignal.timeout(5000)
-      });
-      if (!response.ok) throw new Error('LINE ID token verification failed');
-      const data: unknown = await response.json();
-      const parsed = z.object({ sub: userId, aud: z.string(), exp: z.number() }).safeParse(data);
-      if (
-        !parsed.success ||
-        parsed.data.aud !== config.loginChannelId ||
-        parsed.data.exp <= Date.now() / 1000
-      )
-        throw new Error('Invalid LINE ID token');
-      return parsed.data.sub;
-    });
+  const legacyVerify = config.verifyIdToken;
+  const verifyIdentity =
+    config.verifyIdentity ??
+    (legacyVerify
+      ? async (token: string) => ({ subject: await legacyVerify(token) })
+      : (token: string) => verifyLineIdentity(token, config.loginChannelId));
+  const verify = async (token: string) => {
+    const identity = verifiedLineIdentitySchema.parse(await verifyIdentity(token));
+    if (identity.displayName) {
+      try {
+        await withRequestContext(
+          pool,
+          'qigong_api_runtime',
+          { requestId: randomUUID() },
+          (client) =>
+            client.query('SELECT platform.refresh_verified_line_profile($1,$2)', [
+              identity.subject,
+              identity.displayName
+            ])
+        );
+      } catch {
+        app.log.warn('Verified LINE nickname refresh unavailable');
+      }
+    }
+    return identity.subject;
+  };
   registerLineInvites(app, pool, {
     liffId: config.liffId,
     loginChannelId: config.loginChannelId,

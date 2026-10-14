@@ -55,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0030_line_journal_stream.sql'
+      '0031_line_verified_profile_names.sql'
     );
 
     expect(first.applied).toEqual([
@@ -88,13 +88,14 @@ describeWithDatabase('repository migrations', () => {
       '0027_whatsapp_browser_sessions.sql',
       '0028_telegram_reminders.sql',
       '0029_line_invites.sql',
-      '0030_line_journal_stream.sql'
+      '0030_line_journal_stream.sql',
+      '0031_line_verified_profile_names.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0030_line_journal_stream.sql',
+      currentVersion: '0031_line_verified_profile_names.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0030_line_journal_stream.sql',
+      maximumVersion: '0031_line_verified_profile_names.sql',
       ready: true
     });
   });

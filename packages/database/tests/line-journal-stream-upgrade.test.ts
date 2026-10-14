@@ -12,7 +12,11 @@ suite('LINE journal stream schema29 to30', () => {
   it('changes no old rows or tables and rejects old API/worker while preserving existing share facades', async () => {
     const db = await createIsolatedTestDatabase(base!),
       old = await mkdtemp(path.join(tmpdir(), 'qigong-stream29-'));
+    const current = await mkdtemp(path.join(tmpdir(), 'qigong-stream30-chain-'));
     try {
+      for (const file of await readdir(directory))
+        if (file.endsWith('.sql') && file < '0031_')
+          await copyFile(path.join(directory, file), path.join(current, file));
       for (const file of await readdir(directory))
         if (file.endsWith('.sql') && file < '0030_')
           await copyFile(path.join(directory, file), path.join(old, file));
@@ -44,10 +48,10 @@ suite('LINE journal stream schema29 to30', () => {
           "SELECT p.proname name,pg_get_functiondef(p.oid) definition FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE (n.nspname='core' AND p.proname='journal_audience_feed') OR (n.nspname='platform' AND p.proname IN('community_feed','external_journal_feed','channel_journal_own','channel_journal_publish')) ORDER BY 1"
         )
       ).rows;
-      expect((await runMigrations(db.pool, directory, 'stream-new')).applied).toEqual([
+      expect((await runMigrations(db.pool, current, 'stream-new')).applied).toEqual([
         '0030_line_journal_stream.sql'
       ]);
-      expect((await runMigrations(db.pool, directory, 'stream-repeat')).applied).toEqual([]);
+      expect((await runMigrations(db.pool, current, 'stream-repeat')).applied).toEqual([]);
       expect(await Promise.all(tables.map(hash))).toEqual(before);
       expect(
         (
@@ -78,6 +82,7 @@ suite('LINE journal stream schema29 to30', () => {
     } finally {
       await db.dispose();
       await rm(old, { recursive: true, force: true });
+      await rm(current, { recursive: true, force: true });
     }
   });
 });

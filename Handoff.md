@@ -1,5 +1,14 @@
 # Qigong Platform — 交接摘要
 
+## LINE排行榜／心得流已驗證暱稱（本機schema31候選，未提交／部署）
+
+- 使用者確認實際排行榜顯示學員＋number（原同地區mask），要求LINE作者在心得流用LINE暱稱；本機同時改LINE leaderboard與LINE journal stream。只從LINE官方ID token verify回覆取name，sub/aud/exp/iss驗證後存verified metadata，不相信browser displayName、申請姓名或Email/phone，不做姓名matching／身份合併或權限變更。
+- 新0031 line_verified_profiles forced-RLS／API-only refresh facade，identity UUID FK、name／verified_at；active person／未撤銷LINE identity才更新，unlinked false。只changed auditboolean不記name/token；current verified claims沒name不清空既有值、profile DB failure泛化warn不將metadata當認證。每次學員重開LINE頁面可刷新本人，舊學員未回訪前匿名，新加入導向checkin時再寫，不批量取profile／不回填自述姓名。
+- LINE同地區原排名／days／30上限保持，label已驗證暱稱+self（你），缺名匿名學員，不用hash或raw ID；LINE stream只改LINE identity作者alias，TG/WA作者保留share alias。舊community/staff/external/user publication aliases不變。My-sharing label指出alias用於其他渠道／external；LINE UI說明已驗證LINE暱稱，不宣稱申請姓名等於LINE profile。
+- private public-name getter未grant runtime，作者inactive／revoked／必要政策required不回nick；reader仍按必要consent／資格授權。使用者稱已同意不等於本機代接受所有人同意，沒有改policy文件／版本／發布draft／回填consent。
+- 最終完整608tests無skip，format/lint/sourceTS/build通過；extra all-test TS既有10錯誤。verifier12+DB/HTTP7+30→31upgrade1包含scope/subject/exp/issuer／name malformed／provider泛化、server nickname與anonymous／變更＆缺值保留／oldperson-identity-application-grants不變／audit無重複／跨渠道alias＆oldfeed保留／runtime denied／inactive與author缺必要consent保護；30→31各old非metadatarow hash保留、cache空、无申請姓名或角色回填，新舊API-worker gate匹配。mock不是LINE真人name驗收。
+- API exact0031_line_verified_profile_names.sql／worker ops.line_profile_schema_ready／phase-16-line-profile-names，歷史0001–0030／依賴未改。主站仍e2e9a4b／30，reminder true／WA unconfigured／policy draft；未commit/push/deploy／Console或env改動。見[line-profile-names](docs/operations/line-profile-names.md)，證據/tmp/qigong-line-profile-{verify-final,all-types-final}.log。發布另核准、正式30clone／最終加密備份實際還原／matching API-worker後，由學員再開LINE頁面驗收name；31回30需matching30DB＋e2e9a4b，不可binary-only。原untracked web-admin-permissions-review.md仍排除。
+
 ## 最新部署：LINE手機心得流e2e9a4b／schema30
 
 - 使用者核准commit／push／部署。程式e2e9a4baaa6d4c109360bbe3bf1edc98ca7f39c4、CI38491423796成功／588 tests。正式2026-10-14 00:47:23–00:47:41 UTC維護18秒，只套0030／重跑零新增，原68表／11people／14checkins與全部非metadata列指紋保留，無新tables／資料回填。
