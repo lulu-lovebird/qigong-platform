@@ -13,7 +13,11 @@ suite('LINE invitation migration compatibility', () => {
   it('upgrades28 idempotently with no existing row changes, invitations or automatic approvals', async () => {
     const db = await createIsolatedTestDatabase(url!),
       old = await mkdtemp(path.join(tmpdir(), 'qigong-invite28-'));
+    const current = await mkdtemp(path.join(tmpdir(), 'qigong-invite29-chain-'));
     try {
+      for (const file of await readdir(directory))
+        if (file.endsWith('.sql') && file < '0030_')
+          await copyFile(path.join(directory, file), path.join(current, file));
       for (const file of await readdir(directory))
         if (file.endsWith('.sql') && file < '0029_')
           await copyFile(path.join(directory, file), path.join(old, file));
@@ -55,10 +59,10 @@ suite('LINE invitation migration compatibility', () => {
           )
         ).rows[0]!.hash;
       const before = await Promise.all(tables.map(hash));
-      expect((await runMigrations(db.pool, directory, 'invite-new')).applied).toEqual([
+      expect((await runMigrations(db.pool, current, 'invite-new')).applied).toEqual([
         '0029_line_invites.sql'
       ]);
-      expect((await runMigrations(db.pool, directory, 'invite-repeat')).applied).toEqual([]);
+      expect((await runMigrations(db.pool, current, 'invite-repeat')).applied).toEqual([]);
       expect(await Promise.all(tables.map(hash))).toEqual(before);
       for (const table of ['platform.line_invites', 'platform.line_invite_redemptions'])
         expect((await db.pool.query('SELECT * FROM ' + table)).rowCount).toBe(0);
@@ -84,6 +88,7 @@ suite('LINE invitation migration compatibility', () => {
     } finally {
       await db.dispose();
       await rm(old, { recursive: true, force: true });
+      await rm(current, { recursive: true, force: true });
     }
   });
 });

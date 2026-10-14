@@ -1,5 +1,15 @@
 # Qigong Platform — 交接摘要
 
+## LINE手機心得流10筆cursor／lazyload／as-of統計（本機schema30候選，未提交或部署）
+
+- 使用者確認先只改LINE journal feed，保留我的心得20筆編輯／sourceHash-version／草稿與其他渠道／staff／external API。新0030新增platform.line_journal_stream(subject,cursor) facade，當前可見share作者alias＋歷史checkin地區／date／提交及分享時間與IANA timezone、截止practice_date的currentStreak／totalDays、published notes／methods／tags；不回person/identity IDs、原私密note或逐日history。聚合可包含未分享練功的日期數量，但不回日期／內容；LINE分享help／mine help／publish confirm明示新增公開aggregate，政策未發布／hash未改。
+- first cursor:null→10rows，keyset published_at＋UUID（equal timestamp不重複）、server upper boundary、每輪候選11／計數最多10，nextCursor／hasMore；cursor strict／future拒絕／30min到期須refresh，每批viewer與author資格／consent／active-share再查。非MVCC snapshot，撤回作者與新publishes影響後續讀取，已讀不能立即召回；非cursor舊LINE page仍20。
+- LINE限定手機單欄，統計兩格、功法／感受換行、160codepoints長文preview＋details原文、Intl按record timezone；memory-only cursor與ID deDup，IntersectionObserver300px、單request、15秒deadline、generation＋Abort，network保留cards同cursor retry／停止observer避免自动错误循环、auth清cards、expired顯示reload、empty/loading/done與手動fallback；reset回頂／render後補查sentinel避免loading時交叉事件漏掉，mine切換仍busy-dirty確認。
+- 最終完整588 tests無skip／format-lint-sourceTS-build通過；額外all-test tsc既有10錯誤。API7（10/10/5、asof25/26、historyRegion、upper-bound／refresh、withdraw／suspended／reader consent、old20/worker denied）、VM10（single request／append dedup／render-after-intersection／stale abort／error／auth／longtext／mode preserve）、29→30fingerprints与旧facade functiondefs不變、新舊ready通過。
+- Chrome合成SDK/API三布局390/430/1280通过：initial10＋lazy10＋last3、zero duplicate、long note不溢出、mine/feed切换；修正漏掉loading期間intersection的續載问题，刷新重設頂端。不是真人LINE或正式HTTPS验收，preview及Chrome停止，screenshots/scripts /tmp/qigong-line-stream-*。
+- 仍碰到既有間歇性LINE403／TG badges response缺欄位／onboarding permission denied／reminder claim0；targeted与最終588verify通过，不稱rerun是修復。保留viewer lookup/status/channel-age/consent診斷，失败logs /tmp/qigong-line-journal-stream-verify{,-final,-latest}.log、成功最後verify-last.log与all-types-final.log。fixture date+unknown首次失敗造成的6個line-stream-test DB按deployed_by清理，已用resource cleaners防洩漏，不碰其他DB。
+- API exact0030／worker ops.line_journal_stream_schema_ready／phase-15-line-journal-stream，無新增tables／old rows變更，歷史0001–0029與依賴未改；主站仍0410e5f／29、TG提醒flag true／WA unconfigured／policy draft，richmenu/Console/env未改，未commit/push/deploy。見[line-journal-stream](docs/operations/line-journal-stream.md)。发布另核准，正式29clone／最終加密備份實際還原／matching API-worker後真人測試；30回29需matching29 DB＋0410e5f，不可binary-only且流量後需對帳。原untracked web-admin-permissions-review.md保留。
+
 ## 最新部署：LINE邀請預核准0410e5f／schema29
 
 - 使用者核准commit／push／部署。程式0410e5fee4ef2cf3964ab8ef4a196904a1f4e069、CI38351901085成功／570 tests；正式2026-10-13 05:42:59–05:43:16 UTC維護17秒，只套0029並重跑零新增。原66表／11people／13checkins及全部非metadata列指紋保留，新invite／redemption表空，無正式邀請或自動核准回填。

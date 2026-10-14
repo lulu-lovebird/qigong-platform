@@ -25,7 +25,9 @@ export const renderChannelWorkspacePage = (
 ) => {
   const lang = channel.platform === 'line' ? 'zh_TW' : locale;
   let html = (
-    page === 'journal' ? renderLearnerJournalPage(lang) : renderTelegramWorkspacePage(page, lang)
+    page === 'journal'
+      ? renderLearnerJournalPage(lang, { lineStream: channel.platform === 'line' })
+      : renderTelegramWorkspacePage(page, lang)
   )
     .replace(telegramWorkspaceBootstrap, 'CHANNEL_AUTH_BOOTSTRAP')
     .replaceAll('/telegram/', '/' + channel.platform + '/')

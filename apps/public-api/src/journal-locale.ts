@@ -52,7 +52,21 @@ const english = {
   withdrawHelp:
     'Withdrawal stops new reads from this platform. Partner systems must remove cached copies; already viewed or copied content cannot be recalled.',
   back: 'Practice check-in',
-  language: 'Language'
+  language: 'Language',
+  streamNotice:
+    'Shared posts include their practice region, times, and aggregate streak/total days as of the practice date. Private original notes and daily history are not exposed.',
+  currentStreak: 'Practice streak',
+  totalDays: 'Total practice',
+  dayUnit: 'days',
+  metricsAsOf: 'Statistics as of this practice date.',
+  practiceDate: 'Practice date',
+  checkedInAt: 'Checked in',
+  publishedAt: 'Shared at',
+  loadMore: 'Load10 more',
+  streamDone: 'You have reached the end.',
+  retryLoad: 'Retry loading',
+  readFullNote: 'Read the full reflection',
+  streamExpired: 'This browsing cursor expired. Reload to see the latest posts.'
 };
 const chinese: Record<keyof typeof english, string> = {
   loading: '載入中…',
@@ -103,6 +117,20 @@ const chinese: Record<keyof typeof english, string> = {
   confirmWithdraw: '確定撤回這份分享快照？',
   withdrawHelp: '撤回後平台停止提供新的讀取；合作系統須移除快取，已被看過或複製的內容無法收回。',
   back: '練功打卡',
-  language: '語言'
+  language: '語言',
+  streamNotice:
+    '分享卡片會呈現練功地區、時間與截至該次練功日期的連續／累計天數統計；不公開私密原文或逐日歷史。',
+  currentStreak: '連續練功',
+  totalDays: '累計練功',
+  dayUnit: '天',
+  metricsAsOf: '統計截至這筆練功日期。',
+  practiceDate: '練功日期',
+  checkedInAt: '打卡時間',
+  publishedAt: '分享時間',
+  loadMore: '再載入10筆',
+  streamDone: '已看完目前的分享。',
+  retryLoad: '重新嘗試載入',
+  readFullNote: '閱讀完整心得',
+  streamExpired: '這次瀏覽已到期，請重新載入最新分享。'
 };
 export const journalTexts = (locale: AdminLocale) => (locale === 'en' ? english : chinese);

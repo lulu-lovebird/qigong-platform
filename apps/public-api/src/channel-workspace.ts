@@ -50,6 +50,14 @@ export const registerChannelWorkspace = (
         .refine((v) => new Set(v).size === v.length)
     })
     .strict();
+  const streamCursor = z
+    .object({
+      snapshotAt: z.iso.datetime({ offset: true }),
+      publishedAt: z.iso.datetime({ offset: true }),
+      id: z.uuid()
+    })
+    .strict()
+    .nullable();
   const publishInput = journalPublishInput
     .omit({ token: true, locale: true })
     .extend(credential.shape)
@@ -126,11 +134,18 @@ export const registerChannelWorkspace = (
               ? credential.extend({ timezone: z.string().min(1).max(100) }).strict()
               : mode === 'publish'
                 ? publishInput
-                : mode === 'feed' || mode === 'own'
+                : mode === 'feed' && provider === 'line'
                   ? credential
-                      .extend({ page: z.number().int().min(1).max(100000).default(1) })
+                      .extend({
+                        page: z.number().int().min(1).max(100000).default(1),
+                        cursor: streamCursor.optional()
+                      })
                       .strict()
-                  : credential;
+                  : mode === 'feed' || mode === 'own'
+                    ? credential
+                        .extend({ page: z.number().int().min(1).max(100000).default(1) })
+                        .strict()
+                    : credential;
       const parsed = schema.safeParse(request.body);
       if (!parsed.success) return reply.code(400).send({ error: 'invalid_workspace_request' });
       const cred = await resolveCredential(request);
@@ -200,6 +215,12 @@ export const registerChannelWorkspace = (
             ]
           );
         }
+        if (mode === 'feed' && provider === 'line' && 'cursor' in data)
+          return await execute(
+            request.id,
+            "SELECT platform.line_journal_stream($1,$2) || CASE WHEN (platform.privacy_notice()->>'active')::boolean THEN jsonb_build_object('privacy',platform.privacy_usage('line',$1)) ELSE '{}'::jsonb END data",
+            [cred, streamCursor.parse(data.cursor)]
+          );
         const v = credential.extend({ page: z.number() }).parse(data);
         return await execute(
           request.id,
