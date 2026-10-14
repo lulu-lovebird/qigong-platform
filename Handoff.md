@@ -1,6 +1,16 @@
 # Qigong Platform — 交接摘要
 
-## LINE排行榜／心得流已驗證暱稱（本機schema31候選，未提交／部署）
+## 最新部署：LINE已驗證暱稱fee82ba／schema31
+
+- 使用者核准commit/push/deploy并要求continue。初版5278dae未部署，隔離smoke抓到SSR仍留「代號遮罩」與新JSON說明不一致，修正＋新增測試後部署fee82bab37d84bb1d0a9cde259bdc797fc1460b5；CI38527337097成功／609tests。
+- 正式2026-10-14 07:27:56–07:28:20 UTC維護24秒，只套0031／reapply零新增，原68表／11people／14checkins及所有非metadata列fingerprint保留，新line_verified_profiles cache空，无申請姓名／consent／角色回填。profile為provider verified metadata，不匹配／合併身份、改person/application/grants/sessions/publications或scope。
+- 正式30clone＋roles實際隔離還原、舊e2e9a4b ready／31upgrade/reapply/data compare通過；corrected CI-watch＋prepare timeout只partial clone fixture，检查无process后从原30dump reset并全部重驗，未动主站。compiled admin/Authgear/grants/LINE-TG/journal/sharing/brand/scope、新own verified name／anonymous非法姓名fallback／更新与缺值保留／LINE feed name＆TG alias／client spoof拒絕及SSR修正通過，mock worker/reminder正常，零正式fixture/profile修改或真人測試發送。
+- 最終站外AES-GCM DB/roles/env-systemd逐一decrypt-hash，roles實際重套与DB實際還原指紋相同、舊30API ready才正式migration切換。128主站＋1PNG共129HTTPS checks通过，实际synthetic req.url REDACTED；APIactive/NRestarts0/status0、timeractive、matching workerResultsuccess/status0，exact31/newops.line_profile_schema_ready true／旧30gatefalse。
+- 两份env hash不變，Telegram reminder true／WA unconfigured／activepolicy0；LINE Console/LIFF/richmenu/憑證/政策未改。學員關舊頁重開LINE即可本人的可信name更新；尚未回訪或provider沒name仍匿名，不批量取profile、不用申請姓名補。真人name claim驗收待完成。
+- 恢復/root/qigong-deploy-fee82ba、deployment-tools/fee82ba、已停止rehearsal-fee82ba、站外受限backups/deployment-fee82ba与独立key保留；未部署5278dae/clone故障證據保留。31→30需matching30DB＋e2e9a4b API-worker与old-release.conf，不能binary-only、開流量後另核准對帳；非完整OS/Caddy災復。見[line-profile-deployment](docs/operations/line-profile-deployment.md)。
+- 原untracked web-admin-permissions-review.md仍排除，既有間歇性回歸不宣稱修復。以下candidate段落為發布前記錄，最新狀態以上方為準。
+
+## LINE排行榜／心得流已驗證暱稱（本機實作紀錄，後續已部署31）
 
 - 使用者確認實際排行榜顯示學員＋number（原同地區mask），要求LINE作者在心得流用LINE暱稱；本機同時改LINE leaderboard與LINE journal stream。只從LINE官方ID token verify回覆取name，sub/aud/exp/iss驗證後存verified metadata，不相信browser displayName、申請姓名或Email/phone，不做姓名matching／身份合併或權限變更。
 - 新0031 line_verified_profiles forced-RLS／API-only refresh facade，identity UUID FK、name／verified_at；active person／未撤銷LINE identity才更新，unlinked false。只changed auditboolean不記name/token；current verified claims沒name不清空既有值、profile DB failure泛化warn不將metadata當認證。每次學員重開LINE頁面可刷新本人，舊學員未回訪前匿名，新加入導向checkin時再寫，不批量取profile／不回填自述姓名。
@@ -87,7 +97,7 @@
 - preview與測試同時使用55440曾觸發受控角色依賴保護，停止preview後相關與完整verify通過；不稱為先前間歇性問題已修復。所有預覽／Chrome已停、合成DB／角色清理。證據/tmp/qigong-whatsapp-browser-{verify-final,all-types}.log、preview／cdp scripts及synthetic screenshots；見[whatsapp-browser](docs/operations/whatsapp-browser.md)。
 - 未commit／push／部署、未啟用WA、未改憑證／Meta assets／政策draft，主站仍97de588／26。發布另核准、正式26clone／matching API-worker／最終加密備份實際還原與真人驗收；27回26須matching DB＋97de588，不可binary-only。原untracked web-admin-permissions-review.md繼續排除。
 
-> 最新主站為 `e2e9a4baaa6d4c109360bbe3bf1edc98ca7f39c4`／`0030_line_journal_stream.sql`，2026-10-14 00:47 UTC完成核准部署。LINE手機心得流10筆lazyload／統計與邀請功能已生效，Telegram reminder保持啟用；WhatsApp未配置、policy draft。Authgear verified Email／原資料／scope及env保留。
+> 最新主站為 `fee82bab37d84bb1d0a9cde259bdc797fc1460b5`／`0031_line_verified_profile_names.sql`，2026-10-14 07:28 UTC完成核准部署。LINE排行榜與LINE stream的LINE作者用verified LINE nickname，尚無姓名匿名；手機10筆lazyload／邀請保留，TG reminder啟用，WA未配置／policy draft。原身份／權限／資料及env未改。
 
 ## Authgear管理員Email修復（已部署97de588／schema26，使用者已確認Gmail重登可讀Email）
 
