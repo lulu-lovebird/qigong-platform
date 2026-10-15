@@ -1,5 +1,12 @@
 # Qigong Platform — 交接摘要
 
+## 最新運維：待審通知發送已啟用（2026-10-15 01:04 UTC）
+
+- 使用者另行明確核准啟用REVIEW_NOTIFICATIONS_ENABLED。只原子設worker.env此flag=true，其他bytes／640權限／owner-group保留，API.env hash不變、learner reminder true与WA unconfigured保持；未改角色、個人通知偏好或綁定。
+- 停timer並drain worker後換env，compiled flag verifier true，matching32 worker Resultsuccess/status0、API/timer active、每分鐘下一觸發已排；actual review_notifications_processed0。當時1個pref／1個bound／0個opt-in、delivery0，所以沒有發出任何新通知。
+- 管理員需在/admin/notifications勾選管理員申請／學員申請並保存，或主動按本人測試；即使globalon仍每批按current審核scope/pending/versions重查。不要替所有管理員批量訂閱，不把學員身份合併到principal。
+- 受限原worker.env backup／change.json／API.env hash證據/root/qigong-review-enable-20261015T010410Z保留；停發另核准只改此flagfalse，不覆蓋後續其他env配置。部署程式仍8f98da9/schema32，下面「發送關閉」是18:04部署當時歷史紀錄。
+
 ## 最新部署：Telegram私人待審通知8f98da9／schema32（發送開關未啟用）
 
 - 使用者核准commit/push/deploy。程式8f98da918b5b951a5360479ba4a56dce3bc1af7b、CI38610844698成功／629tests。正式2026-10-14 18:04:21–18:04:39 UTC維護18秒，只套0032/reapply零新增；原69表／12people／16checkins及所有非metadata指紋保留，新四表空，无historical events／binding／opt-in／role或consent回填。

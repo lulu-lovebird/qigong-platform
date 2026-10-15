@@ -1,6 +1,6 @@
-# Telegram私人待審通知（已部署schema32，發送開關未啟用）
+# Telegram私人待審通知（schema32已部署、發送已啟用；個人需opt-in）
 
-使用者核准先實作Telegram私聊通知新管理員／學員申請。已另經使用者核准commit/push/deploy 8f98da9／schema32，2026-10-14 18:04 UTC切換、CI38610844698／629tests成功。正式env／webhook／Bot commands／憑證／政策未改，未建立正式綁定或發送真人訊息；learner reminders啟用、WhatsApp未配置，新review worker flag缺省false維持。見[部署與實際恢復證據](review-notification-deployment.md)。
+使用者核准先實作Telegram私聊通知新管理員／學員申請。已另經使用者核准commit/push/deploy 8f98da9／schema32，2026-10-14 18:04 UTC切換、CI38610844698／629tests成功。正式env／webhook／Bot commands／憑證／政策未改，未建立正式綁定或發送真人訊息；learner reminders啟用、WhatsApp未配置，review worker於2026-10-15 01:04 UTC經使用者另核准設true；未改個人偏好／綁定，當時1個bound、0個opt-in，無批量發送。見[部署與實際恢復證據](review-notification-deployment.md)。
 
 ## 管理員操作
 
@@ -31,7 +31,7 @@
 
 ## Worker與限制
 
-新可選`REVIEW_NOTIFICATIONS_ENABLED=true`；缺省／false完全不queue/claim/send，其他字串拒絕；部署和正式開關另核准，這次沒有改正式env。私聊綁定確認碼回覆是使用者主動操作，獨立於此outbox開關。
+新可選`REVIEW_NOTIFICATIONS_ENABLED=true`；缺省／false完全不queue/claim/send，其他字串拒絕；部署與正式開關已分別核准；2026-10-15 01:04 UTC只原子更改worker此flag=true，其他bytes／權限、API.env、learner reminder與WA配置保持。matching worker成功並恢復每分鐘timer，受限設定備份／驗證證據`/root/qigong-review-enable-20261015T010410Z`保留。私聊綁定確認碼回覆是使用者主動操作，獨立於此outbox開關。
 
 - 每輪queue最多200 event-recipient pair，exclude已存在pair避免starvation；新pref revision可重新排已cancelled但仍pending事件，sent不重發。
 - 最多5 merged leases并行，每組同principal/kind/region最多50 events、30秒合併等待、2分鐘lease、5秒HTTPtimeout、最多8次指數backoff不超15分鐘。大101事件驗證50/50/1，leader必須在該lease內。
@@ -46,4 +46,4 @@ DB11／HTTP7覆蓋雙向碼與wrong-code persistence、token hash／masked desti
 
 31→32合成upgrade/reapply保留所有非metadata舊表指紋与歷史pending，新四表空、無歷史事件或自動訂閱；旧API/worker gate拒絕32，新ready。Mock provider與code不是Telegram真人送達或重放防護的全域exactly-once證明。
 
-本次發布已另核准，正式31快照clone／最終站外加密backup實際還原與matching API-worker完成；仍由管理員真人綁定／勾選，另外核准啟用review flag後測試收件。32→31需matching31DB＋fee82ba，不可binary-only，流量後需對帳新events/偏好/綁定/alerts與其他寫入；不保證OS/Caddy災復。
+本次發布已另核准，正式31快照clone／最終站外加密backup實際還原與matching API-worker完成；review flag後續已另核准啟用；仍由管理員真人綁定／勾選並測試收件，不代為批量opt-in。32→31需matching31DB＋fee82ba，不可binary-only，流量後需對帳新events/偏好/綁定/alerts與其他寫入；不保證OS/Caddy災復。
