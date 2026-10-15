@@ -1,6 +1,15 @@
 # Qigong Platform — 交接摘要
 
-## 通知設定locale錯誤與checkbox排版（本機修復，未提交／部署）
+## 最新部署：通知頁locale與checkbox修復8eaaa9b（同schema32）
+
+- 使用者核准commit/push/deploy，程式8eaaa9b370addd45211fa7c848cf1e1d60d2e51e，CI38665560311成功／636tests。正式2026-10-15 01:34:07–01:34:23 UTC維護16秒；只切UI binary，schema32／phase17不變，未run migration applier，僅ledger/checksum/contract read驗證。
+- 正式32snapshot＋roles實際clone還原、全部data/metadata/fingerprints相同，原8f98da9与新API皆ready；compiled受限admin/Authgear/scope/grants/LINE-TG/journal/brand/sharing與worker(mock)通過。新smoke執行真compiled HTML/script、fetch bridge打真实API，zh/en兩次save的兩項勾選与locale均正確、无global locale注入，scopedflex存在；real DB driver需等待IO completion後再提交，已補等待，不將未dispatch視產品失敗。
+- 最終站外AESGCM DB/roles/env-systemd逐一decrypt-hash、roles實際重套/DB实际还原相同／原API ready才切主站；原73表／12people／16checkins、完整metadata與bindings/prefs/events/deliveries/grants/sessions全部原樣。無正式合成設定或真人測試msg。
+- 135主站＋1PNG共136HTTPS checks通過，actualsynthetic req.url REDACTED；APIactive/NRestarts0/status0、timeractive、workerResultsuccess/status0，review与learner reminder true、WA unconfigured／policy不變、兩份env bytehash相同。
+- 636本機/CI与390/1280雙語4Chrome layout及form save證據保留，現請管理員關舊頁重開/admin/notifications勾2項保存与本人測試作真人驗收；未代儲存任何正式偏好。
+- 恢復/root/qigong-deploy-8eaaa9b、deployment-tools/8eaaa9b、已停止rehearsal-8eaaa9b、受限backups/deployment-8eaaa9b與独立key保留。同schema32可matching8f98da9 API-worker＋old-release.conf回退，不還原DB/env或覆寫新prefs，會恢復舊bug，仍需發布核准。見[review-notification-ui-fix-deployment](docs/operations/review-notification-ui-fix-deployment.md)。原untracked web-admin-permissions-review.md仍排除。
+
+## 通知設定locale錯誤與checkbox排版（本機修復紀錄，後續已部署8eaaa9b）
 
 - 使用者回報勾選2類保存出locale not defined與checkbox文字上下排列，確認本機修復。原因shell adminLocaleScript的locale在shell IIFE内，而page script附在外部；頁面独立IIFE＋source-controlled const locale，修正save/disconnect/events path；global label display:grid原繼承造成checkbox換行，新notify-option flex scoped至#notify-preferences、input固定不縮＋span可wrap、44px觸控行，不改共用label。
 - 新tests/review-notification-page.test.ts7項執行實際完整HTML/script，不注入locale（以免mask bug）：zh/en渲染events與雙勾save含正確locale/CSRF、disconnect、失敗保留勾選、binding confirm與test、scoped markup。全636tests通過format/lint/sourceTS/build；額外all-test TS既有10錯誤。
@@ -130,7 +139,7 @@
 - preview與測試同時使用55440曾觸發受控角色依賴保護，停止preview後相關與完整verify通過；不稱為先前間歇性問題已修復。所有預覽／Chrome已停、合成DB／角色清理。證據/tmp/qigong-whatsapp-browser-{verify-final,all-types}.log、preview／cdp scripts及synthetic screenshots；見[whatsapp-browser](docs/operations/whatsapp-browser.md)。
 - 未commit／push／部署、未啟用WA、未改憑證／Meta assets／政策draft，主站仍97de588／26。發布另核准、正式26clone／matching API-worker／最終加密備份實際還原與真人驗收；27回26須matching DB＋97de588，不可binary-only。原untracked web-admin-permissions-review.md繼續排除。
 
-> 最新主站為 `8f98da918b5b951a5360479ba4a56dce3bc1af7b`／`0032_review_notifications.sql`，2026-10-14 18:04 UTC完成核准部署。我的通知設定可雙向綁定Telegram，review發送開關缺省false；原LINE nickname／lazyload／invite保留，learner reminder true、WA unconfigured／policy draft，原資料／權限与env未改。
+> 最新主站為 `8eaaa9b370addd45211fa7c848cf1e1d60d2e51e`／`0032_review_notifications.sql`，2026-10-15 01:34 UTC完成核准的same-schema UI修復部署；通知頁locale與checkbox對齊修正。review与learner reminder true、WA unconfigured／policy draft，原資料／偏好／綁定／權限与env未改。
 
 ## Authgear管理員Email修復（已部署97de588／schema26，使用者已確認Gmail重登可讀Email）
 

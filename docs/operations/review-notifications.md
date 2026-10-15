@@ -2,9 +2,9 @@
 
 使用者核准先實作Telegram私聊通知新管理員／學員申請。已另經使用者核准commit/push/deploy 8f98da9／schema32，2026-10-14 18:04 UTC切換、CI38610844698／629tests成功。正式env／webhook／Bot commands／憑證／政策未改，未建立正式綁定或發送真人訊息；learner reminders啟用、WhatsApp未配置，review worker於2026-10-15 01:04 UTC經使用者另核准設true；未改個人偏好／綁定，當時1個bound、0個opt-in，無批量發送。見[部署與實際恢復證據](review-notification-deployment.md)。
 
-## 本機UI修復待發布
+## 通知設定UI修復已發布
 
-使用者回報儲存locale未定義與checkbox文字換行。page現在独立IIFE定義render locale，不依賴shell局部變數；notify-preferences專用flex label/span對齊，不改全站label。7項VM執行完整HTML驗證zh/en save/disconnect/event render/binding/test與失敗保留選項，636全回歸通過；390/1280雙語4Chrome布局及實際雙checkbox save通過，無runtime locale error／水平溢出。此修復尚未commit/push/deploy，主站仍是上方schema32 release；沒有改DB／綁定／偏好或已啟用的worker flag。
+使用者回報儲存locale未定義與checkbox文字換行。page現在独立IIFE定義render locale，不依賴shell局部變數；notify-preferences專用flex label/span對齊，不改全站label。7項VM執行完整HTML驗證zh/en save/disconnect/event render/binding/test與失敗保留選項，636全回歸通過；390/1280雙語4Chrome布局及實際雙checkbox save通過，無runtime locale error／水平溢出。此修復已另核准commit/push/deploy 8eaaa9b／同schema32，CI38665560311／636tests成功，2026-10-15 01:34 UTC切換。沒有改DB／綁定／偏好或兩個已啟用的worker flag；隔離compiled HTML透過真API的zh/en雙勾save通过。請關舊頁再重開，由本人做正式驗收。見[UI修復部署與same-schema恢復](review-notification-ui-fix-deployment.md)。
 
 ## 管理員操作
 
