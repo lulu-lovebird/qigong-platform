@@ -2,7 +2,7 @@
 
 ## Current deployment
 
-LINE, Telegram and WhatsApp learner interfaces support `zh_TW` (Traditional Chinese), `zh_CN` (Simplified Chinese) and `en`. The management backend and system notifications support the same choices. Initial three-language release: `2ec42e2` / schema35. Current release: `2f5a4eb` / schema36, adding [editable Simplified quick-tag labels](feeling-tag-locales.md) after separate approval. See [three-language implementation and boundaries](trilingual-locales.md) and [deployment/recovery evidence](trilingual-locales-deployment.md).
+LINE, Telegram and WhatsApp learner interfaces support `zh_TW` (Traditional Chinese), `zh_CN` (Simplified Chinese) and `en`. The management backend and system notifications support the same choices. Initial three-language release: `2ec42e2` / schema35. Current release: `a952176` / schema36 with compact admin UI; the previous `2f5a4eb` release added [editable Simplified quick-tag labels](feeling-tag-locales.md) after separate approval. See [three-language implementation and boundaries](trilingual-locales.md) and [deployment/recovery evidence](trilingual-locales-deployment.md).
 
 Language is an interface/recipient preference, not authentication, identity association, enrollment region, practice time zone or authorization. Singapore/Malaysia do not force Simplified Chinese. Existing choices remain intact; no preference or user-content backfill occurs.
 

@@ -2,7 +2,7 @@
 
 ## Status and boundary
 
-The user approved the proposed UI plan and local implementation. **Not committed, pushed or deployed.** Production remains `2f5a4eb` / schema36. This change is admin presentation/navigation only: no migration, dependency, API authorization, learner UI, notification configuration, legal-text or provider/Console change.
+Deployed after separate user authorization: **`a952176` / same schema36**. See [deployment, final restore and rollback evidence](admin-compact-ui-deployment.md). This change is admin presentation/navigation only: no migration, dependency, API authorization, learner UI, notification configuration, legal-text or provider/Console change.
 
 ## Shared density and grouping
 
@@ -47,4 +47,4 @@ Per-page changes cover three-language quick tags and their active/order controls
 
 Evidence: `/tmp/qigong-admin-compact-{verify-final,all-types,cdp}.log`, measurement JSON, preview/CDP scripts and48 screenshots (including three touch-tablet and six edge views). Edge evidence is `/tmp/qigong-admin-compact-edge-cdp.log`. Preview/test containers are separate so browser fixtures do not interfere with the test suite.
 
-A later publication requires separate approval, exact-SHA CI, preserved-data/recovery checks and matching schema36 API/worker. No database migration is needed for this UI-only release. Preserve and exclude unrelated `docs/operations/web-admin-permissions-review.md`.
+The separately approved publication passed exact-SHA CI, preserved-data/recovery checks and matching schema36 API/worker. Future releases require their own approval and verification. No database migration is needed for this UI-only release. Preserve and exclude unrelated `docs/operations/web-admin-permissions-review.md`.

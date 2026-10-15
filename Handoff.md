@@ -1,6 +1,15 @@
 # Qigong Platform — 交接摘要
 
-## 最新本機：Compact Web Admin（未提交／部署）
+## 最新部署：Compact Web Admin a952176（同schema36）
+
+- 使用者另核准commit/push/deploy，a95217611373dd26814ab04b1f08dfdc69685e6f，CI38823188338成功／完整738（API547／DB183／config2／identity6）。2026-10-15 23:28:41–23:29:00 UTC維護19秒；同36／phase21，contract只有SELECT，無migration applier／DDL／data backfill，matching API-worker一起切換。
+- 共用compact CSS、224px sidebar／34px桌面controls、四組三語選單、native手機收合及coarse44px／16px欄位上線。權限／路由／draft／language／logout／CSP／品牌／法律正文與danger controls保留；學員頁／資料規則未變。
+- 最終站外AESGCM DB/roles/env-systemd逐一decrypt-hash、role settings重套及final DB實際restore；原2f5a4eb與新API皆ready，同36 repeat contract0。75舊表／17people／26checkins及metadata、saved CN、publications／selected labels／audit／permission全指紋與所有舊journal_source hashes一致；effectiveACL只正規化pg_restore owner-default NULL等價表示。env bytehash及640、TG reminders/review既有true、WA未設／policy draft保持。
+- 真compiled clone scope/grants／Authgear／private／sourceHash/external撤回、compact三語整tag HTML＋API、review偏好、LINE邀請friend/resume/quota/native/manual、community與舊私人／manual withdraw、24reports＋30HTML＋49badges與matching worker mock過，零真人測試send／正式合成資料。先前獨立PG/browser的126 layouts與48圖保留，不能當真人device/Authgear驗收。
+- 189HTTPS checks過，synthetic req.url已遮罩；APIactive/NRestarts0/exit0、timeractive、worker23:29:14 UTC後續success/exit0。clone暫存worker.env／credentials移除、rehearsal停；/root/qigong-deploy-a952176、deployment-tools/a952176、分離off-host backup/key保留。見[部署與恢復](docs/operations/admin-compact-ui-deployment.md)。
+- 同36回退可matching2f5a4eb binary／worker＋saved drop-in，不還原DB/env、不覆蓋新寫入；schema downgrade／災復仍需另核准對帳。all-test TS仍原10錯、時間戳間歇未稱已修；web-admin-permissions-review.md仍排除。請真人重開後台檢查compact使用性。
+
+## Compact Web Admin本機紀錄（後續已部署a952176）
 
 - 使用者核准compact設計與本機實作。新增admin-layout-styles.ts集中密度樣式，224px sidebar／34px桌面選單與controls、14px輸入字、72px可拉大textarea、縮小card/table留白。四組依序報表分析、學員管理、心得標籤、系統個人設定；三語group labels、現頁標記保留，既有link權限與API gate不變，空group與失敗capability維持隱藏。
 - 手機native details/summary收合、無JS預設展開、桌面resize重開；鍵盤Enter與focus可用。手機或coarse pointer共用44px／16px欄位tokens，含語言selector；wide touch tablet維持sidebar。quick tags／notify checkbox／短碼／管理員與學員reason／待審申請等統一compact，政策正文16px／1.65與危險區辨識保留。draft、CSRF、role/scope/version／表單payload未改。
