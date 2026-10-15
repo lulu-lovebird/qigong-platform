@@ -8,6 +8,7 @@ import {
 } from '../src/telegram-workspace-pages.js';
 import { telegramWorkspaceTexts } from '../src/telegram-workspace-locale.js';
 import { renderChannelWorkspacePage } from '../src/channel-workspace-pages.js';
+import { badgeIcons, fallbackBadgeIcon } from '../src/badge-icons.js';
 
 type Event = { preventDefault: () => void; returnValue?: string };
 type Handler = (event?: Event) => void | Promise<void>;
@@ -94,6 +95,14 @@ const element = (tagName = 'div'): Element => {
   });
   return item;
 };
+interface Badge {
+  code: string;
+  name: string;
+  kind: string;
+  configured: boolean;
+  threshold: number;
+  awards: ReadonlyArray<{ period: string; earnedAt: string; revoked: boolean }>;
+}
 interface Entry {
   id: string;
   date: string;
@@ -122,7 +131,8 @@ const fixture = (
     savedSharing?: 'automatic' | 'legacy_private' | 'manual';
     hash?: string;
     locale?: 'en' | 'zh_TW';
-    channel?: 'line';
+    channel?: 'line' | 'whatsapp';
+    badges?: ReadonlyArray<Badge>;
     lineNative?: boolean;
     lineInit?: () => Promise<void>;
     lineSearch?: string;
@@ -180,9 +190,10 @@ const fixture = (
     listeners = new Map<string, Handler>();
   const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
     const path = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    const body = jsonBody(init?.body);
+    const body = init?.body === undefined ? {} : jsonBody(init.body);
     let data: unknown = { ok: true };
-    if (path.endsWith('/session'))
+    if (path === '/whatsapp/auth/session') data = { authenticated: true };
+    else if (path.endsWith('/session'))
       data = { status: 'ready', token: 'a'.repeat(43), expiresIn: 840 };
     else if (path.endsWith('/profile')) data = profile;
     else if (path.endsWith('/save'))
@@ -213,7 +224,7 @@ const fixture = (
     else if (body.view === 'achievements')
       data = {
         ...profile,
-        badges: [
+        badges: options.badges ?? [
           {
             code: 'seasonal_winter',
             kind: 'winter',
@@ -229,7 +240,9 @@ const fixture = (
   const html =
     options.channel === 'line'
       ? renderChannelWorkspacePage({ platform: 'line', liffId: '123456-test' }, page)
-      : renderTelegramWorkspacePage(page, options.locale ?? 'en');
+      : options.channel === 'whatsapp'
+        ? renderChannelWorkspacePage({ platform: 'whatsapp' }, page, options.locale ?? 'en')
+        : renderTelegramWorkspacePage(page, options.locale ?? 'en');
   const source = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)]
     .map((match) => match[1])
     .join('\n');
@@ -254,7 +267,12 @@ const fixture = (
     login: vi.fn()
   };
   new Script(source).runInNewContext({
-    document: { getElementById: get, createElement: element, querySelectorAll: all },
+    document: {
+      getElementById: get,
+      createElement: element,
+      querySelectorAll: all,
+      cookie: '__Host-qigong-whatsapp-csrf=' + 'c'.repeat(43)
+    },
     location,
     history,
     window: {
@@ -347,6 +365,85 @@ describe('Telegram workspace generated scripts and unsaved private drafts', () =
     const html = renderChannelWorkspacePage({ platform: 'whatsapp' }, 'checkin', 'zh_TW');
     expect(html).not.toContain('id="community-note-disclosure"');
     expect(html).toContain('workspaceCommunityNotes=false');
+  });
+  it.each([
+    ['line', 'zh_TW'],
+    ['telegram', 'zh_TW'],
+    ['telegram', 'en'],
+    ['whatsapp', 'zh_TW'],
+    ['whatsapp', 'en']
+  ] as const)(
+    'renders all 49 legacy icons independently of award status for %s/%s',
+    async (channel, locale) => {
+      const badges: Badge[] = Object.keys(badgeIcons).map((code, index) => ({
+        code,
+        name: 'Badge ' + code,
+        kind: 'method',
+        threshold: 7,
+        configured: index % 4 !== 3,
+        awards:
+          index % 4 === 0
+            ? [
+                { period: '2026', earnedAt: '2026-10-01T00:00:00Z', revoked: false },
+                { period: '2025', earnedAt: '2025-10-01T00:00:00Z', revoked: true }
+              ]
+            : index % 4 === 2
+              ? [{ period: '2026', earnedAt: '2026-10-01T00:00:00Z', revoked: true }]
+              : []
+      }));
+      const before = structuredClone(badges);
+      const f = fixture('achievements', {
+        locale,
+        badges,
+        ...(channel === 'telegram' ? {} : { channel })
+      });
+      await tick();
+      const cards = f.get('badges').children;
+      expect(cards).toHaveLength(49);
+      for (const [index, card] of cards.entries()) {
+        const badge = badges[index]!,
+          earned = badge.awards.some((a) => !a.revoked),
+          heading = card.children[0]!,
+          icon = heading.children[0]!;
+        expect(card.dataset.badgeCode).toBe(badge.code);
+        expect(icon.textContent).toBe(badgeIcons[badge.code]);
+        expect(icon.className).toBe('badge-icon');
+        expect(icon.getAttribute('aria-hidden')).toBe('true');
+        expect(card.children[1]!.textContent).toBe(badge.name);
+        expect(card.className.includes(' earned')).toBe(earned);
+        expect(heading.children.slice(1).map((n) => n.textContent)).toEqual(earned ? [] : ['🔒']);
+        if (!badge.configured)
+          expect(f.texts(card)).toContain(telegramWorkspaceTexts(locale).unavailable);
+        if (badge.awards.some((a) => a.revoked))
+          expect(f.texts(card)).toContain(telegramWorkspaceTexts(locale).revoked);
+      }
+      expect(badges).toEqual(before);
+      expect(
+        f.fetchMock.mock.calls.some(
+          ([path]) => typeof path === 'string' && /save|publish|submit/.test(path)
+        )
+      ).toBe(false);
+      expect(f.html).toContain('.badge:not(.earned) .badge-icon{filter:grayscale(1);opacity:.45}');
+    }
+  );
+  it('uses a neutral icon for unknown/prototype-named codes and keeps badge names as literal text', async () => {
+    const f = fixture('achievements', {
+      badges: ['constructor', '__proto__', 'future_badge'].map((code) => ({
+        code,
+        name: '<img src=x onerror=alert(1)>',
+        kind: 'total',
+        threshold: 10,
+        configured: true,
+        awards: []
+      }))
+    });
+    await tick();
+    expect(f.get('badges').children).toHaveLength(3);
+    for (const card of f.get('badges').children) {
+      expect(card.children[0]!.children[0]!.textContent).toBe(fallbackBadgeIcon);
+      expect(card.children[1]!.textContent).toBe('<img src=x onerror=alert(1)>');
+      expect(f.texts(card)).not.toContain('[object Object]');
+    }
   });
   it('exchanges a native launch without a private link and preserves signed SDK parameters', async () => {
     const f = fixture('checkin', {

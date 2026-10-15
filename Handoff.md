@@ -1,5 +1,14 @@
 # Qigong Platform — 交接摘要
 
+## 最新本機：三渠道badge圖示移植（display-only，未提交部署）
+
+- 使用者核准本機修改：從qigong-line-bot/schema.sql／migrations005、008複製49種badge emoji至共享badge-icons.ts；季節去_27、combo補_7對齊平台code，舊repo只讀、原dirty docs/.DS_Store未動。
+- telegram-workspace-pages共用renderer呈現原圖示＋獨立鎖，無有效award灰階淡化、有未撤銷award正常色彩；原名稱／規則／年度與撤銷文字保留，未知／prototype code🏅安全fallback，textContent／aria-hidden裝飾，不拿icon判斷解鎖或授權。LINE繁中／TG-WA雙語共用。
+- 完整pnpm verify成功684tests（API497／DB179／config2／identity6）＋format/lint/source TS/build；新3個mapping tests、VM新6項（5種渠道語言各49卡＋未知碼/XSS），真DB/HTTP catalog49 code皆覆蓋。額外all-test tsc仍10既有錯，無新增。
+- Chrome390/1280共10layouts×49卡逐一glyph／earned/grayscale／獨立鎖檢查、zero overflow／runtime exception。driver換頁先等about:blank，避免誤認舊頁ready的測試race，產品未因此改動。全部synthetic SDK/backend，不是真LINE/TG/WA手機交付；WA仍未配置。
+- /tmp/qigong-badge-icons-* logs/scripts/10截圖；preview/Chrome已停，隔離PG16 qigong-badge-ui-test／55455完成後停止，原共享cluster未動／flakiness不稱已修。無migration、server schema gate或worker變更，歷史0001–0034／deps不動。
+- 正式仍9d00120／34、env／通知開關／policy及獎章資料未動。未commit/push/deploy，另等發布核准；same-schema34 matching API-worker，可binary回9d不還原DB／不重算獎章。見[badge圖示說明](docs/operations/badge-icons.md)。untracked web-admin-permissions-review.md保留排除。
+
 ## 最新部署：LINE/TG明示心得分享9d00120／schema34
 
 - 使用者另核准commit/push/deploy，9d00120484f0ef46ba83ed65166c1ac176a60e4d，CI38719995438成功／675tests；正式2026-10-15 10:32:13–10:32:30 UTC維護17秒，33→34／reapply0，matching API-worker exact34／phase19。

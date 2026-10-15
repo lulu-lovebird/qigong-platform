@@ -13,6 +13,7 @@ import {
   deliverTelegramPracticeReceipts
 } from '../src/telegram-practice-receipts.js';
 import { telegramPracticeSaveSchema } from '../src/telegram-workspace.js';
+import { badgeIcons } from '../src/badge-icons.js';
 
 const url = process.env.TEST_DATABASE_URL;
 const suite = url ? describe : describe.skip;
@@ -359,6 +360,12 @@ suite('Telegram workspace HTTP, bot menu and durable delivery integration', () =
     const { version } = first.json<{ version: number }>();
     const earned = await post('/telegram/workspace/report', { view: 'achievements' });
     expect(earned.statusCode).toBe(200);
+    expect(
+      earned
+        .json<{ badges: { code: string }[] }>()
+        .badges.map((b) => b.code)
+        .sort()
+    ).toEqual(Object.keys(badgeIcons).sort());
     expect(
       earned
         .json<{ badges: { code: string; awards: { revoked: boolean }[] }[] }>()
