@@ -22,7 +22,7 @@ export const renderAdminLearnerPage = (
         '</button></form>'
       : '') +
     (kind === 'privacy'
-      ? '<article>' +
+      ? '<article class="admin-policy-document">' +
         renderPrivacyDocument(locale) +
         '</article><fieldset id="policy-fields"><label>' +
         t.publishReason +
@@ -40,7 +40,7 @@ export const renderAdminLearnerPage = (
         '</button><span id="learner-page"></span><button id="learner-next" type="button">' +
         t.next +
         '</button></div>') +
-    '<style>textarea{font:inherit;width:100%;min-height:6rem;max-width:100%;padding:.6rem}fieldset{min-width:0}article p{white-space:pre-wrap;overflow-wrap:anywhere}.eligibility-panel[hidden]{display:none!important}</style>';
+    '<style>article p{white-space:pre-wrap;overflow-wrap:anywhere}.eligibility-panel[hidden]{display:none!important}</style>';
   return renderAdminShell(
     kind,
     content,

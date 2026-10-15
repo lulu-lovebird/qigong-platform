@@ -921,7 +921,8 @@ describe('administrator access generated browser behavior', () => {
       const html = renderAdminAccessPage(locale);
       expect(html).toContain('.access-account [hidden]');
       expect(html).toContain('.access-form-grid { grid-template-columns:1fr; }');
-      expect(html).toContain('flex:1 1 100%');
+      expect(html).toContain('.access-action-panel .actions button { flex:1 1 auto; }');
+      expect(html).toContain('--admin-control-height:44px');
       const f = fixture(html, 'manage', locale, 'granted');
       await settle();
       const root = f.fields.get('accounts')!;

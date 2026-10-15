@@ -1,4 +1,5 @@
 import { uiTemplate, htmlLocale, languageOptions } from './ui-localization.js';
+import { adminLayoutStyles } from './admin-layout-styles.js';
 import { adminBrandColors, adminBrandStyles, renderAdminLogo } from './admin-branding.js';
 import {
   adminLocaleCookie,
@@ -36,6 +37,18 @@ const navigation: ReadonlyArray<{ page: AdminPage; path: string; label: AdminTex
   { page: 'notifications', path: '/admin/notifications', label: 'navNotifications' }
 ];
 
+const navigationGroups: ReadonlyArray<{
+  id: string;
+  label: AdminTextKey;
+  pages: readonly AdminPage[];
+}> = [
+  { id: 'reports', label: 'navGroupReports', pages: ['overview', 'leaderboard', 'methods'] },
+  { id: 'learners', label: 'navGroupLearners', pages: ['review', 'learners', 'invites'] },
+  { id: 'journal', label: 'navGroupJournal', pages: ['journal', 'shared', 'tags'] },
+  { id: 'settings', label: 'navGroupSettings', pages: ['access', 'privacy', 'notifications'] }
+];
+const deferredNavigation = (page: AdminPage) =>
+  ['journal', 'tags', 'learners', 'shared', 'privacy', 'invites'].includes(page);
 // All shell inputs come from source-controlled page definitions, never user data.
 export const renderAdminShell = (
   page: AdminPage,
@@ -48,55 +61,34 @@ export const renderAdminShell = (
   const languageSwitcher = uiTemplate(
     locale
   )`<div class="languages"><select id="admin-language" aria-label="${text.language}">${languageOptions(locale)}</select></div>`;
+  const navigationMarkup = navigationGroups
+    .map((group) => {
+      const items = group.pages
+        .flatMap((page) => navigation.filter((item) => item.page === page))
+        .filter((item) => item.page !== 'access' || canManageAdmins);
+      if (!items.length) return '';
+      const visible = items.some((item) => !deferredNavigation(item.page));
+      return `<section class="nav-group" data-nav-group="${group.id}" aria-labelledby="nav-group-${group.id}"${visible ? '' : ' hidden'}><h2 class="nav-group-title" id="nav-group-${group.id}">${text[group.label]}</h2><div class="nav-group-links">${items.map((item) => `<a href="${item.path + adminLocaleQuery(locale)}"${item.page === 'invites' ? ' class="journal-nav" data-line-invites-nav hidden' : ['journal', 'tags', 'learners', 'shared', 'privacy'].includes(item.page) ? ` class="journal-nav" data-journal-nav="${item.page}" hidden` : ''}${item.page === page ? ' aria-current="page"' : ''}>${text[item.label]}</a>`).join('')}</div></section>`;
+    })
+    .join('');
   return `<!doctype html>
 <html lang="${htmlLocale(locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${text[page]}｜${text.siteTitle}</title>
 <style>
 ${adminBrandStyles}
-* { box-sizing:border-box; } body { margin:0; color:var(--brand-primary); background:var(--canvas); font-family:system-ui,sans-serif; line-height:1.6; }
-a { color:var(--brand-primary); } .shell { display:grid; grid-template-columns:15rem minmax(0,1fr); min-height:100vh; }
-.sidebar { background:var(--brand-deep); color:var(--surface-muted); padding:2rem 1.25rem; } .brand { font-size:1.3rem; font-weight:700; margin-bottom:1.25rem; } .brand small { display:block; font-size:.8rem; opacity:.7; font-weight:400; }
-nav { display:grid; gap:.6rem; } nav a { color:var(--brand-accent); padding:.7rem 1rem; text-decoration:none; border-radius:.5rem; } nav a:hover,nav a[aria-current="page"] { background:var(--brand-secondary); color:white; }
-.workspace { padding:1.5rem clamp(1rem,3vw,3rem); min-width:0; } header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem; } h1 { font-size:1.7rem; margin:0; } h2 { font-size:1.15rem; margin:0 0 1rem; } h3 { font-size:1rem; }
-.sidebar .languages { margin-bottom:1rem; } .sidebar .languages select { width:100%; border-color:var(--brand-accent); background:var(--surface-muted); color:var(--brand-deep); padding:.4rem .6rem; font-size:.875rem; } .sidebar .languages select:focus-visible,.sidebar #logout:focus-visible { outline:2px solid var(--surface-muted); outline-offset:3px; } .sidebar #logout { margin-top:1.25rem; width:100%; border-color:var(--brand-accent); background:transparent; color:var(--surface-muted); }
-button { cursor:pointer; padding:.55rem .9rem; border-radius:.45rem; border:1px solid var(--brand-primary); background:var(--brand-primary); color:white; font:inherit; } button:disabled { opacity:.45; cursor:default; } button.secondary,button.reject { background:white; color:var(--brand-primary); } button.reject { color:var(--brand-deep); border-color:var(--brand-deep); border-width:2px; font-weight:700; }
-input,select,textarea { font:inherit; padding:.5rem; border:1px solid var(--brand-secondary); border-radius:.35rem; max-width:100%; background:white; } input[type="checkbox"] { width:auto; }
-.filters { display:flex; flex-wrap:wrap; align-items:end; gap:.85rem; margin-bottom:1rem; } label { display:grid; gap:.3rem; font-size:.85rem; } .filters input { width:12rem; } .filters select { min-width:8rem; }
-.card,article { min-width:0; background:white; border:1px solid var(--border); border-radius:.75rem; padding:1.25rem; margin-bottom:1.2rem; } .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1.2rem; } .kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1rem; } .kpi strong { display:block; font-size:2rem; color:var(--brand-primary); } .muted,.meta { color:var(--muted); } #status { min-height:1.6rem; } #status[data-error="true"],#journal-status[data-error="true"] { color:var(--brand-deep); font-weight:700; border-left:3px solid var(--brand-deep); padding-left:.75rem; }
-.table-wrap { overflow:auto; } table { width:100%; border-collapse:collapse; font-size:.9rem; } th,td { text-align:left; padding:.65rem; border-bottom:1px solid var(--border); vertical-align:top; white-space:nowrap; } th { color:var(--muted); background:var(--surface-muted); } .pager { display:flex; flex-wrap:wrap; align-items:center; gap:.7rem; margin-top:1rem; }
-.chart { width:100%; height:210px; } .chart text { fill:var(--brand-primary); } .bar { background:var(--brand-accent); height:.5rem; border-radius:.25rem; } .bar span { display:block; height:100%; background:var(--brand-secondary); border-radius:inherit; } .actions,.batch { display:flex; flex-wrap:wrap; align-items:center; gap:.6rem; } .batch { margin-bottom:1rem; } .batch label { display:flex; align-items:center; } .select-application { margin-right:.5rem; } .actions input { width:min(25rem,100%); }
-.journal-nav[hidden] { display:none; }
-footer { font-size:.75rem; color:var(--muted); margin-top:2rem; } details summary { cursor:pointer; } .skip { position:absolute; left:-9999px; } .skip:focus { left:1rem; top:1rem; background:white; padding:1rem; z-index:2; }
-.access-account { overflow-wrap:anywhere; } .access-account [hidden] { display:none !important; }
-.access-account-header,.access-grant-header { display:flex; justify-content:space-between; align-items:start; flex-wrap:wrap; gap:.75rem; } .access-email { margin:.25rem 0; }
-.access-statuses { display:flex; flex-wrap:wrap; gap:.4rem; } .access-badge { font-size:.8rem; padding:.25rem .6rem; border-radius:1rem; background:var(--surface-muted); border:1px solid var(--border); }
-.access-details { margin:1rem 0; padding:.7rem; background:var(--surface-muted); border-radius:.4rem; } .access-details p { margin:.5rem 0; }
-.access-grants { display:grid; gap:.8rem; } .access-grants h3 { margin:.5rem 0; } .access-grant { border:1px solid var(--border); border-radius:.5rem; padding:1rem; } .access-grant p { margin:.5rem 0; }
-.access-grant-actions { display:flex; flex-wrap:wrap; align-items:start; gap:.6rem; } .access-grant-actions > fieldset { flex-basis:100%; order:1; } .access-account-actions { margin-top:1rem; }
-.access-action-panel { min-width:0; width:100%; border:1px solid var(--brand-secondary); border-radius:.5rem; padding:1rem; margin:.8rem 0 0; background:var(--surface-muted); } .access-action-panel legend { font-weight:700; padding:0 .4rem; } .access-target { font-weight:600; }
-.access-form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; } .access-action-panel label { font-size:1rem; } .access-action-panel select,.access-action-panel textarea { width:100%; }
-.access-action-panel textarea { font:inherit; padding:.6rem; border:1px solid var(--brand-secondary); border-radius:.35rem; resize:vertical; min-height:6rem; } .access-action-panel .actions { justify-content:flex-end; margin-top:1rem; }
-.access-account .access-danger-button { background:white; color:var(--brand-deep); border-color:var(--brand-deep); border-width:2px; font-weight:700; } .access-danger-zone { margin-top:1.5rem; padding:1rem; border:2px dashed var(--brand-deep); border-radius:.5rem; background:var(--surface-muted); } .access-danger-zone h3 { color:var(--brand-deep); }
-.access-error { color:var(--brand-deep); font-weight:700; min-height:1.5rem; } .access-notice { padding:.7rem; background:var(--surface-muted); border-radius:.4rem; } .access-account button:focus-visible,.access-account textarea:focus-visible,.access-account select:focus-visible { outline:2px solid var(--brand-primary); outline-offset:3px; }
-@media(max-width:760px) { .access-form-grid { grid-template-columns:1fr; } .access-account-header,.access-grant-header { flex-direction:column; } .access-grant-actions > button,.access-action-panel .actions button { flex:1 1 100%; } }
-@media(max-width:1000px) { .kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-@media(max-width:760px) { .shell { display:block; } .sidebar { padding:1rem; } .brand { margin-bottom:.7rem; } nav { display:flex; flex-wrap:wrap; gap:.3rem; } nav a { padding:.4rem .7rem; } .grid { grid-template-columns:1fr; } .workspace { padding:1rem; } h1 { font-size:1.35rem; } }
-
-.sidebar :where(a,button,select):focus-visible { outline:3px solid var(--brand-accent); outline-offset:3px; }
-</style></head><body><a class="skip" href="#main">${text.skip}</a><div class="shell"><aside class="sidebar"><div class="brand"><div class="brand-title">${renderAdminLogo(locale)}<span class="brand-title-text">${text.brand}</span></div><small>${text.brandSubtitle}</small></div>${languageSwitcher}<nav id="admin-navigation" aria-label="${text.navigation}">${navigation
-    .filter((item) => item.page !== 'access' || canManageAdmins)
-    .map(
-      (item) =>
-        `<a href="${item.path + adminLocaleQuery(locale)}"${item.page === 'invites' ? ' class="journal-nav" data-line-invites-nav hidden' : ['journal', 'tags', 'learners', 'shared', 'privacy'].includes(item.page) ? ` class="journal-nav" data-journal-nav="${item.page}" hidden` : ''}${item.page === page ? ' aria-current="page"' : ''}>${text[item.label]}</a>`
-    )
-    .join('')}</nav><button id="logout" type="button">${text.logout}</button></aside>
+${adminLayoutStyles}
+</style></head><body><a class="skip" href="#main">${text.skip}</a><div class="shell"><aside class="sidebar"><div class="brand"><div class="brand-title">${renderAdminLogo(locale)}<span class="brand-title-text">${text.brand}</span></div><small>${text.brandSubtitle}</small></div>${languageSwitcher}<details id="admin-nav-disclosure" class="nav-disclosure" open><summary>${text.navigation}<span>${text[page]}</span></summary><nav id="admin-navigation" aria-label="${text.navigation}">${navigationMarkup}</nav></details><button id="logout" type="button">${text.logout}</button></aside>
 <div class="workspace"><header><div><h1>${text[page]}</h1><span class="muted">${text.scope}</span></div></header><div id="main">${content}</div><footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer></div></div>
 <script>
 (() => {
   ${adminLocaleScript(locale)}
   const language=document.getElementById('admin-language');
   language.value=locale;
-  if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-journal-nav]').length)fetch('/admin/api/journal/capabilities?lang='+locale,{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-journal-nav]'))a.hidden=!(c&&c[({journal:'canReadJournal',tags:'canManageTags',learners:'canManageLearners',shared:'canReadShared',privacy:'canPublishPrivacy'})[a.dataset.journalNav]]===true);}).catch(()=>{});
-  if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-line-invites-nav]').length)fetch('/admin/api/line-invites/capabilities',{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-line-invites-nav]'))a.hidden=c?.canManage!==true;}).catch(()=>{});
+  const refreshNavigationGroups=()=>{if(typeof document.querySelectorAll!=='function')return;for(const group of document.querySelectorAll('[data-nav-group]'))group.hidden=!Array.from(group.querySelectorAll('a')).some(link=>!link.hidden);};
+  refreshNavigationGroups();
+  const disclosure=document.getElementById('admin-nav-disclosure');
+  if(disclosure&&typeof matchMedia==='function'){const mobile=matchMedia('(max-width:760px)');const adaptNavigation=()=>{disclosure.open=!mobile.matches;};adaptNavigation();mobile.addEventListener?.('change',adaptNavigation);}
+  if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-journal-nav]').length)fetch('/admin/api/journal/capabilities?lang='+locale,{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-journal-nav]'))a.hidden=!(c&&c[({journal:'canReadJournal',tags:'canManageTags',learners:'canManageLearners',shared:'canReadShared',privacy:'canPublishPrivacy'})[a.dataset.journalNav]]===true);refreshNavigationGroups();}).catch(refreshNavigationGroups);
+  if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-line-invites-nav]').length)fetch('/admin/api/line-invites/capabilities',{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-line-invites-nav]'))a.hidden=c?.canManage!==true;refreshNavigationGroups();}).catch(refreshNavigationGroups);
   const mayLeave=()=>typeof window==='undefined'||!window.qigongJournalMayLeave||window.qigongJournalMayLeave();
   language.addEventListener('change',() => {
     const next=language.value;

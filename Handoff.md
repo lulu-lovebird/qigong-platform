@@ -1,5 +1,14 @@
 # Qigong Platform — 交接摘要
 
+## 最新本機：Compact Web Admin（未提交／部署）
+
+- 使用者核准compact設計與本機實作。新增admin-layout-styles.ts集中密度樣式，224px sidebar／34px桌面選單與controls、14px輸入字、72px可拉大textarea、縮小card/table留白。四組依序報表分析、學員管理、心得標籤、系統個人設定；三語group labels、現頁標記保留，既有link權限與API gate不變，空group與失敗capability維持隱藏。
+- 手機native details/summary收合、無JS預設展開、桌面resize重開；鍵盤Enter與focus可用。手機或coarse pointer共用44px／16px欄位tokens，含語言selector；wide touch tablet維持sidebar。quick tags／notify checkbox／短碼／管理員與學員reason／待審申請等統一compact，政策正文16px／1.65與危險區辨識保留。draft、CSRF、role/scope/version／表單payload未改。
+- 獨立PG16完整pnpm verify **738 tests**（API547／DB183／config2／identity6）＋format/lint/source TS/build過，新增9項整shell分組／權限空group／native resize／unsaved／tokens測試。舊mobile action全寬style斷言改為本次wrap compact＋44px目標，未弱化資料／權限測試。all-test TS仍原10錯；時間戳間歇根因不稱已修。
+- Chrome actual compiled API＋獨立受限PG合成資料：13頁×3語×390/820/1280＝117 layouts，加wide-touch3項及窄320／矮540sidebar捲動／768coarse／跨尺寸draft保留6項，共126；含真報表／roster／access panel／tags／private/shared／資格／邀請／通知／policy／draft申請，API無失敗／無overflow／runtime exception。native鍵盤、dirty取消、loaded logo與34–36桌面／44touch／16px輸入均過。48 screenshots與measurements／scripts位於/tmp/qigong-admin-compact-*；詳見[設計與驗證](docs/operations/admin-compact-ui.md)。
+- provider/OIDC mocked，localhost proxy僅合成session與Origin，非正式／真人device驗收；無正式寫入或通知。driver補Enter text、focus／screen dimensions、teardown前beforeunload處理；favicon404分離API檢查，非產品放寬。真正mobile語言14px舊override改tokens。
+- 正式仍2f5a4eb／schema36，無migration／dependency／學員頁／Console／policy／flags變更；尚未commit/push/deploy，發佈另核准，untracked web-admin-permissions-review.md仍排除。
+
 ## 最新部署：快速標籤簡中對照2f5a4eb／schema36
 
 - 使用者另核准commit/push/deploy；2f5a4ebeba66c2dbad17406a3d99bf14aa254245、CI38771867155成功，完整729（API538／DB183／config2／identity6）＋format/lint/source TS/build。2026-10-15 16:53:43–16:54:01 UTC維護18秒，35→36 apply1／repeat0、matching exact36 API-worker／phase21；歷史0001–0035不動，36現已部署不可再改。
