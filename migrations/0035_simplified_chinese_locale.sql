@@ -41,6 +41,14 @@ DO $$DECLARE definition TEXT;updated TEXT;BEGIN
  IF updated=definition THEN RAISE EXCEPTION 'unexpected channel receipt locale definition';END IF;
  EXECUTE updated;
 END$$;
+-- The archived LINE report facade previously forced every request back to Traditional.
+-- Keep its authorization/catalog filters but honor the already validated presentation locale.
+DO $$DECLARE definition TEXT;updated TEXT;BEGIN
+ definition:=pg_get_functiondef('platform._pre_line_profile_channel_workspace_report(text,text,text,text,text,integer,date)'::regprocedure);
+ updated:=replace(definition,'IF input_platform=''line'' THEN input_locale:=''zh_TW'';END IF;','');
+ IF updated=definition THEN RAISE EXCEPTION 'unexpected LINE report locale definition';END IF;
+ EXECUTE updated;
+END$$;
 CREATE OR REPLACE FUNCTION platform.channel_workspace_report(input_platform TEXT,input_credential TEXT,input_view TEXT,input_locale TEXT,input_period TEXT DEFAULT 'month',input_days INTEGER DEFAULT 30,input_month DATE DEFAULT NULL) RETURNS JSONB
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE base JSONB;target UUID;region UUID;anchor DATE;start_day DATE;names JSONB;BEGIN
  base:=platform._pre_line_profile_channel_workspace_report(input_platform,input_credential,input_view,input_locale,input_period,input_days,input_month);

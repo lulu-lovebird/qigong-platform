@@ -316,6 +316,20 @@ suite('LINE workspace HTTP and private summaries', () => {
         .json<{ methods: { code: string; name: string }[] }>()
         .methods.find((m) => m.code === 'wuqinxi_he')?.name
     ).toBe('鹤戏');
+    const english = await post('/line/workspace/profile', { locale: 'en' });
+    expect(english.statusCode, english.body).toBe(200);
+    expect(
+      english
+        .json<{ methods: { code: string; name: string }[] }>()
+        .methods.find((m) => m.code === 'wuqinxi_he')?.name
+    ).toBe('Crane Form');
+    const traditional = await post('/line/workspace/profile', { locale: 'zh_TW' });
+    expect(traditional.statusCode, traditional.body).toBe(200);
+    expect(
+      traditional
+        .json<{ methods: { code: string; name: string }[] }>()
+        .methods.find((m) => m.code === 'wuqinxi_he')?.name
+    ).toBe('鶴戲');
     const saved = await post('/line/workspace/save', {
       locale: 'zh_CN',
       requestId: randomUUID(),
