@@ -1,8 +1,8 @@
 # Learner channel languages
 
-## Current local candidate
+## Current deployment
 
-LINE, Telegram and WhatsApp learner interfaces support `zh_TW` (Traditional Chinese), `zh_CN` (Simplified Chinese) and `en`. The management backend and system notifications support the same choices. This candidate is local only; production is still schema34. See [three-language implementation, verification and release boundaries](trilingual-locales.md).
+LINE, Telegram and WhatsApp learner interfaces support `zh_TW` (Traditional Chinese), `zh_CN` (Simplified Chinese) and `en`. The management backend and system notifications support the same choices. Deployed as `2ec42e2` / schema35 after user approval. See [three-language implementation and boundaries](trilingual-locales.md) and [deployment/recovery evidence](trilingual-locales-deployment.md).
 
 Language is an interface/recipient preference, not authentication, identity association, enrollment region, practice time zone or authorization. Singapore/Malaysia do not force Simplified Chinese. Existing choices remain intact; no preference or user-content backfill occurs.
 
@@ -21,7 +21,7 @@ Typed dictionaries translate source-owned UI and current built-in catalog displa
 
 Privacy UI is translated, but the approved document language/version/hash and acceptance identity are not fabricated. Formal Simplified legal text requires review. WhatsApp Simplified decision delivery requires an explicitly configured, approved `zh_CN` template variation; it never silently substitutes Traditional Chinese.
 
-The matching candidate requires the complete immutable migration chain through new **`0035_simplified_chinese_locale.sql`**, exact35 API/worker and `ops.locale_schema_ready()`. Historical0001–0034 must not be edited. Publishing/deployment and a coordinated recovery/reconciliation plan require separate approval. Browser mocks and local tests are not provider/device acceptance. Preserve all legacy bots and unrelated local files.
+The matching release requires the complete immutable migration chain through new **`0035_simplified_chinese_locale.sql`**, exact35 API/worker and `ops.locale_schema_ready()`. Historical0001–0034 must not be edited. Publishing/deployment and a coordinated recovery/reconciliation plan require separate approval. Browser mocks and local tests are not provider/device acceptance. Preserve all legacy bots and unrelated local files.
 
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 

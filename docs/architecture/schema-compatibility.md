@@ -28,11 +28,11 @@ Backfills are resumable and do not remove compatibility with `A` or `B`. Read pa
 3. Deploy application `C` whose minimum version requires the completed backfill.
 4. Apply contract migrations only after `C` is healthy and no rollback to `A` is permitted.
 
-## Local three-language candidate (not deployed)
+## Three-language exact-version release
 
-The three-language candidate declares exact `0035_simplified_chinese_locale.sql` and worker `ops.locale_schema_ready()` / `phase-20-simplified-chinese`. Production remains schema34. The existing34 build rejects35; it must not be described as an expand-compatible rolling release or run against35 after migration.
+Production `2ec42e2` declares exact `0035_simplified_chinese_locale.sql` and worker `ops.locale_schema_ready()` / `phase-20-simplified-chinese`. The previous34 build rejects35; it must not be described as an expand-compatible rolling release or run against35 after migration.
 
-Before deployment, explicitly review/approve a coordinated maintenance/drain and matching API/worker plan, or provide the expand-compatible A release required above. Local implementation approval is not deployment approval. Rehearse final encrypted backup restoration, preserved data and the readiness boundary. A35→34 downgrade requires matching database/API/worker plus approved reconciliation of all post-release writes, including newly selected locales that34 cannot represent; binary-only rollback or silent language substitution is unsafe. See [candidate details](../operations/trilingual-locales.md).
+The user separately approved commit/push/deployment with coordinated maintenance/drain and matching API/worker. Final encrypted backups were actually restored, old34 readiness checked, final-clone35 preservation verified and only then production migrated. See [release evidence](../operations/trilingual-locales-deployment.md). Future rolling releases still need the expand-compatible A release described above; local implementation approval is not deployment approval. A35→34 downgrade requires matching database/API/worker plus approved reconciliation of all post-release writes, including newly selected locales that34 cannot represent; binary-only rollback or silent language substitution is unsafe. See [implementation boundaries](../operations/trilingual-locales.md).
 
 ## Required Controls
 

@@ -1,6 +1,15 @@
 # Qigong Platform — 交接摘要
 
-## 最新本機：繁中／簡中／英文三語化（尚未提交／部署）
+## 最新部署：三語化2ec42e2／schema35
+
+- 使用者核准commit/push/deploy；最終2ec42e2acfcbf2ccd34662ff7b5a17a3ab514d67，CI38764759639成功／本機完整721（API533／DB180／config2／identity6）。先前37148e0未部署；clone發現舊LINE SQL強制繁中，已在尚未部署的35移除該override並補英文／繁中功法回歸，重新提交CI後才上線。歷史0001–0034不動，35現已部署不可再改。
+- 2026-10-15 16:02:58–16:03:18 UTC維護20秒，先drain worker／停API、最終備份實際還原34與舊binary ready，再於final clone35驗證後正式apply1／repeat0；matching exact35 API-worker／phase20，protected env bytehash及640、TG reminders/review true、WA未設定／政策draft不變。
+- 75張原表／17people／24checkins資料指紋保留，只排除metadata架構／時間與新增nullable binding locale；既有偏好語系未排除。table owner／forcedRLS／effectiveACL及舊函式安全屬性保留；pg_restore owner-only ACL NULL等價正規化，4新函式PUBLIC execute皆0，無批量核准／同意／分享／獎章／語系回填。
+- 真compiled clone通過三語24reports＋30HTML＋49badges，三語review整HTML/API保存、原文legal hash、LINE邀請friend/resume/quota/native/manual、scope/grant／Authgear／private/sourceHash/external撤回、community跨渠道與舊私人／手動撤回及matching worker mock。舊smoke借用已分享真人clone資料的假設改成獨立合成學員；未放寬產品。locale harness漏TG adapter配置亦修正，非產品缺陷。
+- 189HTTPS checks過、synthetic req.url已遮罩；APIactive/NRestarts0/exit0、timeractive、worker16:04:04 UTC後續成功/exit0。無真人測試msg／正式合成申請；新三語仍待真人驗收，不把舊LINE完整流程已驗收當成新語系驗收。
+- /root/qigong-deploy-2ec42e2、deployment-tools/2ec42e2、已停rehearsal-2ec42e2與分離off-host encrypted backup/key保留；clone臨時worker.env／credential fixture刪，superseded371 cluster停。35不可binary-only退34，任何downgrade需matching DB/API/worker與流量後對帳核准；不可用371不同35 checksum當fallback。詳見[部署／還原證據](docs/operations/trilingual-locales-deployment.md)。web-admin-permissions-review.md仍排除；all-test TS仍10既有錯，原時間戳間歇問題未宣稱修復。
+
+## 三語化本機紀錄（後續已部署2ec42e2）
 
 - 使用者確認三渠道學員端＋管理後台一併完成。新增zh_CN共用schema／六字典、三向選單與cookie、LINE verified-subject偏好、SDK私密fragment接續、三語bot／回條／提醒／審核通知。語系不推定國家、資格或身份，不回填既有偏好。
 - source-owned靜態文案及明確live catalog DTO呈現簡中；姓名／心得／理由／歷史出版快照保留原文。OpenCC僅開發時產生靜態對照，無runtime converter或新依賴；未知自訂名稱保留原名。正式中文條款仍繁中原文並明示，version/hash、同意文件語系與draft狀態不變。

@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-Local implementation only. Commit, push, deployment, provider configuration and legal-policy publication require separate approval. Production remains `d8d4e6679993a018819b790fe608197934045f46` / schema34.
+Deployed after separate user approval: `2ec42e2acfcbf2ccd34662ff7b5a17a3ab514d67` / schema35. See [deployment, final restoration and verification](trilingual-locales-deployment.md). Provider configuration and legal-policy publication remain separate; WhatsApp is still unconfigured and policy remains draft.
 
 Canonical locales are `zh_TW`, `zh_CN` and `en`. LINE, Telegram and WhatsApp learner pages and the administration interface expose all three choices. Simplified Chinese is a language choice, not a Singapore/Malaysia region rule, identity claim, enrollment assignment, time zone or permission.
 
@@ -39,7 +39,7 @@ WhatsApp remains unconfigured. Simplified decision-template delivery requires th
 
 Only new `0035_simplified_chinese_locale.sql` is added; historical0001–0034 and dependency manifests/lockfiles are unchanged. It expands locale constraints/allowlists, permits verified LINE preferences and adds nullable binding-challenge locale. Existing function ownership/ACL/RLS semantics are retained; new restricted functions revoke PUBLIC execution.
 
-The matching candidate API requires exact35, architecture `phase-20-simplified-chinese`; the worker checks `ops.locale_schema_ready()`. Migration34 builds fail readiness on35. This is an exact-version coordinated release, not an online expand-compatible deployment. A later deployment needs maintenance/drain, final encrypted backups plus actual restore rehearsal, matching API/worker, preservation checks and separately approved activation.
+The deployed matching API requires exact35, architecture `phase-20-simplified-chinese`; the worker checks `ops.locale_schema_ready()`. Migration34 builds fail readiness on35. This is an exact-version coordinated release, not an online expand-compatible deployment. A later deployment needs maintenance/drain, final encrypted backups plus actual restore rehearsal, matching API/worker, preservation checks and separately approved activation.
 
 Do not roll a35 database back by swapping only binaries or deleting migration history. Downgrade requires matching34 database/API/worker and approved reconciliation of post-release writes, including language choices that34 cannot represent. Never silently discard new writes or downgrade a user's language choice.
 
@@ -53,4 +53,4 @@ Do not roll a35 database back by swapping only binaries or deleting migration hi
 - A repeat full run on55462 reproduced the pre-existing `learner-privacy` suspension/channel timestamp constraint failure. The isolated11-test suite then passed; the final complete run on a new independent PostgreSQL16 cluster55465 passed all721 without modifying that fixture, constraints or authorization assertions. This is not evidence that the intermittent root cause is fixed.
 - Extra all-test `tsc -p tsconfig.eslint.json --noEmit` retains the10 documented pre-existing errors; it is not claimed passing.
 
-Local evidence: `/tmp/qigong-locale-{verify-final,verify-repeat-failure,privacy-isolated,all-types,cdp}.log`, preview/CDP scripts and Simplified mobile screenshots. Browser mocks are not LINE/TG/WA provider delivery or real-device acceptance. No production, Console, notification-flag or actual-learner data changes were performed. Exclude unrelated `docs/operations/web-admin-permissions-review.md` from any later release.
+Local evidence: `/tmp/qigong-locale-{verify-final,verify-repeat-failure,privacy-isolated,all-types,cdp}.log`, preview/CDP scripts and Simplified mobile screenshots. Browser mocks are not LINE/TG/WA provider delivery or real-device acceptance. Local/clone validation made no production or Console writes; the separately approved schema/API/worker deployment is recorded above. Notification flags and actual-learner content were not changed by deployment. Exclude unrelated `docs/operations/web-admin-permissions-review.md` from any later release.
