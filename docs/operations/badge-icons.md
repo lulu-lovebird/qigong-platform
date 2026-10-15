@@ -1,4 +1,4 @@
-# 三渠道共用badge圖示（本機，未提交部署）
+# 三渠道共用badge圖示（已部署，同schema34）
 
 使用者核准移植qigong-line-bot各badge圖示到LINE／Telegram／WhatsApp共用成就頁。這是display-only修正，**沒有migration**，API/worker exact schema34與phase19不變；不改解鎖條件、門檻、49個catalog定義、年度／lifetime語意、earned/revoked紀錄或授權。
 
@@ -31,6 +31,6 @@
 
 ## 發布限制
 
-尚未commit/push/deploy。正式仍9d00120／schema34，notify flags／env／policy／所有歷史紀錄不變。若核准發布，走same-schema34的exact SHA CI與matching API-worker，不新增0035、不為圖示更新DB或重新算獎章；同schema回退可以matching9d00120 API-worker切換，不還原DB／覆蓋新寫入。實際發布流程與備份仍需另核准。
+使用者後續另核准commit/push/deploy，59241f4a389ae58a42812e19481ec0d42f41ed0a於2026-10-15 12:00:28–12:00:46 UTC部署完成，CI38730275543／684tests、143HTTPS checks成功。same-schema34 matching API-worker，沒有migration applier／0035或獎章批量重算；notify flags／env／policy及所有資料與metadata完整指紋不變。最終加密備份已實際還原／舊9d ready，見[部署及恢復證據](badge-icons-deployment.md)。同schema回退可matching9d00120 API-worker＋old-release.conf，不還原DB/env／覆蓋新寫入，依發布流程核准。
 
 舊qigong-line-bot原有dirty docs／.DS_Store等未動；平台untracked `docs/operations/web-admin-permissions-review.md`繼續排除。

@@ -1,6 +1,16 @@
 # Qigong Platform — 交接摘要
 
-## 最新本機：三渠道badge圖示移植（display-only，未提交部署）
+## 最新部署：共用badge圖示59241f4（同schema34）
+
+- 使用者核准commit/push/deploy，59241f4a389ae58a42812e19481ec0d42f41ed0a，CI38730275543／684tests成功；2026-10-15 12:00:28–12:00:46 UTC維護18秒，同schema34／phase19，只切matching API-worker／drop-in，零migration applier／award批量重算。
+- LINE/TG/WA共用49個原LINE bot emoji；原圖示＋非撤銷award正常色彩，無有效award灰階／獨立鎖，未知碼🏅，名稱／規則／年份及撤銷資料不動。Node24整compiled HTML/scripts五種語言渠道各49圖示與狀態通過；VM stub補原HTML monthly hidden狀態後通過，非產品修改。
+- 正式34snapshot/roles clone實際還原指紋相同、原9d API ready／新舊皆34 ready；最終站外AESGCM DB/roles/env-systemd decrypt-hash、roles重套／DB實際還原相同後切換。contract只有SELECT ledger/checksum/readiness，無DDL。
+- 最終75 application tables／16people／22checkins與**所有資料及metadata完全同指紋**，badge definitions/awards/audit與既有內容／授權／偏好皆未變。準備時21checkins、最終22，未還原成舊快照。env bytehash與review/learner true、WA unconfigured／policy draft保持。
+- 受限Authgear/admin scopes/grants、LINE-TG/private journal/sourceHash/brand/external revoke回歸，明示心得跨渠道與legacy private/withdraw／通知頁雙語save／matching worker(mock)通過，全部合成只clone，無真人測試訊息。
+- 142主站＋1PNG共143HTTPS checks通過，synthetic req.url REDACTED；APIactive/NRestarts0/status0、timeractive、workerResultsuccess/status0。本機10Chrome layouts×49圖示通過但不是provider真人驗收；請關舊成就頁再開，WA程式共用但未配置。
+- /root/qigong-deploy-59241f4、deployment-tools/59241f4、已停rehearsal-59241f4／站外backup/key保留；臨時env／合成fixture已刪。same-schema可matching9d API-worker＋old-release.conf回退，不還原DB/env／不覆蓋新寫入、不重算獎章。見[部署／還原證據](docs/operations/badge-icons-deployment.md)。額外all-test TS仍10既有錯、原共用叢集flakiness不稱已修。web-admin-permissions-review.md仍排除，舊bot dirty檔未動。
+
+## 三渠道badge圖示移植（本機紀錄，後續已部署59241f4）
 
 - 使用者核准本機修改：從qigong-line-bot/schema.sql／migrations005、008複製49種badge emoji至共享badge-icons.ts；季節去_27、combo補_7對齊平台code，舊repo只讀、原dirty docs/.DS_Store未動。
 - telegram-workspace-pages共用renderer呈現原圖示＋獨立鎖，無有效award灰階淡化、有未撤銷award正常色彩；原名稱／規則／年度與撤銷文字保留，未知／prototype code🏅安全fallback，textContent／aria-hidden裝飾，不拿icon判斷解鎖或授權。LINE繁中／TG-WA雙語共用。
@@ -189,7 +199,7 @@
 - preview與測試同時使用55440曾觸發受控角色依賴保護，停止preview後相關與完整verify通過；不稱為先前間歇性問題已修復。所有預覽／Chrome已停、合成DB／角色清理。證據/tmp/qigong-whatsapp-browser-{verify-final,all-types}.log、preview／cdp scripts及synthetic screenshots；見[whatsapp-browser](docs/operations/whatsapp-browser.md)。
 - 未commit／push／部署、未啟用WA、未改憑證／Meta assets／政策draft，主站仍97de588／26。發布另核准、正式26clone／matching API-worker／最終加密備份實際還原與真人驗收；27回26須matching DB＋97de588，不可binary-only。原untracked web-admin-permissions-review.md繼續排除。
 
-> 最新主站為 `9d00120484f0ef46ba83ed65166c1ac176a60e4d`／`0034_community_note_sharing.sql`，2026-10-15 10:32 UTC完成核准部署；LINE/TG新心得明示供學員閱讀、無checkbox，原私人資料不回填公開。邀請接續保留；review与learner reminder true、WA unconfigured／policy draft，原資料／偏好／綁定／權限与env保留。
+> 最新主站為 `59241f4a389ae58a42812e19481ec0d42f41ed0a`／`0034_community_note_sharing.sql`，2026-10-15 12:00 UTC完成same-schema共用badge圖示部署，無migration／award重算；LINE/TG明示心得與邀請接續保留。review与learner reminder true、WA unconfigured／policy draft，所有資料／metadata／偏好／綁定／權限与env保留。
 
 ## Authgear管理員Email修復（已部署97de588／schema26，使用者已確認Gmail重登可讀Email）
 
