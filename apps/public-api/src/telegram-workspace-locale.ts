@@ -1,4 +1,5 @@
 import type { LearnerLocale } from './learner-locale.js';
+import { uiDictionary } from './ui-localization.js';
 
 const en = {
   checkin: 'Practice check-in',
@@ -196,4 +197,4 @@ const zh: Record<TextKey, string> = {
   noMethods: '目前沒有可用功法。'
 };
 export const telegramWorkspaceTexts = (locale: LearnerLocale): Record<TextKey, string> =>
-  locale === 'en' ? en : zh;
+  locale === 'en' ? en : uiDictionary(locale, zh);

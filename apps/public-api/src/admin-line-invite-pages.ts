@@ -1,33 +1,41 @@
+import { uiText } from './ui-localization.js';
 import { renderAdminShell } from './admin-dashboard.js';
 import type { AdminLocale } from './admin-locale.js';
 export const renderAdminLineInvites = (locale: AdminLocale) => {
   const en = locale === 'en',
     t = {
-      label: en ? 'Invitation label' : '邀請名稱',
-      region: en ? 'Region' : '核准地區',
-      days: en ? 'Valid days (1–30)' : '有效天數（1–30）',
-      limit: en ? 'Maximum new learners' : '新加入人數上限',
-      reason: en ? 'Reason (required)' : '原因（必填）',
-      create: en ? 'Create invitation' : '建立邀請',
-      revoke: en ? 'Revoke' : '撤銷',
+      label: en ? 'Invitation label' : uiText(locale, '邀請名稱'),
+      region: en ? 'Region' : uiText(locale, '核准地區'),
+      days: en ? 'Valid days (1–30)' : uiText(locale, '有效天數（1–30）'),
+      limit: en ? 'Maximum new learners' : uiText(locale, '新加入人數上限'),
+      reason: en ? 'Reason (required)' : uiText(locale, '原因（必填）'),
+      create: en ? 'Create invitation' : uiText(locale, '建立邀請'),
+      revoke: en ? 'Revoke' : uiText(locale, '撤銷'),
       warning: en
         ? 'Anyone holding this link can be automatically approved. Do not publish it. No name/email/phone match proves the intended learner.'
-        : '任何持有此連結的人都可能自動核准。請勿公開張貼；姓名／Email／電話不能證明是指定學員。',
-      once: en ? 'Copy this link now; it is shown only once.' : '請立即複製此網址；只顯示這一次。',
+        : uiText(
+            locale,
+            '任何持有此連結的人都可能自動核准。請勿公開張貼；姓名／Email／電話不能證明是指定學員。'
+          ),
+      once: en
+        ? 'Copy this link now; it is shown only once.'
+        : uiText(locale, '請立即複製此網址；只顯示這一次。'),
       confirm: en
         ? 'Revoke this invitation? Existing approved learners retain their access.'
-        : '撤銷此邀請？已核准學員仍保留既有資格。',
+        : uiText(locale, '撤銷此邀請？已核准學員仍保留既有資格。'),
       failure: en
         ? 'Request failed. Refresh and verify current permissions/data before retrying.'
-        : '操作失敗，請重新整理並確認目前權限／資料後再試。',
-      noItems: en ? 'No invitations yet.' : '尚無邀請。',
-      counts: en ? 'Used / limit' : '已使用／上限',
-      expiry: en ? 'Expires' : '期限',
-      status: en ? 'State' : '狀態',
-      active: en ? 'Active' : '有效',
-      inactive: en ? 'Revoked, expired or issuer unavailable' : '已撤銷／到期／建立者權限失效',
-      next: en ? 'Next' : '下一頁',
-      prev: en ? 'Previous' : '上一頁'
+        : uiText(locale, '操作失敗，請重新整理並確認目前權限／資料後再試。'),
+      noItems: en ? 'No invitations yet.' : uiText(locale, '尚無邀請。'),
+      counts: en ? 'Used / limit' : uiText(locale, '已使用／上限'),
+      expiry: en ? 'Expires' : uiText(locale, '期限'),
+      status: en ? 'State' : uiText(locale, '狀態'),
+      active: en ? 'Active' : uiText(locale, '有效'),
+      inactive: en
+        ? 'Revoked, expired or issuer unavailable'
+        : uiText(locale, '已撤銷／到期／建立者權限失效'),
+      next: en ? 'Next' : uiText(locale, '下一頁'),
+      prev: en ? 'Previous' : uiText(locale, '上一頁')
     };
   return renderAdminShell(
     'invites',

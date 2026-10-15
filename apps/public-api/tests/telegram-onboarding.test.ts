@@ -550,6 +550,39 @@ describeWithDatabase('separate Telegram onboarding webhook', () => {
           )
         ).rows
       ).toEqual([{ locale: 'zh_TW' }]);
+      expect((await preference(token, 'zh_CN')).statusCode).toBe(200);
+      expect((await webhook(304, '/language zh_CN')).statusCode).toBe(200);
+      expect(replies.mock.calls.at(-1)?.[1]).toContain('已切换简体中文');
+      expect((await webhook(305, '/start')).statusCode).toBe(200);
+      expect(replies.mock.calls.at(-1)?.[1]).toContain('先前的申请连结仍有效');
+      for (const [id, text] of [
+        [306, '/language zh_CN'],
+        [307, '/start']
+      ] as const)
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: '/telegram/onboarding/webhook',
+              headers: { 'x-telegram-bot-api-secret-token': secret },
+              payload: update(id, 77778, 'private', text)
+            })
+          ).statusCode
+        ).toBe(200);
+      expect(replies.mock.calls.at(-1)?.[1]).toMatch(/apply\?lang=zh_CN#[A-Za-z0-9_-]{43}/);
+      const count = replies.mock.calls.length;
+      expect((await webhook(304, '/language en')).statusCode).toBe(200);
+      expect(replies.mock.calls).toHaveLength(count);
+      expect(
+        (
+          await pool.query(
+            "SELECT locale FROM platform.identity_preferences WHERE platform='telegram' AND external_subject_id='77777'"
+          )
+        ).rows
+      ).toEqual([{ locale: 'zh_CN' }]);
+      expect((await app.inject('/telegram/checkin?lang=zh_CN')).body).toContain(
+        '<html lang="zh-Hans">'
+      );
       await pool.query(
         "UPDATE platform.telegram_application_links SET expires_at=CURRENT_TIMESTAMP-INTERVAL '1 second' WHERE telegram_user_id='77777'"
       );

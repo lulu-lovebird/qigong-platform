@@ -1,3 +1,4 @@
+import { uiTemplate, htmlLocale, languageOptions } from './ui-localization.js';
 import { adminBrandColors, adminBrandStyles, renderAdminLogo } from './admin-branding.js';
 import {
   adminLocaleCookie,
@@ -44,9 +45,11 @@ export const renderAdminShell = (
   canManageAdmins = false
 ) => {
   const text = adminTexts(locale);
-  const languageSwitcher = `<div class="languages"><select id="admin-language" aria-label="${text.language}"><option value="zh_TW" lang="zh-Hant"${locale === 'zh_TW' ? ' selected' : ''}>繁體中文</option><option value="en" lang="en"${locale === 'en' ? ' selected' : ''}>English</option></select></div>`;
+  const languageSwitcher = uiTemplate(
+    locale
+  )`<div class="languages"><select id="admin-language" aria-label="${text.language}">${languageOptions(locale)}</select></div>`;
   return `<!doctype html>
-<html lang="${locale === 'en' ? 'en' : 'zh-Hant'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${text[page]}｜${text.siteTitle}</title>
+<html lang="${htmlLocale(locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${text[page]}｜${text.siteTitle}</title>
 <style>
 ${adminBrandStyles}
 * { box-sizing:border-box; } body { margin:0; color:var(--brand-primary); background:var(--canvas); font-family:system-ui,sans-serif; line-height:1.6; }
@@ -97,7 +100,7 @@ footer { font-size:.75rem; color:var(--muted); margin-top:2rem; } details summar
   const mayLeave=()=>typeof window==='undefined'||!window.qigongJournalMayLeave||window.qigongJournalMayLeave();
   language.addEventListener('change',() => {
     const next=language.value;
-    if(next!=='en' && next!=='zh_TW') {language.value=locale;return;}
+    if(next!=='en' && next!=='zh_TW' && next!=='zh_CN') {language.value=locale;return;}
     if(next === locale) return;
     if(${JSON.stringify(page === 'review' || page === 'access')} && !confirm(t.${page === 'access' ? 'accessSwitchConfirm' : 'reviewSwitchConfirm'})) {language.value=locale;return;}
     if(!mayLeave()){language.value=locale;return;}

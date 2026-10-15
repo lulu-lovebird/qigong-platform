@@ -130,30 +130,33 @@ const fixture = (
   const telegram = { ready: vi.fn(), expand: vi.fn() };
   const fetchMock = vi.fn<typeof fetch>(async (input) => {
     const path = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    const body = path.endsWith('/methods')
-      ? {
-          methods: [
-            {
-              code: 'dayan_chu',
-              name_zh_tw: '大雁初級',
-              name_en: 'Dayan Beginner',
-              parent_code: null
+    const body =
+      path === '/line/preferences/language'
+        ? { locale: 'zh_TW' }
+        : path.endsWith('/methods')
+          ? {
+              methods: [
+                {
+                  code: 'dayan_chu',
+                  name_zh_tw: '大雁初級',
+                  name_en: 'Dayan Beginner',
+                  parent_code: null
+                }
+              ]
             }
-          ]
-        }
-      : path.endsWith('/history')
-        ? {
-            today: '2026-10-07',
-            timezone: 'Asia/Taipei',
-            makeupOpen: true,
-            currentStreak: 0,
-            totalDays: 0,
-            feelingTags: options.feelingTags ?? [],
-            entries: []
-          }
-        : options.continuationConflict
-          ? { error: 'line_invite_continuation_required', ...options.continuationConflict }
-          : { status: 'pending' };
+          : path.endsWith('/history')
+            ? {
+                today: '2026-10-07',
+                timezone: 'Asia/Taipei',
+                makeupOpen: true,
+                currentStreak: 0,
+                totalDays: 0,
+                feelingTags: options.feelingTags ?? [],
+                entries: []
+              }
+            : options.continuationConflict
+              ? { error: 'line_invite_continuation_required', ...options.continuationConflict }
+              : { status: 'pending' };
     return new Response(JSON.stringify(body), { status: options.responseStatus ?? 200 });
   });
   script(html).runInNewContext({
@@ -163,6 +166,7 @@ const fixture = (
     URL,
     URLSearchParams,
     fetch: fetchMock,
+    confirm: vi.fn(() => true),
     window: { Telegram: { WebApp: telegram } },
     document: {
       getElementById: get,
@@ -256,9 +260,10 @@ describe('shared learner pages without database or real LIFF SDK', () => {
     expect(page.fetchMock).not.toHaveBeenCalled();
     complete();
     await submission;
-    expect(page.fetchMock).toHaveBeenCalledTimes(1);
-    expect(page.fetchMock.mock.calls[0]?.[0]).toBe('/line/onboarding/apply');
-    expect(requestPayload(page.fetchMock.mock.calls[0]?.[1]?.body)).toMatchObject({
+    expect(page.fetchMock).toHaveBeenCalledTimes(2);
+    expect(page.fetchMock.mock.calls[0]?.[0]).toBe('/line/preferences/language');
+    expect(page.fetchMock.mock.calls[1]?.[0]).toBe('/line/onboarding/apply');
+    expect(requestPayload(page.fetchMock.mock.calls[1]?.[1]?.body)).toMatchObject({
       token,
       idToken: 'verified-id-token'
     });
@@ -325,7 +330,7 @@ describe('shared learner pages without database or real LIFF SDK', () => {
     await setImmediate();
     await submit(page.get('application'));
     expect(page.liff.login).not.toHaveBeenCalled();
-    expect(requestPayload(page.fetchMock.mock.calls[0]?.[1]?.body)).toMatchObject({
+    expect(requestPayload(page.fetchMock.mock.calls[1]?.[1]?.body)).toMatchObject({
       token,
       idToken: 'verified-id-token'
     });
@@ -368,11 +373,15 @@ describe('shared learner pages without database or real LIFF SDK', () => {
     complete();
     await setImmediate();
     expect(page.fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      '/line/preferences/language',
       '/line/checkin/methods',
       '/line/checkin/history'
     ]);
     for (const call of page.fetchMock.mock.calls)
-      expect(requestPayload(call[1]?.body)).toEqual({ idToken: 'verified-id-token' });
+      expect(requestPayload(call[1]?.body)).toEqual({
+        idToken: 'verified-id-token',
+        ...(call[0] === '/line/preferences/language' ? {} : { locale: 'zh_TW' })
+      });
     expect(page.get('checkin').hidden).toBe(false);
     expect(page.get('methods').querySelectorAll('input[name="methods"]')).toHaveLength(1);
   });
@@ -407,7 +416,9 @@ describe('shared learner pages without database or real LIFF SDK', () => {
     await setImmediate();
     expect(page.get('application').hidden).toBe(true);
     expect(page.get('status').textContent).toContain('連結無效');
-    expect(page.fetchMock).not.toHaveBeenCalled();
+    expect(page.fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      '/line/preferences/language'
+    ]);
   });
 
   it('renders English application and checkin scripts, including method names and status labels', async () => {
@@ -426,7 +437,8 @@ describe('shared learner pages without database or real LIFF SDK', () => {
 
   it('saves the identity language before navigating and retains only a fragment bearer token', async () => {
     const page = fixture(telegramApplicationPage);
-    const handler = page.get('languageSwitch').listeners.get('click');
+    page.get('languageSwitch').value = 'en';
+    const handler = page.get('languageSwitch').listeners.get('change');
     if (!handler) throw new Error('Missing language switch');
     await handler({ preventDefault: vi.fn() });
     expect(page.fetchMock.mock.calls[0]?.[0]).toBe('/telegram/preferences/language');
@@ -439,7 +451,8 @@ describe('shared learner pages without database or real LIFF SDK', () => {
 
   it('does not navigate when the language link is rejected', async () => {
     const page = fixture(telegramApplicationPage, { responseStatus: 403 });
-    const handler = page.get('languageSwitch').listeners.get('click');
+    page.get('languageSwitch').value = 'en';
+    const handler = page.get('languageSwitch').listeners.get('change');
     if (!handler) throw new Error('Missing language switch');
     await handler({ preventDefault: vi.fn() });
     expect(page.location.replace).not.toHaveBeenCalled();
@@ -493,7 +506,7 @@ describe('shared learner pages without database or real LIFF SDK', () => {
       '/telegram/checkin/history'
     ]);
     for (const call of page.fetchMock.mock.calls)
-      expect(requestPayload(call[1]?.body)).toEqual({ token });
+      expect(requestPayload(call[1]?.body)).toEqual({ token, locale: 'zh_TW' });
     expect(page.get('checkin').hidden).toBe(false);
     expect(page.liff.init).not.toHaveBeenCalled();
   });

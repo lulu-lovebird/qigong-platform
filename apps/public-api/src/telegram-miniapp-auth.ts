@@ -1,3 +1,4 @@
+import { localeSchema } from './ui-localization.js';
 import { createHmac, timingSafeEqual, randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
@@ -54,7 +55,7 @@ export const registerTelegramMiniapp = (app: FastifyInstance, pool: Pool, botTok
     const input = z
       .object({
         initData: z.string().min(1).max(16000),
-        locale: z.enum(['zh_TW', 'en']).default('zh_TW')
+        locale: localeSchema.default('zh_TW')
       })
       .strict()
       .safeParse(request.body);

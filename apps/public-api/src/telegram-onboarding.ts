@@ -1,3 +1,4 @@
+import { localeSchema, uiText } from './ui-localization.js';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
@@ -188,7 +189,7 @@ export const registerTelegramOnboarding = (
       const texts = learnerTexts(locale);
       if (languageCommand) {
         const selected = languageCommand[1];
-        if (selected !== 'en' && selected !== 'zh_TW') {
+        if (selected !== 'en' && selected !== 'zh_TW' && selected !== 'zh_CN') {
           await sendMessage(message.chat.id, texts.languageHelp);
         } else {
           const change = await withRequestContext(
@@ -283,10 +284,10 @@ export const registerTelegramOnboarding = (
             workspaceCommand
               ? locale === 'en'
                 ? 'Tap below to open this feature.'
-                : '請點下方按鈕開啟此功能。'
+                : uiText(locale, '請點下方按鈕開啟此功能。')
               : locale === 'en'
                 ? 'Welcome to Baiyin Qigong. Choose a feature below to open the Mini App.'
-                : '歡迎使用白雁氣功打卡小幫手，請點下方功能按鈕直接開啟。',
+                : uiText(locale, '歡迎使用白雁氣功打卡小幫手，請點下方功能按鈕直接開啟。'),
             buttons
           );
           return { ok: true };
@@ -374,7 +375,7 @@ export const registerTelegramOnboarding = (
 
   const checkinToken = z.object({
     token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-    locale: z.enum(['zh_TW', 'en']).default('zh_TW')
+    locale: localeSchema.default('zh_TW')
   });
   const checkinSubmission = checkinToken.extend(practiceNoteSchema.shape).extend({
     methods: z.array(z.string().min(1).max(64)).min(1).max(30),
@@ -388,7 +389,7 @@ export const registerTelegramOnboarding = (
   app.post('/telegram/preferences/language', { bodyLimit: 4096 }, async (request, reply) => {
     if (!checkOrigin(request.headers.origin, request.headers['content-type']))
       return reply.code(403).send({ error: 'invalid_origin' });
-    const parsed = checkinToken.extend({ locale: z.enum(['zh_TW', 'en']) }).safeParse(request.body);
+    const parsed = checkinToken.extend({ locale: localeSchema }).safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_language' });
     try {
       await withRequestContext(pool, 'qigong_api_runtime', { requestId: request.id }, (client) =>

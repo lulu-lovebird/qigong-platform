@@ -40,7 +40,7 @@ describe('Private reviewer message safety and settings markup', () => {
     }
   });
   it('renders bilingual two-sided confirmation and the actual admin CSRF cookie, without persistent secrets', () => {
-    for (const locale of ['zh_TW', 'en'] as const) {
+    for (const locale of ['zh_TW', 'zh_CN', 'en'] as const) {
       const html = renderReviewNotificationPage(locale, true);
       for (const script of html.matchAll(/<script>([\s\S]*?)<\/script>/g))
         expect(() => new vm.Script(script[1]!)).not.toThrow();
@@ -127,11 +127,12 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
         }
       }
     });
-  const bind = async () => {
-    const link = await post('link', {});
+  const bind = async (locale: 'zh_TW' | 'zh_CN' | 'en' = 'zh_TW') => {
+    const link = await post('link?lang=' + locale, {});
     expect(link.statusCode, link.body).toBe(200);
     const data = link.json<{ id: string; token: string }>();
     expect((await webhook('/admin_notify ' + data.token)).statusCode).toBe(200);
+    if (locale === 'zh_CN') expect(replies.at(-1)).toContain('确认码');
     const code = /[0-9]{6}/.exec(replies.at(-1)!)?.[0];
     expect(code).toBeTruthy();
     const confirmed = await post('confirm', {
@@ -251,36 +252,39 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
       ).statusCode
     ).toBe(400);
   });
-  it('sends one merged private alert for complete new learners, with no applicant PII', async () => {
-    await bind();
-    const data = await state();
-    await post('preferences', {
-      version: data.revision,
-      adminEnabled: true,
-      learnerEnabled: true,
-      locale: 'zh_TW'
-    });
-    for (let i = 0; i < 2; i++)
-      await db.pool.query(
-        "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164) VALUES('line',$1,'Private legal',$2,'Private legal','private@example.invalid','+659900000032')",
-        ['U' + randomBytes(16).toString('hex'), region]
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'sends one merged %s private alert for complete new learners, with no applicant PII',
+    async (locale) => {
+      await bind(locale);
+      const data = await state();
+      await post('preferences', {
+        version: data.revision,
+        adminEnabled: true,
+        learnerEnabled: true,
+        locale
+      });
+      for (let i = 0; i < 2; i++)
+        await db.pool.query(
+          "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164) VALUES('line',$1,'Private legal',$2,'Private legal','private@example.invalid','+659900000032')",
+          ['U' + randomBytes(16).toString('hex'), region]
+        );
+      await withRequestContext(runtime, 'qigong_worker_runtime', { requestId: randomUUID() }, (c) =>
+        c.query('SELECT ops.queue_review_notifications(200)')
       );
-    await withRequestContext(runtime, 'qigong_worker_runtime', { requestId: randomUUID() }, (c) =>
-      c.query('SELECT ops.queue_review_notifications(200)')
-    );
-    await db.pool.query(
-      "UPDATE ops.review_notification_deliveries SET available_at=clock_timestamp()-INTERVAL '1 second'"
-    );
-    const sender = vi.fn(async (data: ReviewNotification) => {
-      expect(data.allowed).toBe(true);
-    });
-    expect(await deliverReviewNotifications(runtime, sender, () => {})).toBe(1);
-    expect(sender).toHaveBeenCalledTimes(1);
-    const sent = sender.mock.calls[0]?.[0];
-    expect(sent).toMatchObject({ kind: 'learner', count: 2, recipient: subject });
-    expect(JSON.stringify(sent)).not.toContain('private@example.invalid');
-    expect(await deliverReviewNotifications(runtime, sender, () => {})).toBe(0);
-  });
+      await db.pool.query(
+        "UPDATE ops.review_notification_deliveries SET available_at=clock_timestamp()-INTERVAL '1 second'"
+      );
+      const sender = vi.fn(async (data: ReviewNotification) => {
+        expect(data.allowed).toBe(true);
+      });
+      expect(await deliverReviewNotifications(runtime, sender, () => {})).toBe(1);
+      expect(sender).toHaveBeenCalledTimes(1);
+      const sent = sender.mock.calls[0]?.[0];
+      expect(sent).toMatchObject({ kind: 'learner', count: 2, recipient: subject, locale });
+      expect(JSON.stringify(sent)).not.toContain('private@example.invalid');
+      expect(await deliverReviewNotifications(runtime, sender, () => {})).toBe(0);
+    }
+  );
   it('disconnects pending alerts and rate-limits tests without changing roles or sessions', async () => {
     const grants = (await db.pool.query('SELECT * FROM admin.role_grants')).rows;
     await bind();

@@ -1,3 +1,4 @@
+import { uiText } from './ui-localization.js';
 import { z } from 'zod';
 import type { NotificationSender } from './onboarding-notifications.js';
 
@@ -11,7 +12,8 @@ export const whatsappNotificationSchema = whatsappTransportSchema.extend({
   approvedTemplate: z.string().regex(/^[a-z0-9_]+$/),
   rejectedTemplate: z.string().regex(/^[a-z0-9_]+$/),
   englishTemplateLocale: z.string().regex(/^en(?:_[A-Z]{2})?$/),
-  chineseTemplateLocale: z.literal('zh_TW')
+  chineseTemplateLocale: z.literal('zh_TW'),
+  simplifiedTemplateLocale: z.literal('zh_CN').optional()
 });
 export type WhatsAppNotificationConfig = z.infer<typeof whatsappNotificationSchema>;
 export const loadWhatsAppNotificationConfig = (
@@ -25,10 +27,18 @@ export const loadWhatsAppNotificationConfig = (
     rejectedTemplate: source.WHATSAPP_REJECTED_TEMPLATE,
     englishTemplateLocale: source.WHATSAPP_TEMPLATE_LANGUAGE_EN
   };
-  if (!Object.values(values).some(Boolean)) return undefined;
+  if (!Object.values(values).some(Boolean)) {
+    if (source.WHATSAPP_TEMPLATE_LANGUAGE_ZH_CN)
+      throw Error('WhatsApp base configuration is required');
+    return undefined;
+  }
   if (!Object.values(values).every(Boolean))
     throw new Error('WhatsApp notification configuration must be supplied together');
-  return whatsappNotificationSchema.parse({ ...values, chineseTemplateLocale: 'zh_TW' });
+  return whatsappNotificationSchema.parse({
+    ...values,
+    chineseTemplateLocale: 'zh_TW',
+    simplifiedTemplateLocale: source.WHATSAPP_TEMPLATE_LANGUAGE_ZH_CN
+  });
 };
 type WhatsAppPayload = { to: string } & (
   | { type: 'text'; text: { body: string; preview_url: false } }
@@ -88,7 +98,8 @@ export const createWhatsAppTextSender =
       text: { body: text, preview_url: false }
     });
 export const createWhatsAppWorkspaceMenuSender =
-  (config: WhatsAppTransport) => (recipient: string, text: string, locale: 'zh_TW' | 'en') =>
+  (config: WhatsAppTransport) =>
+  (recipient: string, text: string, locale: 'zh_TW' | 'zh_CN' | 'en') =>
     sendWhatsAppMessage(config, {
       to: recipient,
       type: 'interactive',
@@ -96,16 +107,19 @@ export const createWhatsAppWorkspaceMenuSender =
         type: 'list',
         body: { text },
         action: {
-          button: locale === 'en' ? 'Choose a feature' : '選擇功能',
+          button: locale === 'en' ? 'Choose a feature' : uiText(locale, '選擇功能'),
           sections: [
             {
-              title: locale === 'en' ? 'Learner workspace' : '學員工作區',
+              title: locale === 'en' ? 'Learner workspace' : uiText(locale, '學員工作區'),
               rows: [
-                ['checkin', locale === 'en' ? 'Check-in' : '練功打卡'],
-                ['leaderboard', locale === 'en' ? 'Leaderboard' : '排行榜'],
-                ['methods', locale === 'en' ? 'Method analysis' : '功法分析'],
-                ['achievements', locale === 'en' ? 'Achievements / history' : '成就／月曆'],
-                ['journal', locale === 'en' ? 'Shared reflections' : '心得分享']
+                ['checkin', locale === 'en' ? 'Check-in' : uiText(locale, '練功打卡')],
+                ['leaderboard', locale === 'en' ? 'Leaderboard' : uiText(locale, '排行榜')],
+                ['methods', locale === 'en' ? 'Method analysis' : uiText(locale, '功法分析')],
+                [
+                  'achievements',
+                  locale === 'en' ? 'Achievements / history' : uiText(locale, '成就／月曆')
+                ],
+                ['journal', locale === 'en' ? 'Shared reflections' : uiText(locale, '心得分享')]
               ].map(([id, title]) => ({ id: 'workspace:' + id, title: title! }))
             }
           ]
@@ -114,14 +128,20 @@ export const createWhatsAppWorkspaceMenuSender =
     });
 export const createWhatsAppNotificationSender =
   (config: WhatsAppNotificationConfig): NotificationSender =>
-  (recipient, decision, locale = 'zh_TW') =>
-    sendWhatsAppMessage(config, {
+  (recipient, decision, locale = 'zh_TW') => {
+    const language =
+      locale === 'en'
+        ? config.englishTemplateLocale
+        : locale === 'zh_CN'
+          ? config.simplifiedTemplateLocale
+          : config.chineseTemplateLocale;
+    if (!language) throw Error('WhatsApp simplified notification template is not configured');
+    return sendWhatsAppMessage(config, {
       to: recipient,
       type: 'template',
       template: {
         name: decision === 'approved' ? config.approvedTemplate : config.rejectedTemplate,
-        language: {
-          code: locale === 'en' ? config.englishTemplateLocale : config.chineseTemplateLocale
-        }
+        language: { code: language }
       }
     });
+  };

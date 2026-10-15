@@ -25,6 +25,10 @@ const fixture = (
   hash = '#' + 'a'.repeat(43),
   options: {
     inClient?: boolean;
+    uiLocale?: 'zh_TW' | 'zh_CN' | 'en';
+    storedLocale?: 'zh_TW' | 'zh_CN' | 'en';
+    search?: string;
+    cookie?: string;
     os?: 'ios' | 'android' | 'web';
     missingBridge?: boolean;
     missingOS?: boolean;
@@ -53,6 +57,8 @@ const fixture = (
   let index = 0;
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     if (typeof input !== 'string') throw Error('String expected');
+    if (input === '/line/preferences/language')
+      return Response.json({ locale: options.storedLocale ?? 'zh_TW' });
     if (input.endsWith('/status')) {
       await options.statusGate;
       if (options.statusError)
@@ -87,12 +93,13 @@ const fixture = (
     location: {
       hash,
       pathname: '/line/invite',
-      search: '',
-      href: 'https://checkin.baiyinqigong.org/line/invite#' + 'a'.repeat(43),
+      search: options.search ?? '',
+      href: 'https://checkin.baiyinqigong.org/line/invite' + (options.search ?? '') + hash,
       replace
     },
     history: { replaceState: cleanup },
     document: {
+      cookie: options.cookie ?? '',
       getElementById: get,
       visibilityState: 'visible',
       addEventListener: (name: string, callback: () => void) => listeners.set(name, callback)
@@ -116,7 +123,7 @@ const fixture = (
     URL,
     URLSearchParams
   });
-  const html = renderLineInvitePage('123-test'),
+  const html = renderLineInvitePage('123-test', options.uiLocale ?? 'zh_TW'),
     script = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1];
   if (!script) throw Error('Missing script');
   new vm.Script(script).runInContext(context);
@@ -142,6 +149,32 @@ const payload = (init: RequestInit | undefined): Record<string, unknown> => {
   return JSON.parse(init.body) as Record<string, unknown>;
 };
 describe('LINE invitation browser flow', () => {
+  it('loads the verified saved Simplified choice without losing its private invitation or qualifying early', async () => {
+    const bearer = 'a'.repeat(43),
+      f = fixture([{ status: 'approved' }], false, '#' + bearer, { storedLocale: 'zh_CN' });
+    await tick();
+    expect(f.fetch).toHaveBeenCalledOnce();
+    expect(f.fetch.mock.calls[0]?.[0]).toBe('/line/preferences/language');
+    expect(payload(f.fetch.mock.calls[0]?.[1])).toEqual({ idToken: 'verified-id' });
+    expect(f.replace).toHaveBeenCalledWith('/line/invite?lang=zh_CN#' + bearer);
+    expect(f.openWindow).not.toHaveBeenCalled();
+  });
+  it('respects an explicit Simplified choice over a different saved preference and keeps the fixed helper chat target', async () => {
+    const f = fixture([{ status: 'approved' }], false, '#' + 'a'.repeat(43), {
+      uiLocale: 'zh_CN',
+      storedLocale: 'en',
+      search: '?lang=zh_CN'
+    });
+    await tick();
+    expect(f.html).toContain('<html lang="zh-Hans">');
+    expect(f.fetch).toHaveBeenCalledOnce();
+    expect(f.fetch.mock.calls[0]?.[0]).toBe('/line/invite/status');
+    expect(f.openWindow).toHaveBeenCalledWith({
+      url: 'https://line.me/R/oaMessage/%40556fjenc',
+      external: true
+    });
+    expect(f.replace).not.toHaveBeenCalled();
+  });
   it('hands an already-approved account to the helper chat without opening checkin, redeeming or closing the source LIFF', async () => {
     const f = fixture([{ status: 'approved' }]);
     await tick();
@@ -154,7 +187,7 @@ describe('LINE invitation browser flow', () => {
     expect(f.sendMessages).not.toHaveBeenCalled();
     expect(f.get('invite-form').hidden).toBe(true);
     expect(f.get('helper-chat').hidden).toBe(false);
-    expect(f.fetch).toHaveBeenCalledTimes(1);
+    expect(f.fetch).toHaveBeenCalledTimes(2);
     expect(f.cleanup).toHaveBeenCalledWith(null, '', '/line/invite');
     expect(f.init).toHaveBeenCalled();
   });
@@ -190,7 +223,7 @@ describe('LINE invitation browser flow', () => {
     await tick();
     expect(f.get('privacy-accepted').checked).toBe(false);
     await f.get('privacy-submit').onclick?.();
-    expect(f.fetch).toHaveBeenCalledTimes(1);
+    expect(f.fetch).toHaveBeenCalledTimes(2);
     f.get('privacy-accepted').checked = true;
     await f.get('privacy-submit').onclick?.();
     const call = f.fetch.mock.calls.find(([url]) => url === '/learner/privacy/accept');
@@ -215,7 +248,7 @@ describe('LINE invitation browser flow', () => {
       await f.get('helper-chat-link').onclick?.({ preventDefault });
       expect(preventDefault).toHaveBeenCalledOnce();
       expect(f.get('invite-form').hidden).toBe(true);
-      expect(f.fetch).toHaveBeenCalledTimes(1);
+      expect(f.fetch).toHaveBeenCalledTimes(2);
       expect(f.get('status').textContent).toBeTruthy();
     }
   );
@@ -229,7 +262,7 @@ describe('LINE invitation browser flow', () => {
     f.listeners.get('visibilitychange')?.();
     await tick();
     expect(f.get('invite-form').hidden).toBe(false);
-    expect(payload(f.fetch.mock.calls[1]?.[1]).token).toBe(resumeToken);
+    expect(payload(f.fetch.mock.calls[2]?.[1]).token).toBe(resumeToken);
     await f.get('invite-form').onsubmit?.({ preventDefault: () => {} });
     expect(payload(f.fetch.mock.calls.at(-1)?.[1]).token).toBe(resumeToken);
     expect(f.openWindow).toHaveBeenCalledWith({
@@ -239,7 +272,7 @@ describe('LINE invitation browser flow', () => {
     expect(f.replace).not.toHaveBeenCalled();
     f.listeners.get('visibilitychange')?.();
     await tick();
-    expect(f.fetch).toHaveBeenCalledTimes(3);
+    expect(f.fetch).toHaveBeenCalledTimes(4);
   });
   it('resumes a cleaned-fragment reload only from the verified server continuation and waits for explicit pending confirmation', async () => {
     const resumeToken = 'r'.repeat(43);
@@ -249,12 +282,12 @@ describe('LINE invitation browser flow', () => {
       ''
     );
     await tick();
-    expect(payload(f.fetch.mock.calls[0]?.[1])).not.toHaveProperty('token');
+    expect(payload(f.fetch.mock.calls[1]?.[1])).not.toHaveProperty('token');
     expect(f.get('status').textContent).toContain('待審申請');
     expect(f.replace).not.toHaveBeenCalled();
-    expect(f.fetch).toHaveBeenCalledTimes(1);
+    expect(f.fetch).toHaveBeenCalledTimes(2);
     await f.get('invite-form').onsubmit?.({ preventDefault: () => {} });
-    expect(payload(f.fetch.mock.calls[1]?.[1]).token).toBe(resumeToken);
+    expect(payload(f.fetch.mock.calls[2]?.[1]).token).toBe(resumeToken);
     expect(f.openWindow).toHaveBeenCalledWith({
       url: 'https://line.me/R/oaMessage/%40556fjenc',
       external: true
@@ -280,7 +313,7 @@ describe('LINE invitation browser flow', () => {
     expect(f.get('helper-chat').hidden).toBe(true);
     ready();
     await tick();
-    expect(f.fetch).toHaveBeenCalledTimes(1);
+    expect(f.fetch).toHaveBeenCalledTimes(2);
     expect(f.openWindow).not.toHaveBeenCalled();
     qualified();
     await tick();
@@ -311,19 +344,19 @@ describe('LINE invitation browser flow', () => {
     await f.get('retry').onclick?.();
     await f.get('invite-form').onsubmit?.({ preventDefault: () => {} });
     await f.get('privacy-submit').onclick?.();
-    expect(f.fetch).toHaveBeenCalledTimes(1);
+    expect(f.fetch).toHaveBeenCalledTimes(2);
     expect(f.openWindow).toHaveBeenCalledTimes(1);
     const preventDefault = vi.fn();
     await f.get('helper-chat-open').onclick?.({ preventDefault });
     expect(preventDefault).toHaveBeenCalledOnce();
     expect(f.openWindow).toHaveBeenCalledTimes(2);
-    expect(f.fetch).toHaveBeenCalledTimes(1);
+    expect(f.fetch).toHaveBeenCalledTimes(2);
     const plainPreventDefault = vi.fn();
     await f.get('helper-chat-link').onclick?.({ preventDefault: plainPreventDefault });
     expect(plainPreventDefault).not.toHaveBeenCalled();
     expect(f.get('helper-chat-link').href).toBe('https://line.me/R/oaMessage/%40556fjenc');
     expect(f.openWindow).toHaveBeenCalledTimes(2);
-    expect(f.fetch).toHaveBeenCalledTimes(1);
+    expect(f.fetch).toHaveBeenCalledTimes(2);
     expect(f.html).toContain('target="_blank" rel="noopener noreferrer"');
     expect(f.html).toContain('桌面 LINE');
     expect(f.html).toContain('練功打卡');
@@ -350,7 +383,7 @@ describe('LINE invitation browser flow', () => {
       expect(preventDefault).not.toHaveBeenCalled();
       expect(f.openWindow).not.toHaveBeenCalled();
       expect(f.get('helper-chat-open').href).toBe('https://line.me/R/oaMessage/%40556fjenc');
-      expect(f.fetch).toHaveBeenCalledTimes(1);
+      expect(f.fetch).toHaveBeenCalledTimes(2);
       expect(f.replace).not.toHaveBeenCalled();
     }
   );
@@ -367,7 +400,7 @@ describe('LINE invitation browser flow', () => {
     await f.get('helper-chat-open').onclick?.({ preventDefault });
     expect(preventDefault).toHaveBeenCalledOnce();
     expect(f.openWindow).toHaveBeenCalledTimes(3);
-    expect(f.fetch).toHaveBeenCalledTimes(1);
+    expect(f.fetch).toHaveBeenCalledTimes(2);
     expect(f.closeWindow).not.toHaveBeenCalled();
   });
   it.each(['invalid_line_identity', 'line_friendship_unavailable'] as const)(
@@ -398,7 +431,7 @@ describe('LINE invitation browser flow', () => {
     await tick();
     expect(f.openWindow).not.toHaveBeenCalled();
     await f.get('privacy-submit').onclick?.();
-    expect(f.fetch).toHaveBeenCalledTimes(1);
+    expect(f.fetch).toHaveBeenCalledTimes(2);
     f.get('privacy-accepted').checked = true;
     await f.get('privacy-submit').onclick?.();
     expect(f.openWindow).toHaveBeenCalledTimes(1);

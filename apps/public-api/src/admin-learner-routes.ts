@@ -1,3 +1,4 @@
+import { localeSchema } from './ui-localization.js';
 import { adminContentSecurityPolicy } from './admin-branding.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
@@ -100,7 +101,7 @@ export const registerAdminLearnerRoutes = (
         .object({
           page: z.coerce.number().int().min(1).max(100000).default(1),
           q: z.string().max(100).default(''),
-          lang: z.enum(['zh_TW', 'en']).optional()
+          lang: localeSchema.optional()
         })
         .strict()
         .safeParse(request.query);

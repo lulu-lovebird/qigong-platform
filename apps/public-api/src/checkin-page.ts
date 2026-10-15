@@ -1,3 +1,4 @@
+import { htmlLocale, languageOptions, uiTemplate } from './ui-localization.js';
 import type { LearnerTextKey } from './learner-locale.js';
 import { learnerPrivacyTexts } from './learner-privacy-locale.js';
 import {
@@ -8,10 +9,11 @@ import {
 } from './application-page.js';
 
 export const renderCheckinPage = (channel: LearnerPageChannel) => {
+  const locale = channel.locale ?? 'zh_TW';
   const texts = pageTexts(channel);
   const t = (key: LearnerTextKey) => texts[key];
-  return `<!doctype html>
-<html lang="${channel.locale === 'en' && channel.platform !== 'line' ? 'en' : 'zh-Hant'}">
+  return uiTemplate(locale)`<!doctype html>
+<html lang="${htmlLocale(locale)}">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow"><title>${t('checkinTitle')}</title>
@@ -41,7 +43,7 @@ export const renderCheckinPage = (channel: LearnerPageChannel) => {
 ${channel.platform === 'line' ? '<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>' : ''}
 </head>
 <body><div class="container">
-${channel.platform !== 'line' ? `<nav><button id="languageSwitch" type="button">${channel.locale === 'en' ? '繁體中文' : 'English'}</button></nav>` : ''}
+<nav><select id="languageSwitch" aria-label="Language">${languageOptions(locale)}</select></nav>
   <section class="card"><h1>${t('checkinHeading')}</h1><p class="muted">${t('checkinIntro')}</p>
     <p id="stats" class="hint" hidden></p><div id="dateTabs" class="date-tabs" hidden>
       <button id="todayTab" class="date-tab active" type="button">${t('today')}</button>
@@ -56,14 +58,14 @@ ${channel.platform !== 'line' ? `<nav><button id="languageSwitch" type="button">
 </div><script>
   ${
     channel.platform === 'line'
-      ? lineLoginScript(channel.liffId)
+      ? lineLoginScript(channel.liffId, locale) + "\nconst token='';"
       : `const tg = ${channel.platform === 'telegram' ? 'window.Telegram?.WebApp' : 'undefined'};
   if (tg) { tg.ready(); tg.expand(); }
   const token = location.hash.slice(1);
   history.replaceState(null, '', location.pathname);`
   }
   const ui = ${JSON.stringify(texts).replaceAll('<', '\\u003c')};
-  const privacyUi=${JSON.stringify(learnerPrivacyTexts(channel.platform === 'line' ? 'zh_TW' : (channel.locale ?? 'zh_TW')))};
+  const privacyUi=${JSON.stringify(learnerPrivacyTexts(locale))};
   const format = (key, values) => Object.entries(values).reduce((text, [name, value]) => text.replaceAll('{' + name + '}', String(value)), ui[key]);
   const form = document.getElementById('checkin');
   const methods = document.getElementById('methods');
@@ -100,7 +102,7 @@ ${channel.platform !== 'line' ? `<nav><button id="languageSwitch" type="button">
   const post = async (route, payload) => {
     const response = await fetch('/${channel.platform}/checkin/' + route, {
       method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ${channel.platform === 'line' ? 'idToken' : 'token'}, ${channel.platform !== 'line' && channel.locale === 'en' ? 'locale: "en",' : ''} ...payload })
+      body: JSON.stringify({ ${channel.platform === 'line' ? 'idToken' : 'token'}, locale: ${JSON.stringify(locale)}, ...payload })
     });
     if (!response.ok) throw new Error(response.status === 409 || response.status === 403
       ? ui.checkinConflict
@@ -181,14 +183,14 @@ ${channel.platform !== 'line' ? `<nav><button id="languageSwitch" type="button">
     const groups = new Map();
     for (const method of catalog.methods) {
       if (method.parent_code) {
-        if (!groups.has(method.parent_code)) groups.set(method.parent_code, { code: method.parent_code, name: ${channel.platform !== 'line' && channel.locale === 'en' ? 'method.parent_name_en || method.parent_name_zh_tw' : 'method.parent_name_zh_tw'}, children: [] });
+        if (!groups.has(method.parent_code)) groups.set(method.parent_code, { code: method.parent_code, name: ${locale === 'en' ? 'method.parent_name_en || method.parent_name_zh_tw' : locale === 'zh_CN' ? 'method.parent_name_zh_cn || method.parent_name_zh_tw' : 'method.parent_name_zh_tw'}, children: [] });
         groups.get(method.parent_code).children.push(method);
       }
     }
     const makeLabel = (method, name) => {
       const label = document.createElement('label'); label.className = 'method';
       const input = document.createElement('input'); input.type = 'checkbox'; input.name = name; input.value = method.code;
-      label.append(input, document.createTextNode(${channel.platform !== 'line' && channel.locale === 'en' ? 'method.name_en || method.name_zh_tw' : 'method.name_zh_tw'})); return label;
+      label.append(input, document.createTextNode(${locale === 'en' ? 'method.name_en || method.name_zh_tw' : locale === 'zh_CN' ? 'method.name_zh_cn || method.name_zh_tw' : 'method.name_zh_tw'})); return label;
     };
     for (const method of catalog.methods) {
       if (!method.parent_code) {
@@ -230,7 +232,7 @@ ${channel.platform !== 'line' ? `<nav><button id="languageSwitch" type="button">
       : `if (!/^[A-Za-z0-9_-]{43}$/.test(token)) status.textContent = ui.invalidCheckin;
   else load().catch(error => { status.textContent = error.message; });`
   }
-  ${channel.platform !== 'line' ? languageSwitchScript(channel.platform, channel.locale ?? 'zh_TW') : ''}
+  ${languageSwitchScript(channel.platform, locale)}
   form.addEventListener('submit', async event => {
     event.preventDefault();
     const selected = selectedMethods();

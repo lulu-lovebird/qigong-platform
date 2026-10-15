@@ -12,7 +12,8 @@ const config: WhatsAppNotificationConfig = {
   approvedTemplate: 'application_approved',
   rejectedTemplate: 'application_rejected',
   englishTemplateLocale: 'en_US',
-  chineseTemplateLocale: 'zh_TW'
+  chineseTemplateLocale: 'zh_TW',
+  simplifiedTemplateLocale: 'zh_CN'
 };
 afterEach(() => vi.unstubAllGlobals());
 describe('Meta WhatsApp Cloud API transport', () => {
@@ -20,7 +21,9 @@ describe('Meta WhatsApp Cloud API transport', () => {
     ['approved', 'en'],
     ['rejected', 'en'],
     ['approved', 'zh_TW'],
-    ['rejected', 'zh_TW']
+    ['rejected', 'zh_TW'],
+    ['approved', 'zh_CN'],
+    ['rejected', 'zh_CN']
   ] as const)(
     'sends %s as an approved-template payload in %s, not free text',
     async (decision, locale) => {
@@ -38,12 +41,22 @@ describe('Meta WhatsApp Cloud API transport', () => {
         type: 'template',
         template: {
           name: decision === 'approved' ? 'application_approved' : 'application_rejected',
-          language: { code: locale === 'en' ? 'en_US' : 'zh_TW' }
+          language: { code: locale === 'en' ? 'en_US' : locale === 'zh_CN' ? 'zh_CN' : 'zh_TW' }
         }
       });
       expect(payload).not.toHaveProperty('text');
     }
   );
+  it('never substitutes a Traditional template when a Simplified variation is not configured', () => {
+    const { simplifiedTemplateLocale, ...withoutSimplified } = config;
+    expect(simplifiedTemplateLocale).toBe('zh_CN');
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
+    expect(() =>
+      createWhatsAppNotificationSender(withoutSimplified)('886912345600', 'approved', 'zh_CN')
+    ).toThrow('simplified notification template is not configured');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   it('treats malformed success responses as failures and sanitizes transport errors', async () => {
     vi.stubGlobal(
       'fetch',

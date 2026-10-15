@@ -798,7 +798,7 @@ describeWithDatabase('LINE onboarding and checkin', () => {
   it('renders syntactically valid LIFF scripts', () => {
     const applicationHtml = lineApplicationPage('123456-test');
     expect(applicationHtml.indexOf('liff.login({ redirectUri: loginRedirectUri })')).toBeLessThan(
-      applicationHtml.indexOf("history.replaceState(null, '', location.pathname)")
+      applicationHtml.indexOf("history.replaceState(null, '', location.pathname")
     );
     for (const html of [lineApplicationPage('123456-test'), lineCheckinPage('123456-test')]) {
       const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];

@@ -72,7 +72,7 @@ export const renderReviewPage = (locale: AdminLocale = 'zh_TW', canManageAdmins 
         title.textContent = application.display_name || t.noName;
         const meta = document.createElement('p');
         meta.className = 'meta';
-        meta.textContent = message('applicationMeta',{platform:application.platform,region:application.region_name || t.unassigned,date:new Date(application.created_at).toLocaleString(locale === 'en' ? 'en' : 'zh-TW')});
+        meta.textContent = message('applicationMeta',{platform:application.platform,region:application.region_name || t.unassigned,date:new Date(application.created_at).toLocaleString(locale === 'en' ? 'en' : locale === 'zh_CN' ? 'zh-CN' : 'zh-TW')});
         const identity = document.createElement('p');
         identity.textContent = message('identityDetails',{name:application.learner_name || t.notProvided,email:application.website_email || t.notProvided,phone:application.phone_e164 || t.notProvided});
         const actions = document.createElement('div');

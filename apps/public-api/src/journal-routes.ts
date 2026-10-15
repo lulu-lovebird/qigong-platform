@@ -1,3 +1,4 @@
+import { localeSchema } from './ui-localization.js';
 import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
@@ -7,13 +8,13 @@ import { isLearnerPrivacyError } from './learner-privacy-routes.js';
 const query = z
   .object({
     page: z.coerce.number().int().min(1).max(100000).default(1),
-    lang: z.enum(['zh_TW', 'en']).default('zh_TW')
+    lang: localeSchema.default('zh_TW')
   })
   .strict();
 const credential = z
   .object({
     token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-    locale: z.enum(['zh_TW', 'en']).default('zh_TW')
+    locale: localeSchema.default('zh_TW')
   })
   .strict();
 const list = credential.extend({ page: z.number().int().min(1).max(100000).default(1) });

@@ -1,3 +1,4 @@
+import { localeSchema } from './ui-localization.js';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
@@ -11,7 +12,7 @@ export const whatsappWorkspaceCredentialSchema = z
       .string()
       .regex(/^[A-Za-z0-9_-]{43}$/)
       .optional(),
-    locale: z.enum(['zh_TW', 'en']).default('zh_TW')
+    locale: localeSchema.default('zh_TW')
   })
   .strict();
 const opaque = z.string().regex(/^[A-Za-z0-9_-]{43}$/);

@@ -60,10 +60,14 @@ suite('Community note schema33 to34 compatibility', () => {
         (await db.pool.query('SELECT ops.line_invite_continuation_schema_ready() ready')).rows[0]!
           .ready
       ).toBe(true);
-      expect((await runMigrations(db.pool, directory, 'continuation-new')).applied).toEqual([
+      await copyFile(
+        path.join(directory, '0034_community_note_sharing.sql'),
+        path.join(old, '0034_community_note_sharing.sql')
+      );
+      expect((await runMigrations(db.pool, old, 'continuation-new')).applied).toEqual([
         '0034_community_note_sharing.sql'
       ]);
-      expect((await runMigrations(db.pool, directory, 'continuation-repeat')).applied).toEqual([]);
+      expect((await runMigrations(db.pool, old, 'continuation-repeat')).applied).toEqual([]);
       expect(await fingerprints()).toEqual(before);
       expect((await db.pool.query('SELECT * FROM core.community_note_origins')).rowCount).toBe(0);
       expect(

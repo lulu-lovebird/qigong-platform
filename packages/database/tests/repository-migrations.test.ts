@@ -55,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0034_community_note_sharing.sql'
+      '0035_simplified_chinese_locale.sql'
     );
 
     expect(first.applied).toEqual([
@@ -92,13 +92,14 @@ describeWithDatabase('repository migrations', () => {
       '0031_line_verified_profile_names.sql',
       '0032_review_notifications.sql',
       '0033_line_invite_continuation.sql',
-      '0034_community_note_sharing.sql'
+      '0034_community_note_sharing.sql',
+      '0035_simplified_chinese_locale.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0034_community_note_sharing.sql',
+      currentVersion: '0035_simplified_chinese_locale.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0034_community_note_sharing.sql',
+      maximumVersion: '0035_simplified_chinese_locale.sql',
       ready: true
     });
   });

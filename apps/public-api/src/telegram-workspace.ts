@@ -1,7 +1,7 @@
+import { resolveLocale, localeSchema } from './ui-localization.js';
 import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
-import { learnerLocale } from './learner-locale.js';
 import { practiceNoteSchema } from './practice-notes.js';
 import { communityNoticeSchema } from './community-notes.js';
 import { isLearnerPrivacyError } from './learner-privacy-routes.js';
@@ -14,7 +14,7 @@ import {
 const credential = z
   .object({
     token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-    locale: z.enum(['zh_TW', 'en']).default('zh_TW')
+    locale: localeSchema.default('zh_TW')
   })
   .strict();
 const reportInput = credential.extend({
@@ -60,7 +60,7 @@ export const registerTelegramWorkspace = (app: FastifyInstance, pool: Pool) => {
         .send(
           renderTelegramWorkspacePage(
             page,
-            learnerLocale(query.success ? query.data.lang : undefined)
+            resolveLocale(query.success ? query.data : {}, request.headers.cookie)
           )
         );
     });

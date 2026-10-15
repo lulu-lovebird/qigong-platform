@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runMigrations, type Pool } from '@qigong/database';
+import { runMigrations, withRequestContext, type Pool } from '@qigong/database';
 import { createIsolatedTestDatabase } from '../../../packages/database/tests/test-database.js';
 import { buildApp } from '../src/app.js';
 import {
@@ -254,6 +254,92 @@ suite('LINE workspace HTTP and private summaries', () => {
     const html = (await app.inject('/line/checkin')).body;
     expect(html).toContain('打卡心得供所有學員閱讀');
     expect(html).not.toMatch(/type="checkbox"[^>]*(?:share|community)/);
+  });
+  it('persists only a verified LINE subject language and rejects Origin, browser-subject and unknown-locale injection', async () => {
+    expect((await post('/line/preferences/language', { locale: 'en' })).statusCode).toBe(200);
+    const read = () =>
+      app.inject({
+        method: 'POST',
+        url: '/line/preferences/language',
+        headers,
+        payload: { idToken: 'verified-line-token' }
+      });
+    expect((await read()).json()).toMatchObject({ locale: 'en' });
+    expect(
+      (await post('/line/preferences/language', { locale: 'zh_CN', userId: 'U' + 'f'.repeat(32) }))
+        .statusCode
+    ).toBe(400);
+    expect((await post('/line/preferences/language', { locale: 'zh_SG' })).statusCode).toBe(400);
+    expect(
+      (await post('/line/preferences/language', { locale: 'zh_CN', idToken: 'fake' })).statusCode
+    ).toBe(401);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/line/preferences/language',
+          headers: { ...headers, origin: 'https://outside.example.invalid' },
+          payload: { idToken: 'verified-line-token', locale: 'zh_CN' }
+        })
+      ).statusCode
+    ).toBe(403);
+    expect((await read()).json()).toMatchObject({ locale: 'en' });
+    const selected = await post('/line/preferences/language', { locale: 'zh_CN' });
+    expect(selected.statusCode, selected.body).toBe(200);
+    expect((await read()).json()).toMatchObject({ locale: 'zh_CN' });
+    const stored = (
+      await root.query(
+        'SELECT locale FROM platform.identity_preferences WHERE platform=$1 AND external_subject_id=$2',
+        ['line', subject]
+      )
+    ).rows[0];
+    expect(stored).toEqual({ locale: 'zh_CN' });
+    const cookie = Array.isArray(selected.headers['set-cookie'])
+      ? selected.headers['set-cookie'].join(';')
+      : selected.headers['set-cookie'];
+    expect(cookie).toContain('__Host-qigong-learner-locale=zh_CN');
+    expect(
+      (await app.inject({ url: '/line/checkin', headers: { cookie: String(cookie) } })).body
+    ).toContain('<html lang="zh-Hans">');
+    expect((await app.inject('/line/checkin?lang=en')).body).toContain('<html lang="en">');
+  });
+  it('renders live Simplified labels but preserves verified names, reflection text and private receipt boundaries', async () => {
+    await confirm();
+    await post('/line/preferences/language', { locale: 'zh_CN' });
+    await withRequestContext(runtime, 'qigong_api_runtime', { requestId: randomUUID() }, (client) =>
+      client.query('SELECT platform.refresh_verified_line_profile($1,$2)', [subject, '已儲存'])
+    );
+    const methods = await post('/line/workspace/profile', { locale: 'zh_CN' });
+    expect(methods.statusCode, methods.body).toBe(200);
+    expect(
+      methods
+        .json<{ methods: { code: string; name: string }[] }>()
+        .methods.find((m) => m.code === 'wuqinxi_he')?.name
+    ).toBe('鹤戏');
+    const saved = await post('/line/workspace/save', {
+      locale: 'zh_CN',
+      requestId: randomUUID(),
+      date: (await profile()).today,
+      version: 0,
+      methods: ['wuqinxi_he'],
+      practiceNote: '練功打卡',
+      feelingTagIds: [],
+      communityNotice: 'student-community-notes-v1'
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const stream = await post('/line/journal/feed', { locale: 'zh_CN', cursor: null });
+    expect(stream.statusCode, stream.body).toBe(200);
+    expect(
+      stream.json<{ entries: { alias: string; practiceNote: string }[] }>().entries
+    ).toContainEqual(expect.objectContaining({ alias: '已儲存', practiceNote: '練功打卡' }));
+    const sender = vi.fn(async (recipient: string, text: string) => {
+      expect(recipient).toBe(subject);
+      expect(text).toContain('总打卡天数');
+      expect(text).toContain('鹤戏');
+      expect(text).not.toContain('練功打卡');
+    });
+    expect(await deliverChannelPracticeReceipts(runtime, 'line', sender, () => {}, 3)).toBe(1);
+    expect(sender).toHaveBeenCalledOnce();
   });
   it('uses fixed recipient and stable retry key and sanitizes transport errors', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response('{}'));

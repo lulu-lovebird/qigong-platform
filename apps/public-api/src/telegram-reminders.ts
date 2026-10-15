@@ -1,3 +1,4 @@
+import { uiText, uiTemplate, localeSchema } from './ui-localization.js';
 import { randomUUID } from 'node:crypto';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
@@ -21,7 +22,10 @@ export const parseTelegramReminder = (
 export const telegramReminderHelp = (locale: LearnerLocale) =>
   locale === 'en'
     ? '🔔 Use /remind, /remind on, /remind off, /remind 21, /remind tz America/New_York or /remindtest.'
-    : '🔔 可用 /remind、/remind on、/remind off、/remind 21、/remind tz Asia/Taipei 或 /remindtest。';
+    : uiText(
+        locale,
+        '🔔 可用 /remind、/remind on、/remind off、/remind 21、/remind tz Asia/Taipei 或 /remindtest。'
+      );
 const settings = z.object({
   enabled: z.boolean(),
   hour: z.number().int().min(0).max(23),
@@ -52,12 +56,14 @@ export const handleTelegramReminder = async (
     if (data.previewQueued)
       return locale === 'en'
         ? '🔔 Your reminder preview is queued. Delivery requires the reminder worker to be enabled.'
-        : '🔔 本人提醒預覽已排入佇列，需提醒排程啟用才會發送。';
+        : uiText(locale, '🔔 本人提醒預覽已排入佇列，需提醒排程啟用才會發送。');
     const hour = String(data.hour).padStart(2, '0') + ':00';
     return (
       (locale === 'en'
         ? `🔔 Your check-in reminders\nStatus: ${data.enabled ? 'On' : 'Off'}\nTime: ${hour}\nTime zone: ${data.timezone}\nReminders are sent even after check-in.`
-        : `🔔 你的打卡提醒設定\n狀態：${data.enabled ? '已開啟' : '已關閉'}\n時間：${hour}\n時區：${data.timezone}\n已打卡仍會提醒。`) +
+        : uiTemplate(
+            locale
+          )`🔔 你的打卡提醒設定\n狀態：${data.enabled ? uiText(locale, '已開啟') : uiText(locale, '已關閉')}\n時間：${hour}\n時區：${data.timezone}\n已打卡仍會提醒。`) +
       '\n\n' +
       telegramReminderHelp(locale)
     );
@@ -65,15 +71,15 @@ export const handleTelegramReminder = async (
     if (error instanceof Error && error.message === 'reminder preview rate limited')
       return locale === 'en'
         ? 'Please wait five minutes before another preview.'
-        : '請間隔五分鐘後再測試提醒。';
+        : uiText(locale, '請間隔五分鐘後再測試提醒。');
     if (error instanceof Error && error.message === 'invalid reminder timezone')
       return locale === 'en'
         ? 'Unknown IANA time zone. Use /remind tz America/New_York.'
-        : '無效的 IANA 時區，請用 /remind tz Asia/Taipei。';
+        : uiText(locale, '無效的 IANA 時區，請用 /remind tz Asia/Taipei。');
     if (error instanceof Error && error.message === 'reminder access unavailable')
       return locale === 'en'
         ? 'Reminders require an approved, active learner and current privacy acceptance.'
-        : '提醒限已核准、有效且已完成必要隱私同意的學員。';
+        : uiText(locale, '提醒限已核准、有效且已完成必要隱私同意的學員。');
     throw new Error('Telegram reminder settings unavailable');
   }
 };
@@ -81,7 +87,7 @@ export type TelegramReminderSender = (recipient: string, locale: LearnerLocale) 
 export const buildTelegramReminder = (locale: LearnerLocale) =>
   locale === 'en'
     ? '🔔 Time for qigong practice! Complete your check-in and keep your rhythm going.'
-    : '🔔 氣功時間到了！記得完成打卡，守住你的練功節奏。';
+    : uiText(locale, '🔔 氣功時間到了！記得完成打卡，守住你的練功節奏。');
 export const createTelegramReminderSender =
   (token: string): TelegramReminderSender =>
   async (recipient, locale) => {
@@ -97,7 +103,7 @@ export const createTelegramReminderSender =
             inline_keyboard: [
               [
                 {
-                  text: locale === 'en' ? '✅ Start check-in' : '✅ 開始打卡',
+                  text: locale === 'en' ? '✅ Start check-in' : uiText(locale, '✅ 開始打卡'),
                   web_app: {
                     url: 'https://checkin.baiyinqigong.org/telegram/checkin?lang=' + locale
                   }
@@ -137,7 +143,7 @@ export const deliverTelegramReminders = async (
       );
       if (!allowed.rows[0]?.allowed) throw Error('Unavailable');
       if (!/^\d{1,20}$/.test(job.recipient)) throw Error('Invalid recipient');
-      await sender(job.recipient, z.enum(['zh_TW', 'en']).parse(job.locale));
+      await sender(job.recipient, localeSchema.parse(job.locale));
       sent = true;
     } catch {
       onError(new Error('Telegram reminder delivery failed'), job.id);

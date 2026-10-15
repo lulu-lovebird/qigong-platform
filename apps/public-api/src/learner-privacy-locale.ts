@@ -1,4 +1,5 @@
 import type { LearnerLocale } from './learner-locale.js';
+import { uiDictionary } from './ui-localization.js';
 const english = {
   title: 'Baiyin Qigong Check-in Helper — Supplemental Notice',
   brand: 'Baiyin Qigong',
@@ -111,4 +112,5 @@ const chinese: Record<keyof typeof english, string> = {
   staffHelp: '僅閱讀共享內容，包含停用學員的共享歷史；不因此取得私密原稿權限。',
   contact: '隱私聯絡窗口'
 };
-export const learnerPrivacyTexts = (locale: LearnerLocale) => (locale === 'en' ? english : chinese);
+export const learnerPrivacyTexts = (locale: LearnerLocale) =>
+  locale === 'en' ? english : uiDictionary(locale, chinese);

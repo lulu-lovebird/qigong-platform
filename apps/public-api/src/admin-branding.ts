@@ -1,3 +1,4 @@
+import { uiText } from './ui-localization.js';
 import type { AdminLocale } from './admin-locale.js';
 
 export const adminBrandColors = Object.freeze({
@@ -22,4 +23,4 @@ input[type="checkbox"] { accent-color:var(--brand-primary); }
 `;
 
 export const renderAdminLogo = (locale: AdminLocale) =>
-  `<img class="admin-logo" src="${adminLogoUrl}" width="112" height="112" alt="${locale === 'en' ? 'Baiyin Qigong logo' : '白雁氣功標誌'}" referrerpolicy="no-referrer" decoding="async">`;
+  `<img class="admin-logo" src="${adminLogoUrl}" width="112" height="112" alt="${locale === 'en' ? 'Baiyin Qigong logo' : uiText(locale, '白雁氣功標誌')}" referrerpolicy="no-referrer" decoding="async">`;

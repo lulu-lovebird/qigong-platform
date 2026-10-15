@@ -301,73 +301,82 @@ describeDatabase('restricted administrator reports', () => {
       await app.close();
     }
   });
-  it('remembers an English page preference through mock OIDC login and across all admin pages', async () => {
-    const app = appFactory();
-    try {
-      const guest = await app.inject({ method: 'GET', url: '/admin/?lang=en' });
-      expect(guest.statusCode).toBe(302);
-      const preference = guest.headers['set-cookie'];
-      if (typeof preference !== 'string') throw new Error('Expected preference cookie');
-      expect(preference).toContain('__Host-qigong-admin-locale=en');
-      expect(preference).toContain('Secure');
-      expect(preference).toContain('SameSite=Lax');
-      expect(preference).not.toContain('HttpOnly');
-      const saved = preference.split(';')[0]!;
-      const login = await app.inject({
-        method: 'GET',
-        url: '/admin/auth/login',
-        headers: { cookie: saved }
-      });
-      const stateCookie = login.headers['set-cookie'];
-      if (typeof stateCookie !== 'string') throw new Error('Expected state cookie');
-      const state = stateCookie.split(';')[0]!.split('=')[1]!;
-      const callback = await app.inject({
-        method: 'GET',
-        url: '/admin/auth/callback?state=' + state + '&code=mock-code',
-        headers: { cookie: saved + '; ' + stateCookie.split(';')[0] }
-      });
-      expect(callback.statusCode).toBe(302);
-      const issued = callback.headers['set-cookie'];
-      if (!Array.isArray(issued)) throw new Error('Expected session cookies');
-      const values = [saved, ...issued.map((header) => header.split(';')[0]!)].join('; ');
-      for (const path of [
-        '/admin/',
-        '/admin/leaderboard',
-        '/admin/method-analysis',
-        '/admin/applications'
-      ]) {
-        const response = await app.inject({
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'remembers a %s preference through mock OIDC login and across all admin pages',
+    async (locale) => {
+      const app = appFactory();
+      try {
+        const guest = await app.inject({ method: 'GET', url: '/admin/?lang=' + locale });
+        expect(guest.statusCode).toBe(302);
+        const preference = guest.headers['set-cookie'];
+        if (typeof preference !== 'string') throw new Error('Expected preference cookie');
+        expect(preference).toContain('__Host-qigong-admin-locale=' + locale);
+        expect(preference).toContain('Secure');
+        expect(preference).toContain('SameSite=Lax');
+        expect(preference).not.toContain('HttpOnly');
+        const saved = preference.split(';')[0]!;
+        const login = await app.inject({
           method: 'GET',
-          url: path,
+          url: '/admin/auth/login',
+          headers: { cookie: saved }
+        });
+        const stateCookie = login.headers['set-cookie'];
+        if (typeof stateCookie !== 'string') throw new Error('Expected state cookie');
+        const state = stateCookie.split(';')[0]!.split('=')[1]!;
+        const callback = await app.inject({
+          method: 'GET',
+          url: '/admin/auth/callback?state=' + state + '&code=mock-code',
+          headers: { cookie: saved + '; ' + stateCookie.split(';')[0] }
+        });
+        expect(callback.statusCode).toBe(302);
+        const issued = callback.headers['set-cookie'];
+        if (!Array.isArray(issued)) throw new Error('Expected session cookies');
+        const values = [saved, ...issued.map((header) => header.split(';')[0]!)].join('; ');
+        for (const path of [
+          '/admin/',
+          '/admin/leaderboard',
+          '/admin/method-analysis',
+          '/admin/applications'
+        ]) {
+          const response = await app.inject({
+            method: 'GET',
+            url: path,
+            headers: { cookie: values }
+          });
+          expect(response.statusCode).toBe(200);
+          expect(response.body).toContain(
+            '<html lang="' +
+              (locale === 'en' ? 'en' : locale === 'zh_CN' ? 'zh-Hans' : 'zh-Hant') +
+              '">'
+          );
+          expect(response.headers['cache-control']).toBe('no-store');
+        }
+        const explicit = await app.inject({
+          method: 'GET',
+          url: '/admin/?lang=zh_TW',
           headers: { cookie: values }
         });
-        expect(response.statusCode).toBe(200);
-        expect(response.body).toContain('<html lang="en">');
-        expect(response.headers['cache-control']).toBe('no-store');
+        expect(explicit.body).toContain('<html lang="zh-Hant">');
+        expect(explicit.headers['set-cookie']).toContain('__Host-qigong-admin-locale=zh_TW');
+        const alias = await app.inject({
+          method: 'GET',
+          url: '/admin?lang=en&period=month',
+          headers: { cookie: values }
+        });
+        expect(alias.headers.location).toBe('/admin/?lang=en&period=month');
+        const metadata = await app.inject({
+          method: 'GET',
+          url: '/admin/api/reports/overview',
+          headers: { cookie: values }
+        });
+        expect(metadata.json().regions).toEqual([
+          { id: regionA, name: locale === 'en' ? 'A' : '甲區' }
+        ]);
+      } finally {
+        await app.close();
       }
-      const explicit = await app.inject({
-        method: 'GET',
-        url: '/admin/?lang=zh_TW',
-        headers: { cookie: values }
-      });
-      expect(explicit.body).toContain('<html lang="zh-Hant">');
-      expect(explicit.headers['set-cookie']).toContain('__Host-qigong-admin-locale=zh_TW');
-      const alias = await app.inject({
-        method: 'GET',
-        url: '/admin?lang=en&period=month',
-        headers: { cookie: values }
-      });
-      expect(alias.headers.location).toBe('/admin/?lang=en&period=month');
-      const metadata = await app.inject({
-        method: 'GET',
-        url: '/admin/api/reports/overview',
-        headers: { cookie: values }
-      });
-      expect(metadata.json().regions).toEqual([{ id: regionA, name: 'A' }]);
-    } finally {
-      await app.close();
     }
-  });
+  );
   it('localizes pending-application metadata and permission-denied pages without translating personal details', async () => {
     const application = (
       await pool.query<{ id: string }>(

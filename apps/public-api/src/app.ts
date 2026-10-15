@@ -1,4 +1,7 @@
 import Fastify, { type FastifyBaseLogger } from 'fastify';
+import { isLocale, resolveLocale, learnerLocaleCookie } from './ui-localization.js';
+import { localizeSystemLabels } from './system-label-localization.js';
+import { adminLocaleCookie } from './admin-locale.js';
 import { checkApiRuntimePreflight, getMigrationStatus, type Pool } from '@qigong/database';
 import { registerAdminRoutes, type AdminAuthProvider } from './admin-auth.js';
 import { registerExternalJournalRoutes } from './journal-routes.js';
@@ -25,8 +28,8 @@ export const apiLogRedaction = Object.freeze({
   censor: '[REDACTED]'
 });
 
-export const minimumMigrationVersion = '0034_community_note_sharing.sql';
-export const maximumMigrationVersion = '0034_community_note_sharing.sql';
+export const minimumMigrationVersion = '0035_simplified_chinese_locale.sql';
+export const maximumMigrationVersion = '0035_simplified_chinese_locale.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -94,6 +97,40 @@ export const buildApp = ({
 
   app.addHook('onSend', (request, reply, payload, done) => {
     void reply.header('x-request-id', request.id);
+    const body = request.body;
+    const requested =
+      typeof body === 'object' && body !== null && 'locale' in body ? body.locale : undefined;
+    const locale = isLocale(requested)
+      ? requested
+      : resolveLocale(
+          request.query,
+          request.headers.cookie,
+          request.url.startsWith('/admin/') ? adminLocaleCookie : undefined
+        );
+    const query = request.query;
+    const explicit =
+      typeof query === 'object' && query !== null && 'lang' in query ? query.lang : undefined;
+    if (isLocale(explicit) && String(reply.getHeader('content-type') ?? '').includes('text/html')) {
+      const name = request.url.startsWith('/admin/') ? adminLocaleCookie : learnerLocaleCookie;
+      const existing = reply.getHeader('set-cookie');
+      const cookies = Array.isArray(existing) ? existing : existing ? [String(existing)] : [];
+      if (!cookies.some((cookie) => cookie.startsWith(name + '='))) {
+        const value = name + '=' + explicit + '; Path=/; Max-Age=31536000; Secure; SameSite=Lax';
+        reply.header('set-cookie', cookies.length ? [...cookies, value] : value);
+      }
+    }
+    if (
+      locale === 'zh_CN' &&
+      typeof payload === 'string' &&
+      String(reply.getHeader('content-type') ?? '').includes('application/json')
+    ) {
+      try {
+        const data: unknown = JSON.parse(payload);
+        return done(null, JSON.stringify(localizeSystemLabels(locale, data)));
+      } catch {
+        return done(null, payload);
+      }
+    }
     done(null, payload);
   });
 

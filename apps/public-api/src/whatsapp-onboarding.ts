@@ -1,3 +1,4 @@
+import { localeSchema, uiText } from './ui-localization.js';
 import {
   registerWhatsAppBrowserSessions,
   resolveWhatsAppWorkspaceCredential,
@@ -37,7 +38,11 @@ export const whatsappConfigSchema = whatsappTransportSchema.extend({
 });
 export type WhatsAppConfig = z.infer<typeof whatsappConfigSchema> & {
   sendText?: (recipient: string, text: string) => Promise<void>;
-  sendWorkspaceMenu?: (recipient: string, text: string, locale: 'zh_TW' | 'en') => Promise<void>;
+  sendWorkspaceMenu?: (
+    recipient: string,
+    text: string,
+    locale: 'zh_TW' | 'zh_CN' | 'en'
+  ) => Promise<void>;
 };
 export const loadWhatsAppConfig = (source: NodeJS.ProcessEnv): WhatsAppConfig | undefined => {
   const values = {
@@ -93,7 +98,7 @@ const eventSchema = z.object({
 });
 const credentials = z.object({
   token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-  locale: z.enum(['zh_TW', 'en']).default('zh_TW')
+  locale: localeSchema.default('zh_TW')
 });
 const detailsSchema = credentials.extend({
   name: z.string().trim().min(1).max(150),
@@ -254,7 +259,7 @@ export const registerWhatsAppOnboarding = (
               const language = /^\/?language(?:\s+(\S+))?$/i.exec(text);
               if (language) {
                 const selected = language[1];
-                if (selected !== 'en' && selected !== 'zh_TW') {
+                if (selected !== 'en' && selected !== 'zh_TW' && selected !== 'zh_CN') {
                   await sendText(message.from, texts.languageHelp);
                   return;
                 }
@@ -266,7 +271,9 @@ export const registerWhatsAppOnboarding = (
                   message.from,
                   selected === 'en'
                     ? 'Language set to English. Reply join to apply or checkin to practice.'
-                    : '已切換繁體中文。輸入「加入」申請或「打卡」練功。'
+                    : selected === 'zh_CN'
+                      ? '已切换简体中文。输入「加入」申请或「打卡」练功。'
+                      : '已切換繁體中文。輸入「加入」申請或「打卡」練功。'
                 );
                 return;
               }
@@ -278,7 +285,7 @@ export const registerWhatsAppOnboarding = (
                   message.from,
                   locale === 'en'
                     ? 'Application decision notifications stopped. Reply join to check your status.'
-                    : '已停止申請結果通知。可輸入「加入」查看狀態。'
+                    : uiText(locale, '已停止申請結果通知。可輸入「加入」查看狀態。')
                 );
                 return;
               }
@@ -332,7 +339,10 @@ export const registerWhatsAppOnboarding = (
                   texts.checkinLink,
                   locale === 'en'
                     ? 'On your own device, sign in and remember it for 30 days; then bookmark the fixed check-in page. Check-ins do not send chat summaries.'
-                    : '自己的裝置可登入並記住30天，再將固定打卡頁加入書籤；打卡不回傳聊天摘要。',
+                    : uiText(
+                        locale,
+                        '自己的裝置可登入並記住30天，再將固定打卡頁加入書籤；打卡不回傳聊天摘要。'
+                      ),
                   labels.checkin + ' ' + link('checkin'),
                   labels.leaderboard + ' ' + link('leaderboard'),
                   labels.methods + ' ' + link('method-analysis'),
@@ -352,14 +362,14 @@ export const registerWhatsAppOnboarding = (
                 response =
                   locale === 'en'
                     ? 'You are approved. Reply checkin to practice.'
-                    : '已核准。請輸入「打卡」開始。';
+                    : uiText(locale, '已核准。請輸入「打卡」開始。');
               else if (status === 'rejected') response = texts.rejected;
               else if (status === 'pending') response = texts.pending;
               else if (status === 'link_pending')
                 response =
                   locale === 'en'
                     ? 'Use your previous application link. Reply join after it expires.'
-                    : '請使用上一則申請連結；到期後可重新輸入「加入」。';
+                    : uiText(locale, '請使用上一則申請連結；到期後可重新輸入「加入」。');
               else if (status === 'unavailable') response = texts.notApproved;
               else throw new Error('Unexpected WhatsApp onboarding state');
               await sendText(message.from, response);
@@ -407,7 +417,7 @@ export const registerWhatsAppOnboarding = (
     if (!validOrigin(request.headers.origin, request.headers['content-type']))
       return reply.code(403).send({ error: 'invalid_origin' });
     const parsed = whatsappWorkspaceCredentialSchema
-      .extend({ locale: z.enum(['zh_TW', 'en']) })
+      .extend({ locale: localeSchema })
       .safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_language' });
     try {

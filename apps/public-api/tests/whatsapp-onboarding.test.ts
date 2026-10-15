@@ -318,6 +318,35 @@ describeWithDatabase('WhatsApp restricted-role onboarding and practice', () => {
           })
         ).statusCode
       ).toBe(200);
+      const simplified = await app.inject({
+        method: 'POST',
+        url: '/whatsapp/preferences/language',
+        headers: origin,
+        payload: { token: checkinToken, locale: 'zh_CN' }
+      });
+      expect(simplified.statusCode, simplified.body).toBe(200);
+      expect(
+        (
+          await pool.query(
+            "SELECT locale FROM platform.identity_preferences WHERE platform='whatsapp' AND external_subject_id=(SELECT external_subject_id FROM identity.platform_identities WHERE person_id=$1 AND platform='whatsapp')",
+            [waPerson]
+          )
+        ).rows
+      ).toEqual([{ locale: 'zh_CN' }]);
+      expect((await app.inject('/whatsapp/checkin?lang=zh_CN')).body).toContain(
+        '<html lang="zh-Hans">'
+      );
+      expect(
+        (await app.inject(signed(body('language-cn-new', 'language zh_CN', '659900000035'))))
+          .statusCode
+      ).toBe(200);
+      expect(
+        (
+          await pool.query(
+            "SELECT locale FROM platform.identity_preferences WHERE platform='whatsapp' AND external_subject_id='659900000035'"
+          )
+        ).rows
+      ).toEqual([{ locale: 'zh_CN' }]);
       await pool.query(
         "UPDATE core.checkins SET practice_date=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Taipei')::date-2 WHERE id=$1",
         [checkinId]
@@ -504,9 +533,9 @@ describeWithDatabase('WhatsApp restricted-role onboarding and practice', () => {
   });
   it('supports signed interactive menus, complete reports and idempotent saves with safe private receipts', async () => {
     const user = '886966666666',
-      menu = vi.fn<(recipient: string, text: string, locale: 'zh_TW' | 'en') => Promise<void>>(
-        async () => {}
-      );
+      menu = vi.fn<
+        (recipient: string, text: string, locale: 'zh_TW' | 'zh_CN' | 'en') => Promise<void>
+      >(async () => {});
     const application = (
       await pool.query<{ id: string }>(
         "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164) VALUES('whatsapp',$1,'Workspace learner',$2,'Workspace learner','workspace@example.test','+886966666666') RETURNING id",

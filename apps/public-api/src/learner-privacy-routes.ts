@@ -1,3 +1,4 @@
+import { localeSchema, privacyDocumentLocale } from './ui-localization.js';
 import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool, type PoolClient } from '@qigong/database';
 import { z } from 'zod';
@@ -91,7 +92,7 @@ export const registerLearnerPrivacyRoutes = (app: FastifyInstance, pool: Pool) =
       .header('x-content-type-options', 'nosniff');
     const input = z
       .object({
-        lang: z.enum(['zh_TW', 'en']).default('zh_TW'),
+        lang: localeSchema.default('zh_TW'),
         platform: privacyPlatform.default('telegram')
       })
       .strict()
@@ -131,7 +132,7 @@ export const registerLearnerPrivacyRoutes = (app: FastifyInstance, pool: Pool) =
         token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
         version: z.string().min(1).max(100),
         hash: z.string().regex(/^[0-9a-f]{64}$/),
-        locale: z.enum(['zh_TW', 'en']),
+        locale: localeSchema,
         accepted: z.literal(true),
         reflectionConsent: z.boolean()
       })
@@ -149,7 +150,15 @@ export const registerLearnerPrivacyRoutes = (app: FastifyInstance, pool: Pool) =
             await withRequestContext(pool, 'qigong_api_runtime', { requestId: request.id }, (c) =>
               c.query<{ data: unknown }>(
                 'SELECT platform.accept_privacy($1,$2,$3,$4,$5,$6,$7) data',
-                [v.platform, v.token, v.version, v.hash, v.locale, v.accepted, v.reflectionConsent]
+                [
+                  v.platform,
+                  v.token,
+                  v.version,
+                  v.hash,
+                  privacyDocumentLocale(v.locale),
+                  v.accepted,
+                  v.reflectionConsent
+                ]
               )
             )
           ).rows[0]?.data

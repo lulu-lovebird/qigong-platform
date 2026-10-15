@@ -28,6 +28,12 @@ Backfills are resumable and do not remove compatibility with `A` or `B`. Read pa
 3. Deploy application `C` whose minimum version requires the completed backfill.
 4. Apply contract migrations only after `C` is healthy and no rollback to `A` is permitted.
 
+## Local three-language candidate (not deployed)
+
+The three-language candidate declares exact `0035_simplified_chinese_locale.sql` and worker `ops.locale_schema_ready()` / `phase-20-simplified-chinese`. Production remains schema34. The existing34 build rejects35; it must not be described as an expand-compatible rolling release or run against35 after migration.
+
+Before deployment, explicitly review/approve a coordinated maintenance/drain and matching API/worker plan, or provide the expand-compatible A release required above. Local implementation approval is not deployment approval. Rehearse final encrypted backup restoration, preserved data and the readiness boundary. A35→34 downgrade requires matching database/API/worker plus approved reconciliation of all post-release writes, including newly selected locales that34 cannot represent; binary-only rollback or silent language substitution is unsafe. See [candidate details](../operations/trilingual-locales.md).
+
 ## Required Controls
 
 - CI tests the old and new application compatibility ranges against the same expand schema.

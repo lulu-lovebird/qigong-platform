@@ -40,7 +40,7 @@ describe('LINE workspace generated scripts', () => {
       expect(html).toContain('JSON.stringify({idToken,locale,...values})');
       expect(html).not.toContain('telegram.org');
       expect(html).not.toContain('JSON.stringify({token,locale,...values})');
-      expect(html).toContain('<html lang="zh-Hant">');
+      expect(html).toContain('<html lang="en">');
       expect(html.indexOf('src="https://static.line-scdn.net')).toBeLessThan(
         html.indexOf('await liff.init')
       );

@@ -1,5 +1,6 @@
-export type LearnerLocale = 'zh_TW' | 'en';
-export const learnerLocale = (value: unknown): LearnerLocale => (value === 'en' ? 'en' : 'zh_TW');
+import { normalizeLocale, uiDictionary, type Locale } from './ui-localization.js';
+export type LearnerLocale = Locale;
+export const learnerLocale = normalizeLocale;
 
 const english = {
   noteHeading: 'Practice notes and feelings',
@@ -70,7 +71,7 @@ const english = {
   checkedIn: 'Check-in saved!',
   languageFailed: 'Language could not be saved. Get a new link from the bot and try again.',
   languageSaved: 'Language set to English. Send /start to apply or /checkin to practice.',
-  languageHelp: 'Use /language en or /language zh_TW.',
+  languageHelp: 'Use /language en, /language zh_TW or /language zh_CN.',
   approved: 'Your application is approved. Send /checkin to practice.',
   rejected: 'Your application was not approved. Please contact your regional administrator.',
   pending: 'Your application is under regional review. You cannot check in until approved.',
@@ -150,7 +151,7 @@ const chinese: Record<LearnerTextKey, string> = {
   checkedIn: '打卡成功！',
   languageFailed: '語言設定失敗，請回 Bot 取得新連結再試。',
   languageSaved: '已切換繁體中文。輸入 /start 申請或 /checkin 打卡。',
-  languageHelp: '請輸入 /language en 或 /language zh_TW。',
+  languageHelp: '請輸入 /language en、/language zh_TW 或 /language zh_CN。',
   approved: '你已通過加入審核。請輸入 /checkin 開始打卡。',
   rejected: '你的申請目前未獲核准。如有疑問，請聯絡地區管理員。',
   pending: '你的加入申請已送審，請等待地區管理員核對。審核前尚無法打卡。',
@@ -162,7 +163,15 @@ const chinese: Record<LearnerTextKey, string> = {
   notificationApproved: '你的氣功小幫手加入申請已核准！現在可以私訊 Bot 輸入 /checkin 開始打卡。',
   notificationRejected: '你的氣功小幫手加入申請未獲核准；如需了解原因，請聯絡所在地區管理員。'
 };
-export const learnerTexts = (locale: LearnerLocale) => (locale === 'en' ? english : chinese);
+export const learnerTexts = (locale: LearnerLocale) =>
+  locale === 'en'
+    ? english
+    : {
+        ...uiDictionary(locale, chinese),
+        ...(locale === 'zh_CN'
+          ? { languageSaved: '已切换简体中文。输入 /start 申请或 /checkin 打卡。' }
+          : {})
+      };
 export const learnerText = (locale: LearnerLocale, key: LearnerTextKey) =>
   learnerTexts(locale)[key];
-export const localeQuery = (locale: LearnerLocale) => (locale === 'en' ? '?lang=en' : '');
+export const localeQuery = (locale: LearnerLocale) => (locale === 'zh_TW' ? '' : '?lang=' + locale);

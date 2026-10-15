@@ -1,5 +1,16 @@
 # Qigong Platform — 交接摘要
 
+## 最新本機：繁中／簡中／英文三語化（尚未提交／部署）
+
+- 使用者確認三渠道學員端＋管理後台一併完成。新增zh_CN共用schema／六字典、三向選單與cookie、LINE verified-subject偏好、SDK私密fragment接續、三語bot／回條／提醒／審核通知。語系不推定國家、資格或身份，不回填既有偏好。
+- source-owned靜態文案及明確live catalog DTO呈現簡中；姓名／心得／理由／歷史出版快照保留原文。OpenCC僅開發時產生靜態對照，無runtime converter或新依賴；未知自訂名稱保留原名。正式中文條款仍繁中原文並明示，version/hash、同意文件語系與draft狀態不變。
+- 新0035／phase-20-simplified-chinese，candidate API exact35、worker ops.locale_schema_ready；歷史0001–0034、package/lockfile及正式環境未動。schema34→35整表原資料指紋保留／repeat0；新binding locale nullable不回填。35不可binary-only退34，後續部署與流量後對帳另核准。
+- 獨立PG16完整pnpm verify **721 tests**（API533／DB180／config2／identity6）＋format/lint/source TS/build成功；額外all-test TS仍10既有錯。三渠道簡中整HTML／draft取消、LINE身份／Origin防偽與私人原文、signed TG/WA語系、回條／提醒preview不訂閱、三語review binding／mock OIDC均過。
+- 完整重跑曾於55462再現既有learner-privacy停用/channel timestamp constraint間歇失敗；isolated11項過，再以全新PG16／55465完整721過，未改該fixture／constraint／授權斷言，不稱根因已修。最終log為/tmp/qigong-locale-verify-final.log，失敗及isolated證據另留；OpenCC靜態對照可用scripts/generate-ui-zh-cn.mjs --check重現。
+- Chrome390/1280×30頁×3語共180布局無overflow／uncaught exception；learner資料/SDK為合成、admin為API失敗shell，不能當真人provider／正常報表載入驗收。簡中靜態文案reference比對僅正式原文條款及語言自名保留繁字。證據/tmp/qigong-locale-*，詳見[三語化與發布界線](docs/operations/trilingual-locales.md)。
+- 正式仍d8d4e6679993a018819b790fe608197934045f46／34，TG reminders及review flags既有true，WA未設定／政策draft不變。未commit/push/deploy，未碰Console或傳真人訊息；web-admin-permissions-review.md仍排除。
+- **真人驗收更新：**使用者已確認原LINE邀請→小幫手聊天→本人打卡→關頁→同聊天回條完整流程「測試 okay！」；下方舊部署紀錄的待真人驗收文字為當時狀態，新三語介面仍需另驗收。
+
 ## 最新部署：LINE邀請核准後聊天交接d8d4e66（同schema34）
 
 - 使用者另核准commit/push/deploy，d8d4e6679993a018819b790fe608197934045f46、CI38737168221／696tests成功；2026-10-15 12:54:02–12:54:21 UTC維護19秒，同34/phase19，只切matching API-worker／drop-in，沒有migration applier。

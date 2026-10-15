@@ -1,3 +1,4 @@
+import { localeSchema } from './ui-localization.js';
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
@@ -92,8 +93,17 @@ export const registerReviewNotificationRoutes = (
         return reply.code(403).send({ error: 'invalid_csrf' });
       try {
         if (action === 'link' || action === 'test') {
-          if (!z.object({}).strict().safeParse(request.body).success)
+          const linkInput = (
+            action === 'link'
+              ? z.object({ locale: localeSchema.optional() }).strict()
+              : z.object({}).strict()
+          ).safeParse(request.body);
+          if (!linkInput.success)
             return reply.code(400).send({ error: 'invalid_notification_request' });
+          const language =
+            'locale' in linkInput.data && linkInput.data.locale
+              ? linkInput.data.locale
+              : resolveAdminLocale(request.query, request.headers.cookie);
           if (action === 'test')
             return await query(
               principal,
@@ -104,8 +114,8 @@ export const registerReviewNotificationRoutes = (
             data = await query(
               principal,
               request.id,
-              'SELECT admin.begin_review_notification_link($1) data',
-              [token]
+              'SELECT admin.begin_review_notification_link($1,$2) data',
+              [token, language]
             );
           return { ...data, token };
         }
@@ -130,7 +140,7 @@ export const registerReviewNotificationRoutes = (
             version,
             adminEnabled: z.boolean(),
             learnerEnabled: z.boolean(),
-            locale: z.enum(['zh_TW', 'en']),
+            locale: localeSchema,
             disconnect: z.boolean().default(false)
           })
           .strict()

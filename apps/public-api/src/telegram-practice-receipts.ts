@@ -1,3 +1,4 @@
+import { localeSchema, uiText, uiTemplate } from './ui-localization.js';
 import { randomUUID } from 'node:crypto';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
@@ -5,7 +6,7 @@ import { z } from 'zod';
 const payloadSchema = z.object({
   date: z.iso.date(),
   action: z.enum(['regular', 'makeup', 'corrected']),
-  locale: z.enum(['zh_TW', 'en']),
+  locale: localeSchema,
   methods: z.array(z.string()).min(1).max(30),
   currentStreak: z.number().int().nonnegative(),
   totalDays: z.number().int().nonnegative()
@@ -28,18 +29,25 @@ export const buildTelegramPracticeSummary = (input: unknown) => {
         makeup: '✅ Makeup check-in saved',
         corrected: '✅ Check-in updated'
       }[data.action]
-    : { regular: '✅ 打卡成功', makeup: '✅ 補登成功', corrected: '✅ 打卡已修改' }[data.action];
+    : {
+        regular: uiText(data.locale, '✅ 打卡成功'),
+        makeup: uiText(data.locale, '✅ 補登成功'),
+        corrected: uiText(data.locale, '✅ 打卡已修改')
+      }[data.action];
   const methods = data.methods
+    .map((name) => uiText(data.locale, name))
     .map((name) => [...name].slice(0, 55).join('') + ([...name].length > 55 ? '…' : ''))
     .join(english ? ', ' : '、');
   return [
     title,
-    (english ? 'Practice date: ' : '練功日期：') + data.date,
-    (english ? 'Practice methods: ' : '練習功法：') + methods,
+    (english ? 'Practice date: ' : uiText(data.locale, '練功日期：')) + data.date,
+    (english ? 'Practice methods: ' : uiText(data.locale, '練習功法：')) + methods,
     english
       ? `🔥 Current streak: ${data.currentStreak} days`
-      : `🔥 連續打卡：${data.currentStreak} 天`,
-    english ? `⭐ Total practice: ${data.totalDays} days` : `⭐ 總打卡天數：${data.totalDays} 天`
+      : uiTemplate(data.locale)`🔥 連續打卡：${data.currentStreak} 天`,
+    english
+      ? `⭐ Total practice: ${data.totalDays} days`
+      : uiTemplate(data.locale)`⭐ 總打卡天數：${data.totalDays} 天`
   ].join('\n');
 };
 export const createTelegramPracticeSender =

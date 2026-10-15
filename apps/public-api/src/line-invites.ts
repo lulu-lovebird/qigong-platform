@@ -2,6 +2,7 @@ import { createHmac, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
+import { resolveLocale } from './ui-localization.js';
 import { renderLineInvitePage } from './line-invite-page.js';
 import { beginLearnerPrivacy } from './learner-privacy-routes.js';
 import { getLineInviteContinuation, lineInviteResumeToken } from './line-invite-continuation.js';
@@ -79,7 +80,7 @@ export const registerLineInvites = (app: FastifyInstance, pool: Pool, config: Li
       return null;
     }
   };
-  app.get('/line/invite', async (_request, reply) =>
+  app.get('/line/invite', async (request, reply) =>
     reply
       .header('cache-control', 'no-store')
       .header('referrer-policy', 'no-referrer')
@@ -89,7 +90,9 @@ export const registerLineInvites = (app: FastifyInstance, pool: Pool, config: Li
         "default-src 'none'; script-src 'unsafe-inline' https://static.line-scdn.net; style-src 'unsafe-inline'; connect-src 'self' https://api.line.me https://access.line.me; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
       )
       .type('text/html; charset=utf-8')
-      .send(renderLineInvitePage(config.liffId))
+      .send(
+        renderLineInvitePage(config.liffId, resolveLocale(request.query, request.headers.cookie))
+      )
   );
   for (const action of ['status', 'redeem'] as const)
     app.post('/line/invite/' + action, { bodyLimit: 8192 }, async (request, reply) => {

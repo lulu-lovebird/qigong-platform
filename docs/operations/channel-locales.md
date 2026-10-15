@@ -1,26 +1,27 @@
 # Learner channel languages
 
-## Implemented locally, not deployed
+## Current local candidate
 
-Telegram and the new WhatsApp adapter support `zh_TW` (default, Traditional Chinese) and `en`. LINE remains Traditional Chinese. Language is an interface preference, not authentication, identity association, practice time zone, or authorization.
+LINE, Telegram and WhatsApp learner interfaces support `zh_TW` (Traditional Chinese), `zh_CN` (Simplified Chinese) and `en`. The management backend and system notifications support the same choices. This candidate is local only; production is still schema34. See [three-language implementation, verification and release boundaries](trilingual-locales.md).
 
-`0015_channel_locales.sql` stores preferences per `(platform, external_subject_id)` in a forced-RLS table. They can exist before an application/person is created. The person's existing `preferred_locale` column is not used to silently change another channel's preference. Raw-subject setters are callable only by the restricted API role and must be reached through verified private-message adapters; the browser endpoints resolve subjects from valid short-lived link tokens instead.
+Language is an interface/recipient preference, not authentication, identity association, enrollment region, practice time zone or authorization. Singapore/Malaysia do not force Simplified Chinese. Existing choices remain intact; no preference or user-content backfill occurs.
 
 ## Learner controls
 
-- Telegram: `/language en` or `/language zh_TW` in the new bot's private chat. Group/bot/unauthenticated updates cannot change preferences. Retried/older language update IDs do not overwrite a newer setting or a subsequent page change.
-- WhatsApp: `language en` or `language zh_TW` (a leading slash is also accepted). Only app-signature-verified messages for the configured new business account/phone are processed.
-- Application/check-in pages: `English` / `繁體中文` button saves the channel preference through a token-authorized same-origin POST, then reloads with the same token in a fragment, never a query parameter. Forms/selections are not preserved across this reload. An invalid/expired token prevents saving/navigation.
-- Bot links include `?lang=en` for English. Direct page queries are presentation only; unsupported language values fall back to Traditional Chinese and never become SQL identifiers or translation keys.
-- Approval/rejection notifications use the recipient channel's saved language when the worker sends them. LINE notifications are unchanged. WhatsApp uses approved localized Meta templates, not translated free text outside its service window.
+- Telegram private `/language zh_TW`, `/language zh_CN`, `/language en`; signed, private, deduplicated updates only. Older update IDs cannot overwrite newer choices or subsequent page changes.
+- WhatsApp private `language <locale>` (optional leading slash); configured app-signature, business-account/phone and replay checks remain required. WhatsApp is not operationally configured by this change.
+- LINE choices save only through a server-verified ID-token subject and same-origin POST. No browser subject/name/Email is accepted as identity authority.
+- Pages expose all three language choices. Switching warns about unsent details/drafts, saves through the applicable verified credential and keeps private short-lived tokens in fragments, never language-query values. Cancellation retains unsent content. Expired/invalid credentials prevent saving/navigation.
+- Supported page queries and the presentation cookie select UI language without silently rewriting another channel's saved recipient preference. Default/fallback remains Traditional Chinese; region never selects language.
+- Bot links, practice receipts, newly queued Telegram reminders and individual reviewer alerts use the applicable saved language. Reminder/reviewer subscriptions stay opt-in. Existing queued payloads are not rewritten.
 
-Common application labels, practice/history/deadline controls, feedback and Telegram replies are translated by the typed `learner-locale.ts` dictionaries. English catalogs and history use `core.practice_methods.name_en` and parent English names; method codes, selections, region codes and database deadline rules remain unchanged. Course-name transliterations should be reviewed by the product owner before broader rollout. Administrator UI and administrator-written rejection reasons are not translated by this feature.
+## Content and release
 
-## Verification and release
+Typed dictionaries translate source-owned UI and current built-in catalog display labels. English catalogs retain `name_en`; Simplified presentation has explicit mappings and unknown/custom names fall back to the original. Method/region codes, counts, deadlines, learner names/reflections/reasons and historical publication snapshots are not converted. Rejection reasons remain administrator-authored content.
 
-Local tests cover dictionary completeness/fallback, generated-script execution, identity-bound page switching, signed/private language commands and replay safety, English catalog/history, notification language, and Telegram/LINE regression. These are not real-device or provider-account acceptance tests.
+Privacy UI is translated, but the approved document language/version/hash and acceptance identity are not fabricated. Formal Simplified legal text requires review. WhatsApp Simplified decision delivery requires an explicitly configured, approved `zh_CN` template variation; it never silently substitutes Traditional Chinese.
 
-The current API requires the **complete chain through `0017_admin_reporting.sql`** (`0016` adds WhatsApp; `0017` adds read-only admin reporting); `0015` or `0016` alone is not enough for the current build. Align the API, worker and migrations before deployment. Keep old bots unchanged and follow the separate release/restore gates in [LINE pilot](line-pilot.md) and [WhatsApp pilot](whatsapp-pilot.md). Do not modify historical migration checksums.
+The matching candidate requires the complete immutable migration chain through new **`0035_simplified_chinese_locale.sql`**, exact35 API/worker and `ops.locale_schema_ready()`. Historical0001–0034 must not be edited. Publishing/deployment and a coordinated recovery/reconciliation plan require separate approval. Browser mocks and local tests are not provider/device acceptance. Preserve all legacy bots and unrelated local files.
 
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 

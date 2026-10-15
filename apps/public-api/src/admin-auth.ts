@@ -1,3 +1,4 @@
+import { localeSchema } from './ui-localization.js';
 import { adminContentSecurityPolicy } from './admin-branding.js';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -291,10 +292,7 @@ export const registerAdminRoutes = (
     const principalId = await principalFor(request);
     if (!principalId) return reply.code(401).send({ error: 'unauthenticated' });
     void reply.header('cache-control', 'no-store');
-    const language = z
-      .object({ lang: z.enum(['zh_TW', 'en']).optional() })
-      .strict()
-      .safeParse(request.query);
+    const language = z.object({ lang: localeSchema.optional() }).strict().safeParse(request.query);
     if (!language.success) return reply.code(400).send({ error: 'invalid_language' });
     const locale = language.data.lang ?? resolveAdminLocale({}, request.headers.cookie);
     const result = await withRequestContext(

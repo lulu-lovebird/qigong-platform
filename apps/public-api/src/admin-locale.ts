@@ -1,10 +1,11 @@
-export type AdminLocale = 'zh_TW' | 'en';
+import { isLocale, normalizeLocale, uiDictionary, type Locale } from './ui-localization.js';
+export type AdminLocale = Locale;
 export const adminLocaleCookie = '__Host-qigong-admin-locale';
-export const adminLocale = (value: unknown): AdminLocale => (value === 'en' ? 'en' : 'zh_TW');
+export const adminLocale = normalizeLocale;
 export const resolveAdminLocale = (query: unknown, cookieHeader?: string): AdminLocale => {
   const requested =
     typeof query === 'object' && query !== null && 'lang' in query ? query.lang : undefined;
-  if (requested === 'en' || requested === 'zh_TW') return requested;
+  if (isLocale(requested)) return requested;
   const saved = cookieHeader
     ?.split(';')
     .map((value) => value.trim())
@@ -296,7 +297,7 @@ const chinese: Record<AdminTextKey, string> = {
   reviewSwitchConfirm: '切換語言將清除未送出的勾選與拒絕理由。確定切換？不會送出任何審核決定。'
 };
 export const adminTexts = (locale: AdminLocale): Readonly<Record<AdminTextKey, string>> =>
-  locale === 'en' ? english : chinese;
+  locale === 'en' ? english : uiDictionary(locale, chinese);
 // SQL identifiers are selected from this fixed allowlist, never from raw request values.
 export const adminNameColumn = (locale: AdminLocale): 'name_en' | 'name_zh_tw' =>
   locale === 'en' ? 'name_en' : 'name_zh_tw';

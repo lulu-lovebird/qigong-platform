@@ -1,3 +1,4 @@
+import { localeSchema } from './ui-localization.js';
 import type { PoolClient } from '@qigong/database';
 import { z } from 'zod';
 import { adminNameColumn, type AdminLocale } from './admin-locale.js';
@@ -12,7 +13,7 @@ export const reportViewSchema = z.enum([
 ]);
 export const reportQuerySchema = z
   .object({
-    lang: z.enum(['zh_TW', 'en']).optional(),
+    lang: localeSchema.optional(),
     period: z.enum(['week', 'month', 'quarter', 'year', '30d', '90d']).default('week'),
     date: z.iso
       .date()

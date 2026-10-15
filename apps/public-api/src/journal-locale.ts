@@ -1,4 +1,5 @@
 import type { AdminLocale } from './admin-locale.js';
+import { uiDictionary } from './ui-localization.js';
 const english = {
   loading: 'Loading…',
   failed: 'Unable to complete this operation. Your inputs are retained.',
@@ -133,4 +134,5 @@ const chinese: Record<keyof typeof english, string> = {
   readFullNote: '閱讀完整心得',
   streamExpired: '這次瀏覽已到期，請重新載入最新分享。'
 };
-export const journalTexts = (locale: AdminLocale) => (locale === 'en' ? english : chinese);
+export const journalTexts = (locale: AdminLocale) =>
+  locale === 'en' ? english : uiDictionary(locale, chinese);

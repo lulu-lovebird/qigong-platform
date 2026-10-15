@@ -1,3 +1,5 @@
+import { lineUiText } from './line-ui-localization.js';
+import { uiText, uiDictionary } from './ui-localization.js';
 import { whatsappBrowserBootstrap, whatsappLoginMarkup } from './whatsapp-browser-bootstrap.js';
 import type { LearnerLocale } from './learner-locale.js';
 import { telegramWorkspaceTexts } from './telegram-workspace-locale.js';
@@ -24,7 +26,7 @@ export const renderChannelWorkspacePage = (
   page: ChannelWorkspacePage,
   locale: LearnerLocale = 'zh_TW'
 ) => {
-  const lang = channel.platform === 'line' ? 'zh_TW' : locale;
+  const lang = locale;
   let html = (
     page === 'journal'
       ? renderLearnerJournalPage(lang, {
@@ -37,7 +39,7 @@ export const renderChannelWorkspacePage = (
     .replaceAll('/telegram/', '/' + channel.platform + '/')
     .replace(
       '<footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer>',
-      '<footer>白雁氣功｜氣功打卡小幫手</footer>'
+      '<footer>' + lineUiText(lang, '白雁氣功｜氣功打卡小幫手') + '</footer>'
     );
   html = html
     .replace('<script src="https://telegram.org/js/telegram-web-app.js"></script>', '')
@@ -77,7 +79,7 @@ export const renderChannelWorkspacePage = (
       )
       .replace(
         'CHANNEL_AUTH_BOOTSTRAP',
-        lineLoginScript(channel.liffId) +
+        lineLoginScript(channel.liffId, lang) +
           "\nconst workspaceCredential='';const workspaceAuthorization=async()=>workspaceCredential;\n"
       );
     html = html
@@ -118,7 +120,12 @@ export const renderChannelWorkspacePage = (
     if (page === 'leaderboard') {
       const original = telegramWorkspaceTexts(lang),
         rankingPrivacy =
-          '僅顯示同地區已核准 LINE 學員的已驗證 LINE 暱稱；尚未取得暱稱時顯示匿名學員，不使用申請表姓名、Email 或電話。暱稱只是顯示資訊，不影響身份或權限。最多列出30位，同天數並列。';
+          lang === 'en'
+            ? 'Shows verified LINE nicknames of approved LINE learners in the same region. Anonymous learner is used when unavailable; application names, email and phone are never used. Names do not determine identity or permissions. Up to 30 learners; equal days share a rank.'
+            : uiText(
+                lang,
+                '僅顯示同地區已核准 LINE 學員的已驗證 LINE 暱稱；尚未取得暱稱時顯示匿名學員，不使用申請表姓名、Email 或電話。暱稱只是顯示資訊，不影響身份或權限。最多列出30位，同天數並列。'
+              );
       html = html
         .replace(
           'workspaceText=' + JSON.stringify(original),
@@ -131,11 +138,17 @@ export const renderChannelWorkspacePage = (
       html = html
         .replaceAll(
           original.streamNotice,
-          'LINE作者對此心得流顯示已驗證的LINE暱稱，尚未取得時顯示匿名學員；其他渠道作者保留分享暱稱。卡片含練功地區、時間及截止當次日期的連續／累計統計，不公開私密原文或逐日歷史。'
+          lineUiText(
+            lang,
+            'LINE作者對此心得流顯示已驗證的LINE暱稱，尚未取得時顯示匿名學員；其他渠道作者保留分享暱稱。卡片含練功地區、時間及截止當次日期的連續／累計統計，不公開私密原文或逐日歷史。'
+          )
         )
-        .replaceAll(original.alias, '其他分享渠道／外部分享使用的暱稱（LINE心得流使用LINE暱稱）');
+        .replaceAll(
+          original.alias,
+          lineUiText(lang, '其他分享渠道／外部分享使用的暱稱（LINE心得流使用LINE暱稱）')
+        );
     }
-    html = html.replace('<option value="en">English</option>', '');
+    // All three presentation languages are supported; the verified LINE subject remains unchanged.
   }
   if (channel.platform === 'whatsapp' && page !== 'journal') {
     const original = telegramWorkspaceTexts(lang),
@@ -156,7 +169,7 @@ export const renderChannelWorkspacePage = (
       };
     html = html.replace(
       'workspaceText=' + JSON.stringify(original),
-      'workspaceText=' + JSON.stringify(next)
+      'workspaceText=' + JSON.stringify(uiDictionary(lang, next))
     );
   }
   if (channel.platform === 'whatsapp') {

@@ -1,3 +1,4 @@
+import { localeSchema, resolveLocale } from './ui-localization.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
@@ -19,10 +20,7 @@ export const registerChannelWorkspace = (
   includeCheckin = true
 ) => {
   const provider = channel.platform,
-    locale =
-      provider === 'line'
-        ? z.literal('zh_TW').default('zh_TW')
-        : z.enum(['zh_TW', 'en']).default('zh_TW');
+    locale = localeSchema.default('zh_TW');
   const credential =
     provider === 'line'
       ? z.object({ idToken: z.string().min(1).max(4096), locale }).strict()
@@ -97,8 +95,8 @@ export const registerChannelWorkspace = (
   for (const page of ['checkin', 'leaderboard', 'methods', 'achievements', 'journal'] as const) {
     if (page === 'checkin' && !includeCheckin) continue;
     app.get('/' + provider + channelWorkspacePaths[page], async (request, reply) => {
-      const q = z.object({ lang: z.enum(['zh_TW', 'en']).optional() }).safeParse(request.query);
-      const lang = provider === 'line' ? 'zh_TW' : (q.data?.lang ?? 'zh_TW');
+      const q = z.object({ lang: localeSchema.optional() }).safeParse(request.query);
+      const lang = resolveLocale(q.data, request.headers.cookie);
       return reply
         .header('cache-control', 'no-store')
         .header('referrer-policy', 'no-referrer')
@@ -223,8 +221,8 @@ export const registerChannelWorkspace = (
         if (mode === 'feed' && provider === 'line' && 'cursor' in data)
           return await execute(
             request.id,
-            "SELECT platform.line_journal_stream($1,$2) || CASE WHEN (platform.privacy_notice()->>'active')::boolean THEN jsonb_build_object('privacy',platform.privacy_usage('line',$1)) ELSE '{}'::jsonb END data",
-            [cred, streamCursor.parse(data.cursor)]
+            "SELECT platform.line_journal_stream($1,$2,$3) || CASE WHEN (platform.privacy_notice()->>'active')::boolean THEN jsonb_build_object('privacy',platform.privacy_usage('line',$1)) ELSE '{}'::jsonb END data",
+            [cred, streamCursor.parse(data.cursor), data.locale]
           );
         const v = credential.extend({ page: z.number() }).parse(data);
         return await execute(

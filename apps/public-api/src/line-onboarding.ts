@@ -1,5 +1,8 @@
 import { createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { localeSchema, resolveLocale } from './ui-localization.js';
+import { lineBotTexts } from './line-ui-localization.js';
+import { learnerLocale, localeQuery, type LearnerLocale } from './learner-locale.js';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
 import { registerLineInvites } from './line-invites.js';
@@ -103,9 +106,9 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
       if (!response.ok) throw new Error(`LINE reply failed: ${response.status}`);
     });
   const page =
-    (html: string) =>
+    (render: (locale: LearnerLocale) => string) =>
     (
-      _request: unknown,
+      request: FastifyRequest,
       reply: {
         header: (key: string, value: string) => typeof reply;
         type: (type: string) => typeof reply;
@@ -120,16 +123,23 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
           "default-src 'none'; script-src 'unsafe-inline' https://static.line-scdn.net; style-src 'unsafe-inline'; connect-src 'self' https://api.line.me; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
         )
         .type('text/html; charset=utf-8')
-        .send(html);
+        .send(render(resolveLocale(request.query, request.headers.cookie)));
   // The configured LIFF endpoint must initialize the SDK, including primary redirects.
   app.get(
     '/line/',
-    page(renderChannelWorkspacePage({ platform: 'line', liffId: config.liffId }, 'checkin'))
+    page((locale) =>
+      renderChannelWorkspacePage({ platform: 'line', liffId: config.liffId }, 'checkin', locale)
+    )
   );
-  app.get('/line/apply', page(lineApplicationPage(config.liffId)));
+  app.get(
+    '/line/apply',
+    page((locale) => lineApplicationPage(config.liffId, locale))
+  );
   app.get(
     '/line/checkin',
-    page(renderChannelWorkspacePage({ platform: 'line', liffId: config.liffId }, 'checkin'))
+    page((locale) =>
+      renderChannelWorkspacePage({ platform: 'line', liffId: config.liffId }, 'checkin', locale)
+    )
   );
 
   app.register((webhookApp, _options, done) => {
@@ -160,12 +170,12 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
         const isCheckin =
           event.type === 'message' &&
           event.message?.type === 'text' &&
-          /^(打卡|checkin|\/checkin)$/i.test(event.message.text?.trim() ?? '');
+          /^(打卡|練功打卡|练功打卡|checkin|\/checkin)$/i.test(event.message.text?.trim() ?? '');
         const isApply =
           event.type === 'follow' ||
           (event.type === 'message' &&
             event.message?.type === 'text' &&
-            /^(加入|申請|start|\/start)$/i.test(event.message.text?.trim() ?? ''));
+            /^(加入|申請|申请|join|start|\/start)$/i.test(event.message.text?.trim() ?? ''));
         const isPrivacy =
           event.type === 'message' &&
           event.message?.type === 'text' &&
@@ -173,10 +183,23 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
         const workspaceCommand =
           event.type === 'message' &&
           event.message?.type === 'text' &&
-          /^(?:\/)?(?:menu|選單|leaderboard|排行榜|methods|methodanalysis|功法分析|achievements|我的成就|成就|history|打卡紀錄|journal|share|心得|心得分享)$/i.test(
+          /^(?:\/)?(?:menu|選單|菜单|leaderboard|排行榜|methods|methodanalysis|功法分析|achievements|我的成就|成就|history|打卡紀錄|journal|share|心得|心得分享)$/i.test(
             event.message.text?.trim() ?? ''
           );
         if (!isCheckin && !isApply && !isPrivacy && !workspaceCommand) continue;
+        const saved = await withRequestContext(
+          pool,
+          'qigong_api_runtime',
+          { requestId: request.id },
+          (client) =>
+            client.query<{ locale: string }>(
+              "SELECT platform.get_identity_locale('line',$1) locale",
+              [event.source.userId]
+            )
+        );
+        const locale = learnerLocale(saved.rows[0]?.locale),
+          texts = lineBotTexts(locale),
+          language = localeQuery(locale);
         if (isApply || isCheckin) {
           const continuation = await getLineInviteContinuation(
             pool,
@@ -188,10 +211,7 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
             // This is a continuation, not consent or approval. The page rechecks all eligibility.
             await replyMessage(
               event.replyToken,
-              '請接續原本的邀請，填寫並確認本人基本資料後即可核准、開始打卡：\n' +
-                liffBase +
-                '/invite#' +
-                continuation
+              texts.continuation + '\n' + liffBase + '/invite' + language + '#' + continuation
             );
             continue;
           }
@@ -199,10 +219,7 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
         if (event.type === 'follow') {
           // LINE can emit follow during OAuth, before the invitation page has verified its subject.
           // Do not divert that learner into a normal application before continuation is saved.
-          await replyMessage(
-            event.replyToken,
-            '歡迎加入氣功打卡小幫手！若從邀請連結加入，請返回原邀請頁，填寫本人基本資料後即可核准、開始打卡。若原頁已關閉，請重新點原邀請連結。\n沒有邀請連結者，請輸入「加入」提出一般申請（需人工審核）。'
-          );
+          await replyMessage(event.replyToken, texts.follow);
           continue;
         }
         const privacyToken = createHmac('sha256', config.channelSecret)
@@ -220,7 +237,7 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
           privacyState,
           'line',
           privacyToken,
-          'zh_TW',
+          locale,
           isPrivacy
         );
         if (privacyMessage) {
@@ -231,12 +248,12 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
           await replyMessage(
             event.replyToken,
             [
-              '白雁氣功｜學員工作區',
-              `練功打卡：${liffBase}/checkin`,
-              `排行榜：${liffBase}/leaderboard`,
-              `功法分析：${liffBase}/method-analysis`,
-              `我的成就／月曆：${liffBase}/achievements`,
-              `心得分享：${liffBase}/journal`
+              texts.title,
+              `${texts.checkin}: ${liffBase}/checkin${language}`,
+              `${texts.ranking}: ${liffBase}/leaderboard${language}`,
+              `${texts.methods}: ${liffBase}/method-analysis${language}`,
+              `${texts.achievements}: ${liffBase}/achievements${language}`,
+              `${texts.journal}: ${liffBase}/journal${language}`
             ].join('\n')
           );
         } else {
@@ -256,12 +273,12 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
           const state = result.rows[0]?.status;
           const text =
             state === 'form_required'
-              ? `請在 30 分鐘內填寫加入申請：${liffBase}/apply#${link}`
+              ? `${texts.application}${liffBase}/apply${language}#${link}`
               : state === 'approved'
-                ? '已核准。請輸入「打卡」開始。'
+                ? texts.approved
                 : state === 'rejected'
-                  ? '申請未獲核准，請聯絡所在地區管理員。'
-                  : '申請審核中，請耐心等候。';
+                  ? texts.rejected
+                  : texts.pending;
           await replyMessage(event.replyToken, text);
         }
       }
@@ -283,6 +300,51 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
       return null;
     }
   };
+  // Subject comes only from server-verified LINE ID token, never browser userId.
+  app.post('/line/preferences/language', { bodyLimit: 4096 }, async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    if (!validOrigin(request.headers.origin, request.headers['content-type']))
+      return reply.code(403).send({ error: 'invalid_origin' });
+    const input = z
+      .object({ idToken: z.string().min(1).max(4096), locale: localeSchema.optional() })
+      .strict()
+      .safeParse(request.body);
+    if (!input.success) return reply.code(400).send({ error: 'invalid_language' });
+    const subject = await authenticated(input.data);
+    if (!subject) return reply.code(401).send({ error: 'invalid_line_identity' });
+    try {
+      const saved = await withRequestContext(
+        pool,
+        'qigong_api_runtime',
+        { requestId: request.id },
+        async (client) => {
+          if (input.data.locale)
+            await client.query('SELECT platform.set_identity_locale($1,$2,$3)', [
+              'line',
+              subject,
+              input.data.locale
+            ]);
+          return (
+            await client.query<{ locale: string }>(
+              "SELECT platform.get_identity_locale('line',$1) locale",
+              [subject]
+            )
+          ).rows[0]?.locale;
+        }
+      );
+      const locale = learnerLocale(saved);
+      if (input.data.locale)
+        reply.header(
+          'set-cookie',
+          '__Host-qigong-learner-locale=' +
+            locale +
+            '; Path=/; Max-Age=31536000; Secure; SameSite=Lax'
+        );
+      return { locale };
+    } catch {
+      return reply.code(503).send({ error: 'language_unavailable' });
+    }
+  });
   registerChannelWorkspace(
     app,
     pool,

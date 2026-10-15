@@ -177,7 +177,7 @@ describeWithDatabase('onboarding notification delivery', () => {
     expect(
       await deliverOnboardingNotifications(workerPool, retry, () => undefined, 10, sendLine)
     ).toBe(1);
-    expect(sendLine).toHaveBeenCalledWith('U' + 'b'.repeat(32), 'approved');
+    expect(sendLine).toHaveBeenCalledWith('U' + 'b'.repeat(32), 'approved', 'zh_TW');
     expect(retry).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,4 +1,5 @@
 import { localeQuery, type LearnerLocale } from './learner-locale.js';
+import { uiDictionary } from './ui-localization.js';
 export type TelegramFeature = 'checkin' | 'leaderboard' | 'methods' | 'achievements' | 'journal';
 const features: ReadonlyArray<TelegramFeature> = [
   'checkin',
@@ -46,7 +47,7 @@ export const telegramFeatureButtons = (locale: LearnerLocale, command?: string) 
   const feature = command ? aliases[command.toLowerCase()] : undefined;
   if (command && !feature) throw Error('Unknown Telegram feature');
   return (feature ? [feature] : features).map((page) => ({
-    text: labels[locale][page],
+    text: (locale === 'en' ? labels.en : uiDictionary(locale, labels.zh_TW))[page],
     url: 'https://checkin.baiyinqigong.org' + paths[page] + localeQuery(locale)
   }));
 };

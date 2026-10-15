@@ -1,10 +1,11 @@
+import { localeSchema } from './ui-localization.js';
 import { z } from 'zod';
 import type { PoolClient } from '@qigong/database';
 
 export const journalQuerySchema = z.object({
   personId: z.uuid().optional(),
   page: z.coerce.number().int().min(1).max(100000).default(1),
-  lang: z.enum(['zh_TW', 'en']).default('zh_TW')
+  lang: localeSchema.default('zh_TW')
 });
 export const queryPracticeJournal = async (
   client: PoolClient,

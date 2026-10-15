@@ -1,4 +1,5 @@
 import type { AdminLocale } from './admin-locale.js';
+import { uiDictionary } from './ui-localization.js';
 const en = {
   active: 'Active',
   authorized: 'Authorized users',
@@ -246,4 +247,4 @@ const zh: Record<keyof typeof en, string> = {
   statsRead: '讀取統計'
 };
 export const adminAccessTexts = (locale: AdminLocale): Record<keyof typeof en, string> =>
-  locale === 'en' ? en : zh;
+  locale === 'en' ? en : uiDictionary(locale, zh);

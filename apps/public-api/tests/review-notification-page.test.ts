@@ -135,7 +135,7 @@ const body = (request: RequestInit | undefined): Record<string, unknown> => {
   return JSON.parse(request.body) as Record<string, unknown>;
 };
 describe('Reviewer notification page runtime and checkbox layout', () => {
-  it.each(['zh_TW', 'en'] as const)(
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
     'executes the actual %s HTML script, renders events and saves both checked preferences with the right locale',
     async (locale) => {
       const f = fixture(locale);
@@ -143,7 +143,11 @@ describe('Reviewer notification page runtime and checkbox layout', () => {
       expect(f.get('status').textContent).toBe('');
       expect(f.get('notify-events').children).toHaveLength(2);
       expect(f.get('notify-events').children[0]!.children[1]!.textContent).toBe(
-        locale === 'en' ? 'Review in admin portal' : '登入後台審核'
+        locale === 'en'
+          ? 'Review in admin portal'
+          : locale === 'zh_CN'
+            ? '登入后台审核'
+            : '登入後台審核'
       );
       f.admin.checked = true;
       f.learner.checked = true;
@@ -158,11 +162,13 @@ describe('Reviewer notification page runtime and checkbox layout', () => {
         locale
       });
       expect(saved?.[1]?.headers).toMatchObject({ 'x-csrf-token': 'synthetic-csrf' });
-      expect(f.get('status').textContent).toContain(locale === 'en' ? 'Saved.' : '已儲存');
+      expect(f.get('status').textContent).toContain(
+        locale === 'en' ? 'Saved.' : locale === 'zh_CN' ? '已储存' : '已儲存'
+      );
       expect(f.context.locale).toBeUndefined();
     }
   );
-  it.each(['zh_TW', 'en'] as const)(
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
     'uses the page-local %s locale for disconnect, without leaving locale in global scope',
     async (locale) => {
       const f = fixture(locale);

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { uiText } from './ui-localization.js';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { learnerLocale, learnerTexts, type LearnerLocale } from './learner-locale.js';
 
@@ -41,11 +42,17 @@ export const createTelegramNotificationSender =
 
 export const createLineNotificationSender =
   (channelAccessToken: string): NotificationSender =>
-  async (recipient, decision) => {
-    const text =
+  async (recipient, decision, locale = 'zh_TW') => {
+    const traditional =
       decision === 'approved'
         ? '你的氣功小幫手加入申請已核准！請在 LINE 私聊輸入「打卡」開始練功打卡。若已有其它主要打卡管道，請繼續使用原管道。'
         : '你的氣功小幫手加入申請未獲核准；如需了解原因，請聯絡所在地區管理員。';
+    const text =
+      locale === 'en'
+        ? decision === 'approved'
+          ? 'Your Qigong Assistant application is approved. Send checkin in the LINE private chat to begin. If you already use another primary channel, continue there.'
+          : 'Your Qigong Assistant application was not approved. Contact your regional administrator.'
+        : uiText(locale, traditional);
     const response = await fetch('https://api.line.me/v2/bot/message/push', {
       method: 'POST',
       headers: {
@@ -94,9 +101,23 @@ export const deliverOnboardingNotifications = async (
           notification.decision,
           learnerLocale(preference.rows[0]?.locale)
         );
-      } else if (notification.platform === 'line' && sendLine)
-        await sendLine(notification.external_subject_id, notification.decision);
-      else if (notification.platform === 'whatsapp' && sendWhatsApp) {
+      } else if (notification.platform === 'line' && sendLine) {
+        const preference = await withRequestContext(
+          pool,
+          'qigong_worker_runtime',
+          { requestId: randomUUID() },
+          (client) =>
+            client.query<{ locale: string }>(
+              "SELECT platform.get_identity_locale('line',$1) locale",
+              [notification.external_subject_id]
+            )
+        );
+        await sendLine(
+          notification.external_subject_id,
+          notification.decision,
+          learnerLocale(preference.rows[0]?.locale)
+        );
+      } else if (notification.platform === 'whatsapp' && sendWhatsApp) {
         const preference = await withRequestContext(
           pool,
           'qigong_worker_runtime',

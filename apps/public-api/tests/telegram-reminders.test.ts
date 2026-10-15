@@ -36,7 +36,7 @@ describe('Telegram command presentation', () => {
     ['journal', '📝', 'journal'],
     ['share', '📝', 'journal']
   ])('maps %s to one native feature', (command, icon, page) => {
-    for (const locale of ['zh_TW', 'en'] as const) {
+    for (const locale of ['zh_TW', 'zh_CN', 'en'] as const) {
       const buttons = telegramFeatureButtons(locale, command);
       expect(buttons).toHaveLength(1);
       expect(buttons[0]!.text.startsWith(icon)).toBe(true);
@@ -215,6 +215,25 @@ suite('Signed Telegram reminders and restricted durable delivery', () => {
     expect(sendMessage.mock.calls.at(-1)![2]![0]!.text).toBe('✅ 開始打卡');
     await webhook('/start');
     expect(sendMessage.mock.calls.at(-1)![2]).toHaveLength(5);
+  });
+  it('captures the selected Simplified locale for an explicit preview without opting the learner into reminders', async () => {
+    await webhook('/language zh_CN');
+    expect((await db.pool.query('SELECT * FROM ops.telegram_reminders')).rowCount).toBe(0);
+    await webhook('/remind');
+    expect(sendMessage.mock.calls.at(-1)?.[1]).toContain('已关闭');
+    await webhook('/remindtest');
+    expect((await db.pool.query('SELECT locale FROM ops.telegram_reminders')).rows).toEqual([
+      { locale: 'zh_CN' }
+    ]);
+    const sender = vi.fn(async (recipient: string, locale: string) => {
+      expect(recipient).toBe('777001');
+      expect(locale).toBe('zh_CN');
+    });
+    expect(await deliverTelegramReminders(runtime, sender, () => {})).toBe(1);
+    expect(sender).toHaveBeenCalledOnce();
+    expect(
+      (await db.pool.query('SELECT enabled FROM platform.telegram_reminder_settings')).rows
+    ).toEqual([{ enabled: false }]);
   });
   it('validates hours, zones, webhook identity and idempotently ignores duplicate settings updates', async () => {
     await webhook('/remind 24');

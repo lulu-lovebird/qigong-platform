@@ -130,7 +130,7 @@ const fixture = (
     confirmed?: boolean;
     savedSharing?: 'automatic' | 'legacy_private' | 'manual';
     hash?: string;
-    locale?: 'en' | 'zh_TW';
+    locale?: 'en' | 'zh_TW' | 'zh_CN';
     channel?: 'line' | 'whatsapp';
     badges?: ReadonlyArray<Badge>;
     lineNative?: boolean;
@@ -239,7 +239,11 @@ const fixture = (
   });
   const html =
     options.channel === 'line'
-      ? renderChannelWorkspacePage({ platform: 'line', liffId: '123456-test' }, page)
+      ? renderChannelWorkspacePage(
+          { platform: 'line', liffId: '123456-test' },
+          page,
+          options.locale ?? 'zh_TW'
+        )
       : options.channel === 'whatsapp'
         ? renderChannelWorkspacePage({ platform: 'whatsapp' }, page, options.locale ?? 'en')
         : renderTelegramWorkspacePage(page, options.locale ?? 'en');
@@ -317,6 +321,32 @@ const tick = async () => {
 };
 
 describe('Telegram workspace generated scripts and unsaved private drafts', () => {
+  it.each(['telegram', 'line', 'whatsapp'] as const)(
+    'renders all language choices in Simplified %s and preserves a cancelled unsent reflection',
+    async (channel) => {
+      const f = fixture('checkin', {
+        locale: 'zh_CN',
+        lineSearch: '?lang=zh_CN',
+        ...(channel === 'telegram' ? {} : { channel })
+      });
+      await tick();
+      expect(f.html).toContain('<html lang="zh-Hans">');
+      for (const code of ['zh_TW', 'zh_CN', 'en']) expect(f.html).toContain('value="' + code + '"');
+      expect(f.texts(f.get('stats'))).toContain(telegramWorkspaceTexts('zh_CN').total);
+      if (channel !== 'whatsapp') expect(f.html).toContain('打卡心得供所有学员阅读');
+      f.get('note').value = '心靜，練功後的私人原文';
+      f.get('note').oninput?.();
+      f.confirm.mockReturnValueOnce(false);
+      const before = f.fetchMock.mock.calls.length;
+      f.get('language').value = 'en';
+      await f.get('language').onchange?.();
+      expect(f.confirm).toHaveBeenCalledOnce();
+      expect(f.get('language').value).toBe('zh_CN');
+      expect(f.get('note').value).toBe('心靜，練功後的私人原文');
+      expect(f.fetchMock).toHaveBeenCalledTimes(before);
+      expect(f.location.href).toBe('');
+    }
+  );
   it.each(['telegram', 'line'] as const)(
     'shows the explicit non-checkbox notice and submits its version for %s',
     async (channel) => {
