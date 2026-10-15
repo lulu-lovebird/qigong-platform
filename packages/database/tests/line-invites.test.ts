@@ -178,10 +178,14 @@ suite('Hashed scoped LINE invitations and atomic learner approval', () => {
     );
     await expect(redeem('U' + 'b'.repeat(32))).rejects.toThrow('unavailable');
   });
-  it('does not override pending/rejected/suspended identities or grant implicit restoration', async () => {
+  it('does not override rejected/suspended identities or grant implicit restoration', async () => {
     await db.pool.query(
-      "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id) VALUES('line',$1,'Pending',$2)",
+      "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id) VALUES('line',$1,'Rejected',$2)",
       [subject, region]
+    );
+    await db.pool.query(
+      "UPDATE identity.onboarding_applications SET status='rejected',rejection_reason='Synthetic refusal',decided_at=clock_timestamp(),decided_by_principal_id=$2 WHERE external_subject_id=$1",
+      [subject, actor]
     );
     await expect(redeem()).rejects.toThrow('unavailable');
     expect((await db.pool.query('SELECT uses FROM platform.line_invites')).rows[0]!.uses).toBe(0);
@@ -198,6 +202,237 @@ suite('Hashed scoped LINE invitations and atomic learner approval', () => {
     );
     await db.pool.query("UPDATE identity.people SET status='suspended' WHERE id=$1", [person]);
     await expect(redeem(fresh)).rejects.toThrow('unavailable');
+  });
+  it('promotes only the same pending subject on explicit valid redemption, reassigns the confirmed invite region and cancels unsent review alerts', async () => {
+    const oldRegion = (
+      await db.pool.query<{ id: string }>(
+        "INSERT INTO core.regions(parent_region_id,code,region_type,name_zh_tw,name_en) SELECT parent_region_id,'my-general','operational','馬來西亞','Malaysia' FROM core.regions WHERE id=$1 RETURNING id",
+        [region]
+      )
+    ).rows[0]!.id;
+    const app = (
+      await db.pool.query<{ id: string }>(
+        "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,learner_name,website_email,phone_e164,requested_region_id) VALUES('line',$1,'Old draft','Old draft','old@example.invalid','+65960000009',$2) RETURNING id",
+        [subject, oldRegion]
+      )
+    ).rows[0]!.id;
+    const event = (
+      await db.pool.query<{ id: string }>(
+        'SELECT id FROM ops.review_notification_events WHERE target_id=$1',
+        [app]
+      )
+    ).rows[0]!.id;
+    await db.pool.query(
+      "INSERT INTO ops.review_notification_deliveries(event_id,principal_id,preferences_revision,status,lease_id,leased_until) VALUES($1,$2,1,'sending',gen_random_uuid(),clock_timestamp()+INTERVAL '2 minutes'),($1,$3,1,'pending',NULL,NULL)",
+      [event, actor, other]
+    );
+    const state = (
+      await query<{ data: { status: string; pendingApplication: boolean } }>(
+        'SELECT platform.line_invite_state($1,$2) data',
+        [subject, cap],
+        null
+      )
+    ).rows[0]!.data;
+    expect(state).toMatchObject({ status: 'form', pendingApplication: true });
+    expect(
+      (
+        await db.pool.query('SELECT status FROM identity.onboarding_applications WHERE id=$1', [
+          app
+        ])
+      ).rows[0]!.status
+    ).toBe('pending');
+    const results = await Promise.all([redeem(), redeem()]);
+    expect(results.filter((r) => !r.rows[0]!.data.alreadyMember)).toHaveLength(1);
+    expect(
+      (
+        await db.pool.query(
+          'SELECT id,status,requested_region_id,learner_name FROM identity.onboarding_applications WHERE id=$1',
+          [app]
+        )
+      ).rows[0]
+    ).toEqual({
+      id: app,
+      status: 'approved',
+      requested_region_id: region,
+      learner_name: 'Synthetic learner'
+    });
+    expect((await db.pool.query('SELECT uses FROM platform.line_invites')).rows[0]!.uses).toBe(1);
+    expect((await db.pool.query('SELECT * FROM identity.people')).rowCount).toBe(1);
+    expect((await db.pool.query('SELECT * FROM ops.onboarding_notifications')).rowCount).toBe(1);
+    expect((await db.pool.query('SELECT * FROM ops.review_notification_events')).rowCount).toBe(1);
+    expect(
+      (
+        await db.pool.query(
+          "SELECT * FROM ops.review_notification_deliveries WHERE status='cancelled' AND lease_id IS NULL"
+        )
+      ).rowCount
+    ).toBe(2);
+  });
+  it('does not mutate a pending draft without a currently valid invitation', async () => {
+    await db.pool.query(
+      "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id) VALUES('line',$1,'Unchanged pending',$2)",
+      [subject, region]
+    );
+    const before = (await db.pool.query('SELECT * FROM identity.onboarding_applications')).rows;
+    await expect(redeem(subject, 'z'.repeat(43))).rejects.toThrow('unavailable');
+    await query('SELECT admin.revoke_line_invite($1,$2,$3)', [
+      invite.id,
+      invite.revision,
+      'Synthetic revoke'
+    ]);
+    await expect(redeem()).rejects.toThrow('unavailable');
+    expect((await db.pool.query('SELECT * FROM identity.onboarding_applications')).rows).toEqual(
+      before
+    );
+    expect((await db.pool.query('SELECT * FROM identity.people')).rowCount).toBe(0);
+  });
+  it('stores only a short-lived subject-bound resume hash, prevents ordinary downgrades and rejects cross-subject/expired resumes', async () => {
+    const nonce = randomUUID(),
+      resume = 'r'.repeat(43);
+    await query(
+      'SELECT platform.remember_line_invite($1,$2,$3,$4)',
+      [subject, cap, nonce, resume],
+      null
+    );
+    await expect(
+      query('SELECT * FROM platform.line_invite_continuations', [], null)
+    ).rejects.toThrow();
+    await expect(
+      query('SELECT platform.line_invite_continuation($1)', [subject], null, true)
+    ).rejects.toThrow();
+    await expect(
+      query('SELECT platform.line_invite_target($1,$2)', [subject, resume], null)
+    ).rejects.toThrow();
+    expect(
+      (
+        await db.pool.query(
+          "SELECT token_hash=public.digest($1,'sha256') matched,expires_at<=created_at+INTERVAL '15 minutes' bounded FROM platform.line_invite_continuations",
+          [resume]
+        )
+      ).rows[0]
+    ).toEqual({ matched: true, bounded: true });
+    expect(
+      (
+        await query<{ nonce: string }>(
+          'SELECT platform.line_invite_continuation($1) nonce',
+          [subject],
+          null
+        )
+      ).rows[0]!.nonce
+    ).toBe(nonce);
+    await expect(
+      query(
+        'SELECT platform.submit_line_application($1,$2,$3,$4,$5,$6)',
+        [subject, 'x'.repeat(43), 'Draft', 'draft@example.invalid', '+65960000009', 'tw-general'],
+        null
+      )
+    ).rejects.toThrow('continuation required');
+    await expect(redeem('U' + 'b'.repeat(32), resume)).rejects.toThrow('unavailable');
+    expect((await redeem(subject, resume)).rows[0]!.data.status).toBe('approved');
+    expect((await db.pool.query('SELECT * FROM platform.line_invite_continuations')).rowCount).toBe(
+      0
+    );
+    const fresh = 'U' + 'c'.repeat(32);
+    await query(
+      'SELECT platform.remember_line_invite($1,$2,$3,$4)',
+      [fresh, cap, randomUUID(), 's'.repeat(43)],
+      null
+    );
+    await db.pool.query(
+      "UPDATE platform.line_invite_continuations SET created_at=clock_timestamp()-INTERVAL '16 minutes',expires_at=clock_timestamp()-INTERVAL '2 minutes'"
+    );
+    await expect(redeem(fresh, 's'.repeat(43))).rejects.toThrow('unavailable');
+    expect(
+      (
+        await query<{ nonce: string | null }>(
+          'SELECT platform.line_invite_continuation($1) nonce',
+          [fresh],
+          null
+        )
+      ).rows[0]!.nonce
+    ).toBeNull();
+    expect((await db.pool.query('SELECT * FROM platform.line_invite_continuations')).rowCount).toBe(
+      0
+    );
+  });
+  it('does not extend continuation lifetime on repeated status, and can refresh its hash after a signing-key rotation', async () => {
+    const nonce = randomUUID(),
+      resume = 'r'.repeat(43),
+      rotated = 'q'.repeat(43);
+    await query(
+      'SELECT platform.remember_line_invite($1,$2,$3,$4)',
+      [subject, cap, nonce, resume],
+      null
+    );
+    const before = (
+      await db.pool.query('SELECT expires_at FROM platform.line_invite_continuations')
+    ).rows[0]!.expires_at;
+    const stable = await query<{ nonce: string }>(
+      'SELECT platform.remember_line_invite($1,$2,$3,$4) nonce',
+      [subject, cap, randomUUID(), 's'.repeat(43)],
+      null
+    );
+    expect(stable.rows[0]!.nonce).toBe(nonce);
+    expect(
+      (await db.pool.query('SELECT expires_at FROM platform.line_invite_continuations')).rows[0]!
+        .expires_at
+    ).toEqual(before);
+    await query(
+      'SELECT platform.remember_line_invite($1,$2,$3,$4)',
+      [subject, cap, nonce, rotated],
+      null
+    );
+    await expect(redeem(subject, resume)).rejects.toThrow('unavailable');
+    expect((await redeem(subject, rotated)).rows[0]!.data.status).toBe('approved');
+  });
+  it('rechecks continuation expiry after waiting on an existing pending application row', async () => {
+    const app = (
+      await db.pool.query<{ id: string }>(
+        "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id) VALUES('line',$1,'Pending',$2) RETURNING id",
+        [subject, region]
+      )
+    ).rows[0]!.id;
+    const resume = 'r'.repeat(43);
+    await query(
+      'SELECT platform.remember_line_invite($1,$2,$3,$4)',
+      [subject, cap, randomUUID(), resume],
+      null
+    );
+    const lock = await db.pool.connect();
+    await lock.query('BEGIN');
+    await lock.query('SELECT id FROM identity.onboarding_applications WHERE id=$1 FOR UPDATE', [
+      app
+    ]);
+    const result = redeem(subject, resume).then(
+      () => 'unexpected success',
+      () => 'rejected'
+    );
+    try {
+      let waiting = false;
+      for (let i = 0; i < 100; i++) {
+        waiting = (
+          await db.pool.query<{ waiting: boolean }>(
+            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename=$1 AND wait_event_type='Lock') waiting",
+            [role]
+          )
+        ).rows[0]!.waiting;
+        if (waiting) break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(waiting).toBe(true);
+      await db.pool.query(
+        "UPDATE platform.line_invite_continuations SET created_at=clock_timestamp()-INTERVAL '16 minutes',expires_at=clock_timestamp()-INTERVAL '2 minutes'"
+      );
+    } finally {
+      await lock.query('COMMIT');
+      lock.release();
+    }
+    expect(await result).toBe('rejected');
+    expect(
+      (await db.pool.query('SELECT status FROM identity.onboarding_applications')).rows[0]!.status
+    ).toBe('pending');
+    expect((await db.pool.query('SELECT uses FROM platform.line_invites')).rows[0]!.uses).toBe(0);
+    expect((await db.pool.query('SELECT * FROM identity.people')).rowCount).toBe(0);
   });
   it('rechecks issuer permission after waiting and honors stale revoke versions', async () => {
     await expect(

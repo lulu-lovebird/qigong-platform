@@ -42,10 +42,14 @@ suite('Reviewer notification schema31 to32 compatibility', () => {
           )
         ).rows[0]!.hash;
       const before = await Promise.all(tables.map(hash));
-      expect((await runMigrations(db.pool, directory, 'review-new')).applied).toEqual([
+      await copyFile(
+        path.join(directory, '0032_review_notifications.sql'),
+        path.join(old, '0032_review_notifications.sql')
+      );
+      expect((await runMigrations(db.pool, old, 'review-new')).applied).toEqual([
         '0032_review_notifications.sql'
       ]);
-      expect((await runMigrations(db.pool, directory, 'review-repeat')).applied).toEqual([]);
+      expect((await runMigrations(db.pool, old, 'review-repeat')).applied).toEqual([]);
       expect(await Promise.all(tables.map(hash))).toEqual(before);
       for (const name of [
         'admin.review_notification_preferences',

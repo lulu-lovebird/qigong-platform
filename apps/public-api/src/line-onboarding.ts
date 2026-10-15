@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
 import { registerLineInvites } from './line-invites.js';
+import { getLineInviteContinuation } from './line-invite-continuation.js';
 import {
   verifyLineIdentity,
   verifiedLineIdentitySchema,
@@ -176,6 +177,34 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
             event.message.text?.trim() ?? ''
           );
         if (!isCheckin && !isApply && !isPrivacy && !workspaceCommand) continue;
+        if (isApply || isCheckin) {
+          const continuation = await getLineInviteContinuation(
+            pool,
+            request.id,
+            event.source.userId,
+            config.channelSecret
+          );
+          if (continuation) {
+            // This is a continuation, not consent or approval. The page rechecks all eligibility.
+            await replyMessage(
+              event.replyToken,
+              '請接續原本的邀請，填寫並確認本人基本資料後即可核准、開始打卡：\n' +
+                liffBase +
+                '/invite#' +
+                continuation
+            );
+            continue;
+          }
+        }
+        if (event.type === 'follow') {
+          // LINE can emit follow during OAuth, before the invitation page has verified its subject.
+          // Do not divert that learner into a normal application before continuation is saved.
+          await replyMessage(
+            event.replyToken,
+            '歡迎加入氣功打卡小幫手！若從邀請連結加入，請返回原邀請頁，填寫本人基本資料後即可核准、開始打卡。若原頁已關閉，請重新點原邀請連結。\n沒有邀請連結者，請輸入「加入」提出一般申請（需人工審核）。'
+          );
+          continue;
+        }
         const privacyToken = createHmac('sha256', config.channelSecret)
           .update(
             'privacy:' + (event.webhookEventId ?? event.replyToken) + ':' + event.source.userId
@@ -270,6 +299,17 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
     const subject = await authenticated(request.body);
     if (!subject) return reply.code(401).send({ error: 'invalid_line_identity' });
     try {
+      const continuation = await getLineInviteContinuation(
+        pool,
+        request.id,
+        subject,
+        config.channelSecret
+      );
+      if (continuation)
+        return reply.header('cache-control', 'no-store').code(409).send({
+          error: 'line_invite_continuation_required',
+          resumeToken: continuation
+        });
       const result = await withRequestContext(
         pool,
         'qigong_api_runtime',
@@ -289,6 +329,11 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
       );
       return reply.header('cache-control', 'no-store').send({ status: result.rows[0]?.status });
     } catch (error) {
+      if (error instanceof Error && error.message === 'LINE invite continuation required')
+        return reply
+          .header('cache-control', 'no-store')
+          .code(409)
+          .send({ error: 'line_invite_continuation_required' });
       if (
         error instanceof Error &&
         /^(LINE application link expired or used|LINE application already reviewed|platform identity already linked|LINE application region unavailable)$/.test(

@@ -1,9 +1,10 @@
-import { createHmac } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
 import { renderLineInvitePage } from './line-invite-page.js';
 import { beginLearnerPrivacy } from './learner-privacy-routes.js';
+import { getLineInviteContinuation, lineInviteResumeToken } from './line-invite-continuation.js';
 export interface LineInviteConfig {
   liffId: string;
   loginChannelId: string;
@@ -58,7 +59,8 @@ const credentials = z.object({
 const stateSchema = z.object({
   status: z.enum(['approved', 'privacy', 'form', 'pending', 'blocked', 'invalid']),
   region: z.string().optional(),
-  regionName: z.string().optional()
+  regionName: z.string().optional(),
+  pendingApplication: z.boolean().optional()
 });
 export const registerLineInvites = (app: FastifyInstance, pool: Pool, config: LineInviteConfig) => {
   const verifyFriend =
@@ -112,12 +114,16 @@ export const registerLineInvites = (app: FastifyInstance, pool: Pool, config: Li
       const uid = await identify(parsed.data.idToken);
       if (!uid) return reply.code(401).send({ error: 'invalid_line_identity' });
       try {
+        // Missing fragments may result from LIFF cleanup/reload. Resume only this verified subject.
+        const inviteToken =
+          parsed.data.token ??
+          (await getLineInviteContinuation(pool, request.id, uid, config.privacySecret));
         const state = stateSchema.parse(
           (
             await query<{ data: unknown }>(
               request.id,
               'SELECT platform.line_invite_state($1,$2) data',
-              [uid, parsed.data.token ?? null]
+              [uid, inviteToken ?? null]
             )
           ).rows[0]?.data
         );
@@ -126,13 +132,34 @@ export const registerLineInvites = (app: FastifyInstance, pool: Pool, config: Li
           return action === 'status'
             ? state
             : reply.code(403).send({ error: 'line_invite_unavailable' });
-        // New members must prove the access token belongs to this Login channel and exact verified sub.
+        let resumeToken: string | undefined;
+        if (action === 'status' && state.region && inviteToken) {
+          const nonce = randomUUID();
+          const remembered = await query<{ nonce: string }>(
+            request.id,
+            'SELECT platform.remember_line_invite($1,$2,$3,$4) nonce',
+            [uid, inviteToken, nonce, lineInviteResumeToken(config.privacySecret, uid, nonce)]
+          );
+          const confirmedNonce = z.uuid().parse(remembered.rows[0]?.nonce);
+          resumeToken = lineInviteResumeToken(config.privacySecret, uid, confirmedNonce);
+          if (confirmedNonce !== nonce) {
+            // Preserve stable continuation links, including after an approved signing-key rotation.
+            await query(request.id, 'SELECT platform.remember_line_invite($1,$2,$3,$4)', [
+              uid,
+              inviteToken,
+              confirmedNonce,
+              resumeToken
+            ]);
+          }
+        }
+        // Save the subject-bound continuation before exposing the add-friend link.
+        // All new/pending approvals still require matching access token and server friendship.
         if (state.region) {
           if (!parsed.data.accessToken)
             return reply.code(401).send({ error: 'invalid_line_identity' });
           if (!(await verifyFriend(parsed.data.accessToken, uid)))
             return action === 'status'
-              ? { status: 'friend' }
+              ? { status: 'friend', resumeToken }
               : reply.code(403).send({ error: 'line_friendship_required' });
         }
         if (state.status === 'privacy') {
@@ -150,17 +177,18 @@ export const registerLineInvites = (app: FastifyInstance, pool: Pool, config: Li
           if (privacy.unavailable) return { status: 'blocked' };
           return {
             status: 'privacy',
+            resumeToken,
             privacy: { token, version: privacy.version, hash: privacy.hash }
           };
         }
-        if (action === 'status') return state;
+        if (action === 'status') return { ...state, resumeToken };
         const data = z
           .object({ name: z.string(), email: z.string(), phone: z.string() })
           .parse(parsed.data);
         const result = await query<{ data: unknown }>(
           request.id,
           'SELECT platform.redeem_line_invite($1,$2,$3,$4,$5) data',
-          [uid, parsed.data.token ?? null, data.name, data.email, data.phone]
+          [uid, inviteToken ?? null, data.name, data.email, data.phone]
         );
         return z
           .object({ status: z.literal('approved'), alreadyMember: z.boolean() })

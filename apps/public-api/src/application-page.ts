@@ -137,7 +137,24 @@ ${channel.platform === 'line' ? '<script src="https://static.line-scdn.net/liff/
           method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ token, ${channel.platform === 'line' ? 'idToken,' : ''} ...data ${channel.platform === 'whatsapp' ? `,locale: ${JSON.stringify(channel.locale ?? 'zh_TW')}, notificationConsent: data.notificationConsent === 'on'` : ''} })
         });
-        if (!response.ok) throw new Error(response.status === 409 ? ui.applicationConflict : ui.applicationFailed);
+        if (!response.ok) {
+          ${
+            channel.platform === 'line'
+              ? `
+          if (response.status === 409) {
+            const conflict = await response.json();
+            if (conflict.error === 'line_invite_continuation_required') {
+              form.hidden = true;
+              status.textContent = '正在接續有效邀請，請在邀請頁確認本人資料後直接核准。';
+              location.replace(${JSON.stringify('https://liff.line.me/' + encodeURIComponent(channel.liffId) + '/invite')} + (/^[A-Za-z0-9_-]{43}$/.test(conflict.resumeToken || '') ? '#' + conflict.resumeToken : ''));
+              return;
+            }
+          }
+          `
+              : ''
+          }
+          throw new Error(response.status === 409 ? ui.applicationConflict : ui.applicationFailed);
+        }
         form.hidden = true;
         status.textContent = ui.applicationSent;
       } catch (error) { status.textContent = error.message; button.disabled = false; }

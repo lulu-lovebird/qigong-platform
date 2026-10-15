@@ -96,6 +96,7 @@ const fixture = (
     init?: () => Promise<void>;
     hash?: string;
     responseStatus?: number;
+    continuationConflict?: { resumeToken?: string };
     notificationConsent?: boolean;
     feelingTags?: ReadonlyArray<{ id: string; name: string }>;
   } = {}
@@ -150,7 +151,9 @@ const fixture = (
             feelingTags: options.feelingTags ?? [],
             entries: []
           }
-        : { status: 'pending' };
+        : options.continuationConflict
+          ? { error: 'line_invite_continuation_required', ...options.continuationConflict }
+          : { status: 'pending' };
     return new Response(JSON.stringify(body), { status: options.responseStatus ?? 200 });
   });
   script(html).runInNewContext({
@@ -382,6 +385,23 @@ describe('shared learner pages without database or real LIFF SDK', () => {
     expect(page.get('checkin').hidden).toBe(true);
   });
 
+  it.each([undefined, 'r'.repeat(43)])(
+    'redirects an old manual form to its verified invitation on continuation conflict (%s)',
+    async (resumeToken) => {
+      const page = fixture(lineApplicationPage('123456-test'), {
+        responseStatus: 409,
+        continuationConflict: resumeToken ? { resumeToken } : {}
+      });
+      await setImmediate();
+      await submit(page.get('application'));
+      expect(page.location.replace).toHaveBeenCalledWith(
+        'https://liff.line.me/123456-test/invite' + (resumeToken ? '#' + resumeToken : '')
+      );
+      expect(page.get('application').hidden).toBe(true);
+      expect(page.get('status').textContent).toContain('接續有效邀請');
+      expect(page.get('status').textContent).not.toContain('已送出');
+    }
+  );
   it('keeps invalid application links hidden and never submits automatically', async () => {
     const page = fixture(lineApplicationPage('123456-test'), { hash: '#invalid' });
     await setImmediate();

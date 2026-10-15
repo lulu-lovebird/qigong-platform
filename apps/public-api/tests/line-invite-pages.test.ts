@@ -16,10 +16,14 @@ const fixture = (
   states: ReadonlyArray<{
     status: string;
     regionName?: string;
+    resumeToken?: string;
+    pendingApplication?: boolean;
     privacy?: { token: string; version: string; hash: string };
   }>,
-  failRedeem = false
+  failRedeem = false,
+  hash = '#' + 'a'.repeat(43)
 ) => {
+  const listeners = new Map<string, () => void>();
   const nodes = new Map<string, Node>(),
     get = (id: string) => {
       if (!nodes.has(id))
@@ -56,14 +60,18 @@ const fixture = (
   }
   const context = vm.createContext({
     location: {
-      hash: '#' + 'a'.repeat(43),
+      hash,
       pathname: '/line/invite',
       search: '',
       href: 'https://checkin.baiyinqigong.org/line/invite#' + 'a'.repeat(43),
       replace
     },
     history: { replaceState: cleanup },
-    document: { getElementById: get },
+    document: {
+      getElementById: get,
+      visibilityState: 'visible',
+      addEventListener: (name: string, callback: () => void) => listeners.set(name, callback)
+    },
     liff: {
       init,
       isLoggedIn: () => true,
@@ -80,7 +88,7 @@ const fixture = (
     script = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1];
   if (!script) throw Error('Missing script');
   new vm.Script(script).runInContext(context);
-  return { get, fetch, replace, cleanup, init };
+  return { get, fetch, replace, cleanup, init, listeners };
 };
 const tick = async () => {
   await setImmediate();
@@ -151,6 +159,40 @@ describe('LINE invitation browser flow', () => {
       expect(f.get('status').textContent).toBeTruthy();
     }
   );
+  it('keeps the subject-bound continuation through friendship and redemption without browser storage', async () => {
+    const resumeToken = 'r'.repeat(43);
+    const f = fixture([
+      { status: 'friend', resumeToken },
+      { status: 'form', regionName: '台灣', resumeToken }
+    ]);
+    await tick();
+    f.listeners.get('visibilitychange')?.();
+    await tick();
+    expect(f.get('invite-form').hidden).toBe(false);
+    expect(payload(f.fetch.mock.calls[1]?.[1]).token).toBe(resumeToken);
+    await f.get('invite-form').onsubmit?.({ preventDefault: () => {} });
+    expect(payload(f.fetch.mock.calls.at(-1)?.[1]).token).toBe(resumeToken);
+    expect(f.replace).toHaveBeenCalledWith('https://liff.line.me/123-test/checkin');
+    f.listeners.get('visibilitychange')?.();
+    await tick();
+    expect(f.fetch).toHaveBeenCalledTimes(3);
+  });
+  it('resumes a cleaned-fragment reload only from the verified server continuation and waits for explicit pending confirmation', async () => {
+    const resumeToken = 'r'.repeat(43);
+    const f = fixture(
+      [{ status: 'form', regionName: '台灣', resumeToken, pendingApplication: true }],
+      false,
+      ''
+    );
+    await tick();
+    expect(payload(f.fetch.mock.calls[0]?.[1])).not.toHaveProperty('token');
+    expect(f.get('status').textContent).toContain('待審申請');
+    expect(f.replace).not.toHaveBeenCalled();
+    expect(f.fetch).toHaveBeenCalledTimes(1);
+    await f.get('invite-form').onsubmit?.({ preventDefault: () => {} });
+    expect(payload(f.fetch.mock.calls[1]?.[1]).token).toBe(resumeToken);
+    expect(f.replace).toHaveBeenCalledWith('https://liff.line.me/123-test/checkin');
+  });
   it('retains the entered draft on quota/expiry failure and does not show success', async () => {
     const f = fixture([{ status: 'form', regionName: '台灣' }], true);
     await tick();

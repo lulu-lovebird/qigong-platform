@@ -1,5 +1,17 @@
 # Qigong Platform — 交接摘要
 
+## 最新本機：LINE邀請加好友接續／pending本人確認（schema33，未提交部署）
+
+- 使用者先修正、尚未核准commit/push/deploy。正式仍8eaaa9b／0032，root現有資料、邀請、三筆待審、env／通知flags完全未改；untracked web-admin-permissions-review.md保留排除。
+- 已查正式invite uses/redemptions皆0，最近LINE申請為一般pending並產生合法review通知，但無真人click trace，不推定使用者點錯。缺口：follow曾直接回一般/apply，而且OAuth可在邀請頁驗證身份前follow；SDK清fragment後reload缺server接續。
+- 新0033（歷史0001–0032不改）forced-RLS subject-bound15min hash-only continuation；signed follow/加入/打卡導原邀請，early-follow無context改提示回原邀請、不發普通申請URL。缺fragment先以verified ID token接續本人；明確錯token不降級。server friend驗證／privacy／issuer／quota／region照舊。
+- 原pending本人持有效invite，重填確認資料＋邀請region後，鎖後原UUID原子轉approved、建person/identity/channel、耗額度一次／正常approval outbox；未操作不自動核准，rejected/suspended/revoked/已linked保護保留。未送pending/sending reviewer deliveries取消／歷史sent保留，不保證召回in-flight。
+- 舊普通form/API/SQL防downgrade，有有效context回409導回invite確認；resume跨subject無效、期限不滑動，等待原pending row後再查resume expiry；成功清context，過期按index每次最多100 SKIP LOCKED清理。原共享invite可轉傳，resume僅本人，不混淆兩種capability。
+- API exact0033／worker ops.line_invite_continuation_schema_ready()、phase-18-line-invite-continuation。32→33指紋／所有原資料不動、新表空、重跑0、舊gate拒絕；31→32歷史測試固定chain到32。
+- pnpm verify2成功651tests（API481／DB162／config2／identity6）、format/lint/source tsc/build。額外all-test tsc仍原10錯（新測試optional型別已修，不新增）。第一輪既有onboarding.test兩項間歇permission denied，target及verify2重跑通過但未修根因，不宣稱已修既有flakiness。
+- HTTP/signature/DB實際測試friend→resume→基本資料→approved→history200、zero新review event；VM整HTML／script與Chrome390/1280真DOM submit、清fragment reload、visibility返回、pending確認、checkin跳轉，zero overflow／exception，全部syntheticprovider，不是真LINE交付驗收。/tmp/qigong-line-invite-continuation-*證據，preview/Chrome已停。
+- 見[接續設計與發布限制](docs/operations/line-invite-continuation.md)。未代學員批核、發測試訊息、動Console／政策／env；33發布需另核准exact CI、加密備份實際還原與matching API-worker，不能binary-only回32。待本人手機重開原邀請做端到端驗收。
+
 ## 最新部署：通知頁locale與checkbox修復8eaaa9b（同schema32）
 
 - 使用者核准commit/push/deploy，程式8eaaa9b370addd45211fa7c848cf1e1d60d2e51e，CI38665560311成功／636tests。正式2026-10-15 01:34:07–01:34:23 UTC維護16秒；只切UI binary，schema32／phase17不變，未run migration applier，僅ledger/checksum/contract read驗證。
