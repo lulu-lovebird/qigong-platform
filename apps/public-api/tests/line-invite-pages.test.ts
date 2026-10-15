@@ -8,8 +8,9 @@ interface Node {
   checked: boolean;
   textContent: string;
   value: string;
+  href: string;
   data: Record<string, string>;
-  onclick?: () => Promise<void>;
+  onclick?: (event?: { preventDefault: () => void }) => void | Promise<void>;
   onsubmit?: (event: { preventDefault: () => void }) => Promise<void>;
 }
 const fixture = (
@@ -21,7 +22,18 @@ const fixture = (
     privacy?: { token: string; version: string; hash: string };
   }>,
   failRedeem = false,
-  hash = '#' + 'a'.repeat(43)
+  hash = '#' + 'a'.repeat(43),
+  options: {
+    inClient?: boolean;
+    os?: 'ios' | 'android' | 'web';
+    missingBridge?: boolean;
+    missingOS?: boolean;
+    bridgeThrows?: boolean;
+    contextThrows?: boolean;
+    statusGate?: Promise<void>;
+    statusError?: 'invalid_line_identity' | 'line_friendship_unavailable';
+    init?: () => Promise<void>;
+  } = {}
 ) => {
   const listeners = new Map<string, () => void>();
   const nodes = new Map<string, Node>(),
@@ -33,6 +45,7 @@ const fixture = (
           checked: false,
           textContent: '',
           value: '',
+          href: '',
           data: { name: 'Synthetic learner', email: 'demo@example.invalid', phone: '+65960000001' }
         });
       return nodes.get(id)!;
@@ -40,8 +53,15 @@ const fixture = (
   let index = 0;
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     if (typeof input !== 'string') throw Error('String expected');
-    if (input.endsWith('/status'))
+    if (input.endsWith('/status')) {
+      await options.statusGate;
+      if (options.statusError)
+        return Response.json(
+          { error: options.statusError },
+          { status: options.statusError === 'invalid_line_identity' ? 401 : 503 }
+        );
       return Response.json(states[Math.min(index++, states.length - 1)]);
+    }
     if (input.endsWith('/accept')) return Response.json({ accepted: true });
     if (init?.method !== 'POST') throw Error('POST required');
     return Response.json(
@@ -51,7 +71,12 @@ const fixture = (
   });
   const replace = vi.fn(),
     cleanup = vi.fn(),
-    init = vi.fn(async () => {});
+    init = vi.fn(options.init ?? (async () => {})),
+    openWindow = vi.fn<(value: { url: string; external: boolean }) => void>(() => {
+      if (options.bridgeThrows) throw Error('synthetic bridge failure');
+    }),
+    closeWindow = vi.fn(),
+    sendMessages = vi.fn();
   class TestFormData {
     constructor(private readonly form: Node) {}
     [Symbol.iterator]() {
@@ -75,7 +100,14 @@ const fixture = (
     liff: {
       init,
       isLoggedIn: () => true,
-      isInClient: () => true,
+      isInClient: () => {
+        if (options.contextThrows) throw Error('Context unavailable');
+        return options.inClient ?? true;
+      },
+      getOS: options.missingOS ? undefined : () => options.os ?? 'ios',
+      openWindow: options.missingBridge ? undefined : openWindow,
+      closeWindow,
+      sendMessages,
       getIDToken: () => 'verified-id',
       getAccessToken: () => 'verified-access'
     },
@@ -88,7 +120,18 @@ const fixture = (
     script = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1];
   if (!script) throw Error('Missing script');
   new vm.Script(script).runInContext(context);
-  return { get, fetch, replace, cleanup, init, listeners };
+  return {
+    get,
+    fetch,
+    replace,
+    cleanup,
+    init,
+    listeners,
+    openWindow,
+    closeWindow,
+    sendMessages,
+    html
+  };
 };
 const tick = async () => {
   await setImmediate();
@@ -99,10 +142,18 @@ const payload = (init: RequestInit | undefined): Record<string, unknown> => {
   return JSON.parse(init.body) as Record<string, unknown>;
 };
 describe('LINE invitation browser flow', () => {
-  it('takes an already-approved account directly to the canonical checkin LIFF with no form or new redemption', async () => {
+  it('hands an already-approved account to the helper chat without opening checkin, redeeming or closing the source LIFF', async () => {
     const f = fixture([{ status: 'approved' }]);
     await tick();
-    expect(f.replace).toHaveBeenCalledWith('https://liff.line.me/123-test/checkin');
+    expect(f.openWindow).toHaveBeenCalledWith({
+      url: 'https://line.me/R/oaMessage/%40556fjenc',
+      external: true
+    });
+    expect(f.replace).not.toHaveBeenCalled();
+    expect(f.closeWindow).not.toHaveBeenCalled();
+    expect(f.sendMessages).not.toHaveBeenCalled();
+    expect(f.get('invite-form').hidden).toBe(true);
+    expect(f.get('helper-chat').hidden).toBe(false);
     expect(f.fetch).toHaveBeenCalledTimes(1);
     expect(f.cleanup).toHaveBeenCalledWith(null, '', '/line/invite');
     expect(f.init).toHaveBeenCalled();
@@ -124,7 +175,11 @@ describe('LINE invitation browser flow', () => {
       email: 'demo@example.invalid',
       phone: '+65960000001'
     });
-    expect(f.replace).toHaveBeenCalledWith('https://liff.line.me/123-test/checkin');
+    expect(f.openWindow).toHaveBeenCalledWith({
+      url: 'https://line.me/R/oaMessage/%40556fjenc',
+      external: true
+    });
+    expect(f.replace).not.toHaveBeenCalled();
   });
   it('uses a private per-subject consent proof, explicit unchecked acceptance, then resumes the invite', async () => {
     const privacy = { token: 'b'.repeat(43), version: 'synthetic-v1', hash: 'c'.repeat(64) },
@@ -154,6 +209,11 @@ describe('LINE invitation browser flow', () => {
       const f = fixture([{ status }]);
       await tick();
       expect(f.replace).not.toHaveBeenCalled();
+      expect(f.openWindow).not.toHaveBeenCalled();
+      expect(f.get('helper-chat').hidden).toBe(true);
+      const preventDefault = vi.fn();
+      await f.get('helper-chat-link').onclick?.({ preventDefault });
+      expect(preventDefault).toHaveBeenCalledOnce();
       expect(f.get('invite-form').hidden).toBe(true);
       expect(f.fetch).toHaveBeenCalledTimes(1);
       expect(f.get('status').textContent).toBeTruthy();
@@ -172,7 +232,11 @@ describe('LINE invitation browser flow', () => {
     expect(payload(f.fetch.mock.calls[1]?.[1]).token).toBe(resumeToken);
     await f.get('invite-form').onsubmit?.({ preventDefault: () => {} });
     expect(payload(f.fetch.mock.calls.at(-1)?.[1]).token).toBe(resumeToken);
-    expect(f.replace).toHaveBeenCalledWith('https://liff.line.me/123-test/checkin');
+    expect(f.openWindow).toHaveBeenCalledWith({
+      url: 'https://line.me/R/oaMessage/%40556fjenc',
+      external: true
+    });
+    expect(f.replace).not.toHaveBeenCalled();
     f.listeners.get('visibilitychange')?.();
     await tick();
     expect(f.fetch).toHaveBeenCalledTimes(3);
@@ -191,13 +255,163 @@ describe('LINE invitation browser flow', () => {
     expect(f.fetch).toHaveBeenCalledTimes(1);
     await f.get('invite-form').onsubmit?.({ preventDefault: () => {} });
     expect(payload(f.fetch.mock.calls[1]?.[1]).token).toBe(resumeToken);
-    expect(f.replace).toHaveBeenCalledWith('https://liff.line.me/123-test/checkin');
+    expect(f.openWindow).toHaveBeenCalledWith({
+      url: 'https://line.me/R/oaMessage/%40556fjenc',
+      external: true
+    });
+    expect(f.replace).not.toHaveBeenCalled();
+  });
+  it('waits for both LIFF initialization and server qualification before a single Android native handoff', async () => {
+    let ready!: () => void, qualified!: () => void;
+    const initialized = new Promise<void>((r) => {
+        ready = r;
+      }),
+      statusGate = new Promise<void>((r) => {
+        qualified = r;
+      });
+    const f = fixture([{ status: 'approved' }], false, undefined, {
+      os: 'android',
+      init: () => initialized,
+      statusGate
+    });
+    await tick();
+    expect(f.fetch).not.toHaveBeenCalled();
+    expect(f.openWindow).not.toHaveBeenCalled();
+    expect(f.get('helper-chat').hidden).toBe(true);
+    ready();
+    await tick();
+    expect(f.fetch).toHaveBeenCalledTimes(1);
+    expect(f.openWindow).not.toHaveBeenCalled();
+    qualified();
+    await tick();
+    expect(f.openWindow).toHaveBeenCalledTimes(1);
+    expect(f.openWindow).toHaveBeenCalledWith({
+      url: 'https://line.me/R/oaMessage/%40556fjenc',
+      external: true
+    });
+    expect(f.get('helper-chat-open').href).toBe('https://line.me/R/oaMessage/%40556fjenc');
+    const target = new URL(f.get('helper-chat-open').href);
+    expect(target.search).toBe('');
+    expect(target.hash).toBe('');
+    expect(target.username).toBe('');
+    expect(JSON.stringify(f.openWindow.mock.calls)).not.toMatch(/verified-id|verified-access/);
+    expect(JSON.stringify(f.openWindow.mock.calls)).not.toContain('a'.repeat(43));
+    expect(f.replace).not.toHaveBeenCalled();
+    expect(f.closeWindow).not.toHaveBeenCalled();
+    expect(f.sendMessages).not.toHaveBeenCalled();
+  });
+  it('keeps a retry link after a silent bridge call without claiming success or repeating server writes on return', async () => {
+    const f = fixture([{ status: 'approved' }]);
+    await tick();
+    expect(f.get('status').textContent).toContain('已嘗試');
+    expect(f.get('helper-chat').hidden).toBe(false);
+    expect(f.get('retry').hidden).toBe(true);
+    for (let i = 0; i < 3; i++) f.listeners.get('visibilitychange')?.();
+    await tick();
+    await f.get('retry').onclick?.();
+    await f.get('invite-form').onsubmit?.({ preventDefault: () => {} });
+    await f.get('privacy-submit').onclick?.();
+    expect(f.fetch).toHaveBeenCalledTimes(1);
+    expect(f.openWindow).toHaveBeenCalledTimes(1);
+    const preventDefault = vi.fn();
+    await f.get('helper-chat-open').onclick?.({ preventDefault });
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(f.openWindow).toHaveBeenCalledTimes(2);
+    expect(f.fetch).toHaveBeenCalledTimes(1);
+    const plainPreventDefault = vi.fn();
+    await f.get('helper-chat-link').onclick?.({ preventDefault: plainPreventDefault });
+    expect(plainPreventDefault).not.toHaveBeenCalled();
+    expect(f.get('helper-chat-link').href).toBe('https://line.me/R/oaMessage/%40556fjenc');
+    expect(f.openWindow).toHaveBeenCalledTimes(2);
+    expect(f.fetch).toHaveBeenCalledTimes(1);
+    expect(f.html).toContain('target="_blank" rel="noopener noreferrer"');
+    expect(f.html).toContain('桌面 LINE');
+    expect(f.html).toContain('練功打卡');
+    expect(f.html).not.toContain('/checkin');
+    expect(f.html).not.toContain('liff.closeWindow(');
+    expect(f.html).not.toContain('liff.sendMessages(');
+  });
+  it.each([
+    { inClient: false },
+    { os: 'web' as const },
+    { missingBridge: true },
+    { missingOS: true },
+    { contextThrows: true }
+  ])(
+    'uses the fixed manual chat link instead of an unsupported automatic handoff: %j',
+    async (options) => {
+      const f = fixture([{ status: 'approved' }], false, undefined, options);
+      await tick();
+      expect(f.openWindow).not.toHaveBeenCalled();
+      expect(f.get('helper-chat').hidden).toBe(false);
+      expect(f.get('invite-form').hidden).toBe(true);
+      const preventDefault = vi.fn();
+      await f.get('helper-chat-open').onclick?.({ preventDefault });
+      expect(preventDefault).not.toHaveBeenCalled();
+      expect(f.openWindow).not.toHaveBeenCalled();
+      expect(f.get('helper-chat-open').href).toBe('https://line.me/R/oaMessage/%40556fjenc');
+      expect(f.fetch).toHaveBeenCalledTimes(1);
+      expect(f.replace).not.toHaveBeenCalled();
+    }
+  );
+  it('allows the ordinary link fallback if the native bridge throws, then supports a manual native retry without replaying approval', async () => {
+    const f = fixture([{ status: 'approved' }], false, undefined, { bridgeThrows: true });
+    await tick();
+    expect(f.get('helper-chat').hidden).toBe(false);
+    expect(f.get('status').textContent).not.toContain('synthetic bridge failure');
+    const preventDefault = vi.fn();
+    await f.get('helper-chat-open').onclick?.({ preventDefault });
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(f.openWindow).toHaveBeenCalledTimes(2);
+    f.openWindow.mockImplementation(() => {});
+    await f.get('helper-chat-open').onclick?.({ preventDefault });
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(f.openWindow).toHaveBeenCalledTimes(3);
+    expect(f.fetch).toHaveBeenCalledTimes(1);
+    expect(f.closeWindow).not.toHaveBeenCalled();
+  });
+  it.each(['invalid_line_identity', 'line_friendship_unavailable'] as const)(
+    'does not open helper chat when server validation fails: %s',
+    async (statusError) => {
+      const f = fixture([{ status: 'approved' }], false, undefined, { statusError });
+      await tick();
+      expect(f.openWindow).not.toHaveBeenCalled();
+      expect(f.get('helper-chat').hidden).toBe(true);
+      expect(f.get('retry').hidden).toBe(false);
+      expect(f.replace).not.toHaveBeenCalled();
+    }
+  );
+  it('does not navigate or query the API when LIFF initialization fails', async () => {
+    const f = fixture([{ status: 'approved' }], false, undefined, {
+      init: async () => {
+        throw Error('Synthetic init failure');
+      }
+    });
+    await tick();
+    expect(f.fetch).not.toHaveBeenCalled();
+    expect(f.openWindow).not.toHaveBeenCalled();
+    expect(f.get('helper-chat').hidden).toBe(true);
+  });
+  it('requires explicit applicable consent before returning an existing member to helper chat', async () => {
+    const privacy = { token: 'b'.repeat(43), version: 'synthetic-v1', hash: 'c'.repeat(64) };
+    const f = fixture([{ status: 'privacy', privacy }, { status: 'approved' }]);
+    await tick();
+    expect(f.openWindow).not.toHaveBeenCalled();
+    await f.get('privacy-submit').onclick?.();
+    expect(f.fetch).toHaveBeenCalledTimes(1);
+    f.get('privacy-accepted').checked = true;
+    await f.get('privacy-submit').onclick?.();
+    expect(f.openWindow).toHaveBeenCalledTimes(1);
+    expect(f.fetch.mock.calls.some(([path]) => path === '/line/invite/redeem')).toBe(false);
+    expect(f.get('invite-form').hidden).toBe(true);
   });
   it('retains the entered draft on quota/expiry failure and does not show success', async () => {
     const f = fixture([{ status: 'form', regionName: '台灣' }], true);
     await tick();
     await f.get('invite-form').onsubmit?.({ preventDefault: () => {} });
     expect(f.replace).not.toHaveBeenCalled();
+    expect(f.openWindow).not.toHaveBeenCalled();
+    expect(f.get('helper-chat').hidden).toBe(true);
     expect(f.get('status').textContent).toContain('失效');
     expect(f.get('invite-form').data.name).toBe('Synthetic learner');
     expect(f.get('join').disabled).toBe(false);

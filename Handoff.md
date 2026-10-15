@@ -1,5 +1,14 @@
 # Qigong Platform — 交接摘要
 
+## 最新本機：LINE邀請核准後導小幫手聊天（未提交部署）
+
+- 使用者確認「已核准重訪」與「首次核准完成」都改：邀請只驗身／資格，固定oaMessage/%40556fjenc開小幫手聊天，再由本人按練功打卡；不再從原白雁邀請頁自動開checkin，避免close回白雁看不到已送小幫手的回條。
+- line-invite-page中性入口標題／成功後隱藏表單；SDK初始化且server approved後，僅mobile in-client ios/android openWindow external:true嘗試，void不當成成功。主按鈕重試＋不經bridge普通link，desktop/external/缺bridge/throws提示手動，固定公開URL不帶任何invite/auth/個資、不預填或send指令、不呼叫closeWindow。
+- completed guard阻擋返回／retry／重複submit再查詢或redeem，清頁內invite/privacy參照並reset表單；required privacy／資格／alreadyMember/quota等backend未動。無migration／env/Console/通知開關變更，正式仍59241f4／34，未commit/push/deploy。
+- 完整pnpm verify成功696（API509／DB179／config2／identity6）＋format/lint/source TS/build，all-test TS原10錯不增。整HTML VM21項涵蓋所有gate/native/fallback/no close/send/no secret URL／重試；Chrome390/1280×10情境共20布局真DOM提交／同意與bridge參數、普通anchor不攔截、zero overflow／exception。
+- 全synthetic SDK/backend，測試主動擋普通anchor外連；不是真iOS/Android LINE切chat／關頁來源驗收。/tmp/qigong-invite-chat-*證據，preview/Chrome與獨立PG16 qigong-invite-chat-test／55458完成後停止，原共享cluster未動／既有flakiness不稱已修。
+- [設計／官方依據／真人驗收](docs/operations/line-invite-chat-handoff.md)。LINE URL scheme手機支援、不支援PC；openWindow版本差異需fallback，勿立刻close原LIFF。正式發布另核准same34＋matching API-worker；舊smoke預期checkin redirect/「加入並開始打卡」label要調整，別假判失敗；回退可matching592 binary，不還原DB。web-admin-permissions-review.md仍排除。
+
 ## 最新部署：共用badge圖示59241f4（同schema34）
 
 - 使用者核准commit/push/deploy，59241f4a389ae58a42812e19481ec0d42f41ed0a，CI38730275543／684tests成功；2026-10-15 12:00:28–12:00:46 UTC維護18秒，同schema34／phase19，只切matching API-worker／drop-in，零migration applier／award批量重算。

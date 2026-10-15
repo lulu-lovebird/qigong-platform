@@ -1,5 +1,9 @@
 # LINE持有者邀請與自動核准（已部署schema29，真人驗收待完成）
 
+## 本機待發布：核准後先進小幫手聊天
+
+使用者另確認調整已核准重訪與首次核准兩種成功落點：原邀請不再直接開checkin，改以固定oaMessage網址前往氣功打卡小幫手聊天，再由本人按「練功打卡」。原來源白雁聊天不會因頁內轉址自動變成小幫手；本機已補mobile native嘗試、手動按鈕及不經bridge連結，沒有close/send或新增API／quota操作。資格與必要同意仍先由伺服器確認。**未commit/push/deploy，正式59241f4仍是原直接checkin行為。**見[聊天交接設計與真人驗收](line-invite-chat-handoff.md)。
+
 ## 邀請接續修正已部署schema33
 
 使用者另核准commit/push/deploy，4aa38f1／schema33於2026-10-15 03:47 UTC完成，CI38677398987／651tests、137HTTPS checks成功。接續綁定verified LINE subject、固定15分鐘、hash-only；follow不再把有邀請者帶入一般表單，OAuth early-follow提示回原邀請；已pending本人可持有效invite重新填確認資料後原子核准，rejected／suspended等不恢復，不自動回填或批核既有資料。一般無邀請「加入」仍人工審核。詳見[LINE邀請接續與本人確認](line-invite-continuation.md)與[部署／實際還原證據](line-invite-continuation-deployment.md)。**以下schema29原始設計中的pending不覆蓋規則，已由上述本人有效邀請明確確認規則取代**，其他安全界線保留。
