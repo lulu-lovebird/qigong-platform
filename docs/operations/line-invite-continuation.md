@@ -1,6 +1,6 @@
-# LINE 邀請加好友後接續與待審本人確認（本機，未發布）
+# LINE 邀請加好友後接續與待審本人確認（已部署schema33）
 
-使用者核准本機修正；尚未commit/push/deploy。正式仍8eaaa9b／schema32，現有申請／通知／邀請額度／env均未修改。此變更需要schema33及matching API-worker，不能當作same-schema UI修補部署。
+使用者另核准commit/push/deploy，正式4aa38f1709222e2f38b72f51c97bb8923f7f8d64／schema33，2026-10-15 03:47:26–03:47:44 UTC完成，CI38677398987／651tests成功；現有申請／通知／邀請額度／env保留，沒有批量核准。此變更包含migration及matching API-worker，不是same-schema UI修補。見[部署／實際還原證據](line-invite-continuation-deployment.md)。
 
 ## 問題與目標流程
 
@@ -40,8 +40,8 @@
 - `/tmp/qigong-line-invite-continuation-{verify,verify-2,all-types}.log`、preview/cdp scripts與390/1280 screenshots保留，preview／Chrome已停止。
 - 第一次完整verify遇到既有`onboarding.test.ts`兩項間歇permission denied，未修改該測試或授權；target重跑及完整verify2成功，不宣稱已找出／修正此既有flakiness。額外all-test tsc仍10個既有錯誤，沒有新增。
 
-## 待核准發布
+## 已核准發布與恢復限制
 
-commit/push／exact SHA CI、正式32備份解密還原／新舊契約及隔離完整流程、schema33 migration與matching API-worker部署均須另核准；保持兩個Telegram flag true、WA未配置、隱私政策draft。33不能只切binary回32；若流量後DB回復，須核准並對帳新的pending轉核准、身份／配額／通知等寫入，不可覆蓋掉新資料。
+commit/push／exact SHA CI、正式32備份解密實際還原／新舊契約及隔離整HTML流程、schema33 migration與matching API-worker部署已完成；137HTTPS checks通過，兩份env bytehash與兩個Telegram flag true、WA未配置、隱私政策draft保持。33不能只切binary回32；若流量後DB回復，須另核准並對帳新的pending轉核准、身份／配額／通知等寫入，不可覆蓋掉新資料。
 
 發布後由原待審學員本人重新點原有效邀請、填／確認資料再核准，不代操作、不批量核准；真人從白雁圖文選單一路驗收到打卡仍待完成。

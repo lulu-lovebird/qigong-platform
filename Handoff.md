@@ -1,6 +1,15 @@
 # Qigong Platform — 交接摘要
 
-## 最新本機：LINE邀請加好友接續／pending本人確認（schema33，未提交部署）
+## 最新部署：LINE邀請接續4aa38f1／schema33
+
+- 使用者核准commit/push/deploy，程式4aa38f1709222e2f38b72f51c97bb8923f7f8d64，CI38677398987成功／651tests。正式2026-10-15 03:47:26–03:47:44 UTC維護18秒，32→33/reapply0，API-worker matching exact0033／phase18。
+- 原73 application tables／12people／17checkins與全部非metadata指紋保留、新context表空，無批核／同意回填／invite扣額；兩份env bytehash不變，review與learner flag true、WA unconfigured／policy draft。
+- 正式32snapshot＋roles clone實際還原指紋相同／8e API ready，33升級／舊gate拒絕；最終站外AESGCM DB/roles/env-systemd逐一decrypt-hash、roles重套／DB實際還原相同與舊32ready後才主站migration。
+- 新release受限compiled整HTML＋實API/signed follow通過：early-follow無manual link、本人resume／無fragment reload／資料confirm後approved／history200，第二synthetic pending本人有效invite確認approved／manual downgrade409、quota精確2、zero新invite review event；全部只clone，沒有正式合成申請或測試msg。通知頁中英雙勾真API保存與matching worker(mock)正常。
+- 136主站＋1PNG共137HTTPS checks通過，synthetic req.url REDACTED，APIactive/NRestarts0/status0、timeractive、workerResultsuccess/status0。普通加入仍人工審核，拒絕／停用等不恢復；現有pending需本人再開原邀請確認資料，不因deploy批核。真人LINE圖文選單一路打卡驗收待完成。
+- /root/qigong-deploy-4aa38f1、deployment-tools/4aa38f1、已停rehearsal-4aa38f1與分開站外backups/key保留。33不能binary-only回32，須matching32DB＋8eaaa9b API-worker與流量後寫入對帳核准；不保證in-flight召回或OS/Caddy災復。見[部署／恢復](docs/operations/line-invite-continuation-deployment.md)。原untracked web-admin-permissions-review.md仍排除。
+
+## LINE邀請加好友接續／pending本人確認（本機紀錄，後續已部署4aa38f1）
 
 - 使用者先修正、尚未核准commit/push/deploy。正式仍8eaaa9b／0032，root現有資料、邀請、三筆待審、env／通知flags完全未改；untracked web-admin-permissions-review.md保留排除。
 - 已查正式invite uses/redemptions皆0，最近LINE申請為一般pending並產生合法review通知，但無真人click trace，不推定使用者點錯。缺口：follow曾直接回一般/apply，而且OAuth可在邀請頁驗證身份前follow；SDK清fragment後reload缺server接續。
@@ -151,7 +160,7 @@
 - preview與測試同時使用55440曾觸發受控角色依賴保護，停止preview後相關與完整verify通過；不稱為先前間歇性問題已修復。所有預覽／Chrome已停、合成DB／角色清理。證據/tmp/qigong-whatsapp-browser-{verify-final,all-types}.log、preview／cdp scripts及synthetic screenshots；見[whatsapp-browser](docs/operations/whatsapp-browser.md)。
 - 未commit／push／部署、未啟用WA、未改憑證／Meta assets／政策draft，主站仍97de588／26。發布另核准、正式26clone／matching API-worker／最終加密備份實際還原與真人驗收；27回26須matching DB＋97de588，不可binary-only。原untracked web-admin-permissions-review.md繼續排除。
 
-> 最新主站為 `8eaaa9b370addd45211fa7c848cf1e1d60d2e51e`／`0032_review_notifications.sql`，2026-10-15 01:34 UTC完成核准的same-schema UI修復部署；通知頁locale與checkbox對齊修正。review与learner reminder true、WA unconfigured／policy draft，原資料／偏好／綁定／權限与env未改。
+> 最新主站為 `4aa38f1709222e2f38b72f51c97bb8923f7f8d64`／`0033_line_invite_continuation.sql`，2026-10-15 03:47 UTC完成核准部署；LINE邀請加好友後接續及pending本人持有效邀請確認後核准，未批核現有資料。review与learner reminder true、WA unconfigured／policy draft，原資料／偏好／綁定／權限与env保留。
 
 ## Authgear管理員Email修復（已部署97de588／schema26，使用者已確認Gmail重登可讀Email）
 

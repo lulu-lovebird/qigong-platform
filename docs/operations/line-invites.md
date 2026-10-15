@@ -1,8 +1,8 @@
 # LINE持有者邀請與自動核准（已部署schema29，真人驗收待完成）
 
-## 本機接續修正，尚未發布
+## 邀請接續修正已部署schema33
 
-使用者另核准修正加好友後被一般申請分流的問題；schema33本機完成，**正式仍schema32／8eaaa9b，以下schema29舊行為目前仍適用**。新接續會綁定verified LINE subject、固定15分鐘、hash-only；follow不再把有邀請者帶入一般表單，已pending本人可持有效invite重新填確認資料後原子核准，rejected／suspended等不恢復，不自動回填或批核既有資料。一般無邀請「加入」仍人工審核。詳見[LINE邀請接續與本人確認](line-invite-continuation.md)，commit/push/deploy與正式migration須另核准。
+使用者另核准commit/push/deploy，4aa38f1／schema33於2026-10-15 03:47 UTC完成，CI38677398987／651tests、137HTTPS checks成功。接續綁定verified LINE subject、固定15分鐘、hash-only；follow不再把有邀請者帶入一般表單，OAuth early-follow提示回原邀請；已pending本人可持有效invite重新填確認資料後原子核准，rejected／suspended等不恢復，不自動回填或批核既有資料。一般無邀請「加入」仍人工審核。詳見[LINE邀請接續與本人確認](line-invite-continuation.md)與[部署／實際還原證據](line-invite-continuation-deployment.md)。**以下schema29原始設計中的pending不覆蓋規則，已由上述本人有效邀請明確確認規則取代**，其他安全界線保留。
 
 使用者已在LINE Developers確認openid/profile並補上Login channel連結小幫手OA，回報好友驗證成功；尚不等於新接續修正已做真人發布驗收。
 
