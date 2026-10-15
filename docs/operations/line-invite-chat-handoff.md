@@ -1,6 +1,6 @@
-# LINE邀請完成後導向小幫手聊天（本機，未提交部署）
+# LINE邀請完成後導向小幫手聊天（已部署，同schema34）
 
-使用者確認兩種情況都調整：**已核准學員再次點邀請**、**新學員首次核准成功**。正式仍59241f4／schema34；本次只改邀請頁與測試／文件，沒有commit/push/deploy、DB／quota／通知／政策／Console變更。
+使用者確認兩種情況都調整：**已核准學員再次點邀請**、**新學員首次核准成功**。使用者另核准commit/push/deploy，正式d8d4e6679993a018819b790fe608197934045f46／schema34，2026-10-15 12:54:02–12:54:21 UTC完成；CI38737168221／696tests與144HTTPS checks成功。只改邀請頁及測試／文件，不變更DB／quota／通知／政策／Console。見[部署及實際還原證據](line-invite-chat-deployment.md)。
 
 ## 原因與流程
 
@@ -39,7 +39,7 @@
 
 ## 發布及驗收待辦
 
-未核准commit/push/deploy。本次same-schema34，不能加migration或為導向改寫資格／邀請。若另核准發布，舊部署smoke中「加入並開始打卡」label、checkin redirect／location.destination預期都須改成chat handoff、bridge/fallback與no close/send，不得把舊期待誤判產品失敗。
+後續已核准並完成commit/push/deploy，same-schema34且沒有migration applier或資格／邀請改寫；最終加密備份已實際還原／原592 API ready，資料與metadata完整指紋不變。舊smoke中「加入並開始打卡」label／checkin redirect期待已更新為chat handoff、bridge/fallback與no close/send，避免把舊期待誤判產品失敗。真機聊天切換及來源驗收仍待使用者回報。
 
 iPhone與Android都須真人驗收：從**白雁官方帳號**點原有效邀請，新學員核准／既有學員重訪都進小幫手聊天，再**從小幫手按練功打卡**，保存關頁後查看同一聊天的回條；另驗自動被擋時兩個手動入口、桌面提示、privacy／停用仍受限。不要用假的測試帳號去正式批量核准或代發訊息。
 

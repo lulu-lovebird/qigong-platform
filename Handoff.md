@@ -1,6 +1,17 @@
 # Qigong Platform — 交接摘要
 
-## 最新本機：LINE邀請核准後導小幫手聊天（未提交部署）
+## 最新部署：LINE邀請核准後聊天交接d8d4e66（同schema34）
+
+- 使用者另核准commit/push/deploy，d8d4e6679993a018819b790fe608197934045f46、CI38737168221／696tests成功；2026-10-15 12:54:02–12:54:21 UTC維護19秒，同34/phase19，只切matching API-worker／drop-in，沒有migration applier。
+- 首次核准及原已核准重訪，server驗證後都改固定oaMessage/%40556fjenc小幫手聊天，再本人點練功打卡；mobile SDK external:true只稱已嘗試，保留主按鈕及不經bridge普通link，desktop/external/throws有提示。無direct checkin、auto close/send／message query／任何憑證URL；completed guard返回／retry不重做核准。
+- 正式34 snapshot＋roles clone實際還原完整指紋／原592 ready、新舊34都ready；最終站外AESGCM DB/roles/env-systemd decrypt-hash、roles重套／DB實際restore相同／舊ready後切換。contract只有SELECT，75表／17people／23checkins與所有資料及metadata完全一致，quota／身份／同意／通知不回填。
+- 新compiled整HTML＋真API/signed mock webhook通過：新加入／pending本人確認／revoked invite原核准重訪、resume／privacy gates／quota2、iOS-Android native參數／desktop-external-throws fallback、plain link、無close/send/secret／return不重寫。Node vm跨realm DTO改用JSON精確值比較，不改產品；舊smoke checkin期待已更新。
+- 既有Authgear/admin scopes/grants、LINE/TG/private journal/sourceHash/brand/external revoke、明示心得與legacy private／通知頁雙語save／matching worker(mock)通過，沒有真人測試msg或正式合成資料。只讀bot/info確認fixed chat target Basic ID與憑證相符，Console不動。
+- 143主站＋1PNG共144HTTPS checks過、synthetic req.url REDACTED；APIactive/NRestarts0/status0、timeractive、workerResultsuccess/status0，env bytehash及review/learner true、WA unconfigured／policy draft保持。
+- 本機Chrome20布局與API SDK皆synthetic，不是真LINE手機切chat／close回條證明。請使用者關舊頁，iPhone/Android從白雁原邀請驗收首次／重訪→小幫手→本人按打卡→關頁查看同聊天回條；自動沒切可用按鈕／plain link，PC不支援、封鎖需解封。
+- /root/qigong-deploy-d8d4e66、deployment-tools/d8d4e66、已停rehearsal-d8d4e66與站外分離backup/key保留；臨時env／合成fixture刪，local專用container停。same34可matching592 binary/drop-in退回，不還原DB/env／不覆蓋新寫入。見[部署／恢復／真人待驗收](docs/operations/line-invite-chat-deployment.md)。all-test TS仍10既有錯、flakiness不稱已修；web-admin-permissions-review.md仍排除。
+
+## LINE邀請核准後導小幫手聊天（本機紀錄，後續已部署d8d4e66）
 
 - 使用者確認「已核准重訪」與「首次核准完成」都改：邀請只驗身／資格，固定oaMessage/%40556fjenc開小幫手聊天，再由本人按練功打卡；不再從原白雁邀請頁自動開checkin，避免close回白雁看不到已送小幫手的回條。
 - line-invite-page中性入口標題／成功後隱藏表單；SDK初始化且server approved後，僅mobile in-client ios/android openWindow external:true嘗試，void不當成成功。主按鈕重試＋不經bridge普通link，desktop/external/缺bridge/throws提示手動，固定公開URL不帶任何invite/auth/個資、不預填或send指令、不呼叫closeWindow。
@@ -208,7 +219,7 @@
 - preview與測試同時使用55440曾觸發受控角色依賴保護，停止preview後相關與完整verify通過；不稱為先前間歇性問題已修復。所有預覽／Chrome已停、合成DB／角色清理。證據/tmp/qigong-whatsapp-browser-{verify-final,all-types}.log、preview／cdp scripts及synthetic screenshots；見[whatsapp-browser](docs/operations/whatsapp-browser.md)。
 - 未commit／push／部署、未啟用WA、未改憑證／Meta assets／政策draft，主站仍97de588／26。發布另核准、正式26clone／matching API-worker／最終加密備份實際還原與真人驗收；27回26須matching DB＋97de588，不可binary-only。原untracked web-admin-permissions-review.md繼續排除。
 
-> 最新主站為 `59241f4a389ae58a42812e19481ec0d42f41ed0a`／`0034_community_note_sharing.sql`，2026-10-15 12:00 UTC完成same-schema共用badge圖示部署，無migration／award重算；LINE/TG明示心得與邀請接續保留。review与learner reminder true、WA unconfigured／policy draft，所有資料／metadata／偏好／綁定／權限与env保留。
+> 最新主站為 `d8d4e6679993a018819b790fe608197934045f46`／`0034_community_note_sharing.sql`，2026-10-15 12:54 UTC完成same-schema LINE邀請核准後聊天交接部署；首次／重訪都改helper chat，不直接開checkin、不auto close/send，真手機驗收待回報。徽章圖示、明示心得、review与learner reminder true／WA unconfigured／policy draft保留，資料及metadata不變。
 
 ## Authgear管理員Email修復（已部署97de588／schema26，使用者已確認Gmail重登可讀Email）
 
