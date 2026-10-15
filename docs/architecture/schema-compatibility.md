@@ -34,6 +34,10 @@ Production `2ec42e2` declares exact `0035_simplified_chinese_locale.sql` and wor
 
 The user separately approved commit/push/deployment with coordinated maintenance/drain and matching API/worker. Final encrypted backups were actually restored, old34 readiness checked, final-clone35 preservation verified and only then production migrated. See [release evidence](../operations/trilingual-locales-deployment.md). Future rolling releases still need the expand-compatible A release described above; local implementation approval is not deployment approval. A35→34 downgrade requires matching database/API/worker plus approved reconciliation of all post-release writes, including newly selected locales that34 cannot represent; binary-only rollback or silent language substitution is unsafe. See [implementation boundaries](../operations/trilingual-locales.md).
 
+## Local quick-tag translation candidate (not deployed)
+
+The editable Simplified quick-tag candidate requires exact `0036_feeling_tag_simplified_labels.sql`, `ops.feeling_tag_locales_schema_ready()` / `phase-21-feeling-tag-locales`. Production remains35; local implementation approval is not commit/push/deploy approval. Nullable catalog/selection translation columns preserve existing rows, source hashes and publication snapshots; omitted legacy inputs preserve existing translations. The35 binary rejects36, so a future release requires explicitly approved coordinated maintenance and final actual-restore/preservation checks, not an unreviewed rolling upgrade. Any downgrade needs matching database/API/worker and post-release reconciliation without silently discarding translations. See [implementation and verification](../operations/feeling-tag-locales.md).
+
 ## Required Controls
 
 - CI tests the old and new application compatibility ranges against the same expand schema.

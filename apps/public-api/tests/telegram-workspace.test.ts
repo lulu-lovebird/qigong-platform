@@ -526,7 +526,8 @@ suite('Telegram workspace HTTP, bot menu and durable delivery integration', () =
       runtime,
       'qigong_worker_runtime',
       { requestId: randomUUID() },
-      (client) => client.query<{ ready: boolean }>('SELECT ops.locale_schema_ready() ready')
+      (client) =>
+        client.query<{ ready: boolean }>('SELECT ops.feeling_tag_locales_schema_ready() ready')
     );
     expect(ready.rows[0]!.ready).toBe(true);
     await expect(

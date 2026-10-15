@@ -16,6 +16,7 @@ interface Tag {
   id: string;
   name_zh_tw: string;
   name_en: string;
+  name_zh_cn?: string | null;
   active: boolean;
 }
 interface Catalog {
@@ -72,6 +73,69 @@ suite('private practice notes and stable feeling tag snapshots', () => {
       note,
       ids
     ]);
+  it('stores explicit Simplified labels verbatim, snapshots new selections and never rewrites prior selected labels or source hashes on rename', async () => {
+    const first = await saveTags(1, [
+        { name_zh_tw: '放鬆', name_zh_cn: '已儲存', name_en: 'Relaxed', active: true }
+      ]),
+      tag = first.tags[0]!;
+    const read = async () =>
+      (
+        await query<{
+          data: {
+            tags: { id: string; name: string }[];
+            notes: { checkin_id: string; feeling_tags: { id: string; name: string }[] }[];
+          };
+        }>('SELECT platform.practice_notes($1,$2,$3) data', ['line', credential, 'zh_CN'])
+      ).rows[0]!.data;
+    expect((await read()).tags[0]?.name).toBe('已儲存');
+    await save('原文心得，練功打卡', [tag.id]);
+    const before = (await pool.query('SELECT platform.journal_source($1) data', [checkin])).rows[0]!
+      .data;
+    expect(before.tags).toEqual([{ zh_TW: '放鬆', zh_CN: '已儲存', en: 'Relaxed' }]);
+    await saveTags(first.version, [{ ...tag, name_zh_cn: '新簡中對照' }]);
+    expect((await read()).tags[0]?.name).toBe('新簡中對照');
+    expect((await read()).notes[0]?.feeling_tags[0]?.name).toBe('已儲存');
+    expect(
+      (await pool.query('SELECT platform.journal_source($1) data', [checkin])).rows[0]!.data
+    ).toEqual(before);
+    await save(null, []);
+    await save(null, [tag.id]);
+    expect((await read()).notes[0]?.feeling_tags[0]?.name).toBe('新簡中對照');
+  });
+  it('preserves Simplified on legacy omission, supports explicit clearing/fallback and rejects duplicate or overlong translations atomically', async () => {
+    const first = await saveTags(1, [
+        { name_zh_tw: '放鬆', name_zh_cn: '放松', name_en: 'Relaxed', active: true }
+      ]),
+      tag = first.tags[0]!;
+    const legacy = {
+      id: tag.id,
+      name_zh_tw: tag.name_zh_tw,
+      name_en: tag.name_en,
+      active: tag.active
+    };
+    const second = await saveTags(first.version, [legacy]);
+    expect(second.tags[0]?.name_zh_cn).toBe('放松');
+    await expect(
+      saveTags(second.version, [{ ...tag, name_zh_cn: '字'.repeat(41) }])
+    ).rejects.toThrow('invalid feeling tags');
+    await expect(
+      saveTags(second.version, [
+        tag,
+        { name_zh_tw: '其他', name_en: 'Other', name_zh_cn: '放鬆', active: true }
+      ])
+    ).rejects.toThrow('invalid feeling tags');
+    await expect(
+      query('SELECT admin.save_feeling_tags($1,$2::jsonb)', [second.version, JSON.stringify([tag])])
+    ).rejects.toThrow('tag management denied');
+    expect((await catalog()).version).toBe(second.version);
+    const cleared = await saveTags(second.version, [{ ...tag, name_zh_cn: null }]);
+    expect(cleared.tags[0]?.name_zh_cn).toBeNull();
+    const result = await query<{ data: { tags: { name: string }[] } }>(
+      'SELECT platform.practice_notes($1,$2,$3) data',
+      ['line', credential, 'zh_CN']
+    );
+    expect(result.rows[0]?.data.tags[0]?.name).toBe('放鬆');
+  });
   beforeEach(async () => {
     const database = await createIsolatedTestDatabase(url!);
     pool = database.pool;

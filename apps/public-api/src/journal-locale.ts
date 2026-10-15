@@ -19,9 +19,10 @@ const english = {
   feelings: 'Feelings',
   updated: 'Updated',
   tagHelp:
-    'Edit the shared catalog, not learner selections. Renaming or disabling tags does not change historical labels. At most 30 tags; both languages are required.',
+    'Edit the shared catalog, not learner selections. Renaming or disabling tags does not change historical labels. At most 30 tags; Traditional Chinese and English are required. Simplified Chinese is optional and otherwise uses Traditional Chinese.',
   zh: 'Traditional Chinese label',
   en: 'English label',
+  cn: 'Simplified Chinese label (optional)',
   active: 'Enabled',
   up: 'Move up',
   down: 'Move down',
@@ -87,9 +88,10 @@ const chinese: Record<keyof typeof english, string> = {
   feelings: '感受',
   updated: '更新時間',
   tagHelp:
-    '編輯學員共用的快速標籤，不修改學員已選內容。改名、停用不改寫歷史名稱；最多30項，繁中與英文均必填。',
+    '編輯學員共用的快速標籤，不修改學員已選內容。改名、停用不改寫歷史名稱；最多30項，繁中與英文必填；簡中可補填，未填使用繁中。',
   zh: '繁體中文名稱',
   en: '英文名稱',
+  cn: '簡體中文名稱（選填）',
   active: '啟用',
   up: '上移',
   down: '下移',

@@ -394,6 +394,92 @@ suite('Journal HTTP identity boundaries, sharing and taxonomy', () => {
         .statusCode
     ).toBe(200);
   });
+  it('saves and reads Simplified labels verbatim through real APIs without changing historical selections or published snapshots on catalog edits', async () => {
+    const auth = await login();
+    const path = '/admin/api/practice-feeling-tags';
+    type Label = {
+      id: string;
+      name_zh_tw: string;
+      name_zh_cn: string | null;
+      name_en: string;
+      active: boolean;
+    };
+    const writable = ({ id, name_zh_tw, name_zh_cn, name_en, active }: Label) => ({
+      id,
+      name_zh_tw,
+      name_zh_cn,
+      name_en,
+      active
+    });
+    const initial = (await app.inject({ url: path, headers: auth })).json<{
+      version: number;
+      tags: Label[];
+    }>();
+    const change = await app.inject({
+      method: 'PUT',
+      url: path,
+      headers: auth,
+      payload: {
+        version: initial.version,
+        tags: initial.tags
+          .map(writable)
+          .map((tag, index) => (index === 0 ? { ...tag, name_zh_cn: '已儲存' } : tag))
+      }
+    });
+    expect(change.statusCode, change.body).toBe(200);
+    const data = change.json<{
+      version: number;
+      tags: Label[];
+    }>();
+    const tagId = data.tags[0]!.id;
+    const profile = await post('/telegram/workspace/profile', { locale: 'zh_CN' });
+    expect(profile.statusCode, profile.body).toBe(200);
+    expect(
+      profile.json<{ feelingTags: { id: string; name: string }[] }>().feelingTags
+    ).toContainEqual({ id: tagId, name: '已儲存' });
+    await confirm();
+    const saved = await save({ feelingTagIds: [tagId], practiceNote: '原文心得' });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const id = saved.json<{ checkinId: string }>().checkinId;
+    expect((await publish(id, { shareFeelings: true })).statusCode).toBe(200);
+    const before = (
+      await root.query('SELECT tag_snapshot FROM core.journal_publications WHERE checkin_id=$1', [
+        id
+      ])
+    ).rows[0];
+    const renamed = await app.inject({
+      method: 'PUT',
+      url: path,
+      headers: auth,
+      payload: {
+        version: data.version,
+        tags: data.tags
+          .map(writable)
+          .map((tag, index) => (index === 0 ? { ...tag, name_zh_cn: '新簡中名稱' } : tag))
+      }
+    });
+    expect(renamed.statusCode, renamed.body).toBe(200);
+    const history = await post('/telegram/workspace/profile', { locale: 'zh_CN' });
+    expect(
+      history
+        .json<{ entries: { id: string; feelingTags: { name: string }[] }[] }>()
+        .entries.find((entry) => entry.id === id)?.feelingTags[0]?.name
+    ).toBe('已儲存');
+    const feed = await post('/telegram/journal/feed', { locale: 'zh_CN', page: 1 });
+    expect(feed.statusCode, feed.body).toBe(200);
+    expect(
+      feed
+        .json<{ entries: { practiceNote: string; feelingTags: string[] }[] }>()
+        .entries.find((entry) => entry.practiceNote === '原文心得')?.feelingTags
+    ).toEqual(['已儲存']);
+    expect(
+      (
+        await root.query('SELECT tag_snapshot FROM core.journal_publications WHERE checkin_id=$1', [
+          id
+        ])
+      ).rows[0]
+    ).toEqual(before);
+  });
   it('starts unshared and publishes only selected content, with separate partner consent and stable versions', async () => {
     const id = await checkin();
     const before = await post('/telegram/journal/own');

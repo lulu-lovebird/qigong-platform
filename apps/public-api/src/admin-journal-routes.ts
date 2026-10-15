@@ -21,6 +21,12 @@ export const feelingTagsInput = z
           .object({
             id: z.uuid().optional(),
             name_zh_tw: label(40),
+            name_zh_cn: z
+              .string()
+              .trim()
+              .refine((value) => [...value].length <= 40 && !value.includes('\0'))
+              .nullable()
+              .optional(),
             name_en: label(80),
             active: z.boolean()
           })

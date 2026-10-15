@@ -28,8 +28,8 @@ export const apiLogRedaction = Object.freeze({
   censor: '[REDACTED]'
 });
 
-export const minimumMigrationVersion = '0035_simplified_chinese_locale.sql';
-export const maximumMigrationVersion = '0035_simplified_chinese_locale.sql';
+export const minimumMigrationVersion = '0036_feeling_tag_simplified_labels.sql';
+export const maximumMigrationVersion = '0036_feeling_tag_simplified_labels.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

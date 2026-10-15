@@ -193,7 +193,7 @@ suite('Authenticated administrator metadata refresh without authorization change
           { requestId: randomUUID() },
           (c) =>
             c.query(
-              'SELECT ops.locale_schema_ready() current,ops.line_profile_schema_ready() previous'
+              'SELECT ops.feeling_tag_locales_schema_ready() current,ops.line_profile_schema_ready() previous'
             )
         )
       ).rows[0]

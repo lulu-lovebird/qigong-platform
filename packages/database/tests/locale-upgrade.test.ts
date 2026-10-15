@@ -67,10 +67,14 @@ suite('Three-locale schema34 to35 compatibility', () => {
       expect(
         (await db.pool.query('SELECT ops.community_notes_schema_ready() ready')).rows[0]!.ready
       ).toBe(true);
-      expect((await runMigrations(db.pool, directory, 'locale-new')).applied).toEqual([
+      await copyFile(
+        path.join(directory, '0035_simplified_chinese_locale.sql'),
+        path.join(old, '0035_simplified_chinese_locale.sql')
+      );
+      expect((await runMigrations(db.pool, old, 'locale-new')).applied).toEqual([
         '0035_simplified_chinese_locale.sql'
       ]);
-      expect((await runMigrations(db.pool, directory, 'locale-repeat')).applied).toEqual([]);
+      expect((await runMigrations(db.pool, old, 'locale-repeat')).applied).toEqual([]);
       expect(await fingerprints()).toEqual(before);
       expect(
         (await db.pool.query('SELECT locale FROM admin.review_notification_links')).rows[0]!.locale

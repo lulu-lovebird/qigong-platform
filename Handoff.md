@@ -1,5 +1,13 @@
 # Qigong Platform — 交接摘要
 
+## 最新本機：快速標籤可編輯簡中對照（未提交／部署）
+
+- 使用者確認本機修改。Web admin快速標籤新增獨立簡中欄位，繁中／簡中／英文並列；簡中選填40 codepoints，未填fallback繁中，非自動轉換。dirty／reset／失敗保留／CSRF／whole-catalog版本及taxonomy雙重post-lock權限保留，跨標籤重複驗證含簡中；舊client省略不清除，明確NULL可清除。
+- 新0036新增catalog與selected-tag snapshot兩個nullable name_zh_cn，無資料回填；新選取捕捉簡中、舊選取／published JSON不改。journal_source只在實際有簡中時加key，舊sourceHash不變；新發布可含簡中，舊snapshot缺key用繁中。SQL選定標籤原樣顯示，DTO不再對feelingLabels二次轉字。
+- candidate exact36／phase-21-feeling-tag-locales／worker ops.feeling_tag_locales_schema_ready；部署0001–0035、deps／lockfile未動，正式仍2ec42e2／35。未commit/push/deploy，後續發佈另核准；36不能binary-only退35，需matching DB/API/worker與新語系／流量後對帳。
+- 獨立PG16完整pnpm verify **729 tests**（API538／DB183／config2／identity6）及format/lint/source TS/build成功；35→36→repeat0原資料／sourceHash／table owner/ACL/forcedRLS保留，歷史34→35測試已pin35。新DB／實HTTP驗證literal簡中、snapshot與publication不隨改名變、omission／clear／duplicate／permission；整HTML三語新增欄位與取消／失敗保留、CSS三欄手機堆疊皆過。
+- Chrome390/1280×三語6個正向mock layouts，實DOM編輯／取消／保存／reload無overflow／exception；不是正式後台或provider真人驗收。額外all-test TS仍原10錯；舊時間戳間歇根因不稱已修。證據/tmp/qigong-tag-locales-*；[設計／驗證／發布界線](docs/operations/feeling-tag-locales.md)。無正式資料／通知開關／Console／政策變更，web-admin-permissions-review.md仍排除。
+
 ## 最新部署：三語化2ec42e2／schema35
 
 - 使用者核准commit/push/deploy；最終2ec42e2acfcbf2ccd34662ff7b5a17a3ab514d67，CI38764759639成功／本機完整721（API533／DB180／config2／identity6）。先前37148e0未部署；clone發現舊LINE SQL強制繁中，已在尚未部署的35移除該override並補英文／繁中功法回歸，重新提交CI後才上線。歷史0001–0034不動，35現已部署不可再改。

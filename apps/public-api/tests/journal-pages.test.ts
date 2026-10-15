@@ -95,7 +95,7 @@ const element = (tagName = 'div'): Element => {
   return item;
 };
 
-const fixture = (kind: 'journal' | 'tags' | 'learner', locale: 'en' | 'zh_TW' = 'en') => {
+const fixture = (kind: 'journal' | 'tags' | 'learner', locale: 'en' | 'zh_TW' | 'zh_CN' = 'en') => {
   const nodes = new Map<string, Element>();
   const get = (id: string) => {
     if (!nodes.has(id)) nodes.set(id, element());
@@ -238,6 +238,50 @@ const settle = async () => {
   for (let i = 0; i < 5; i++) await setImmediate();
 };
 describe('Journal generated pages and unsaved-edit behavior', () => {
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'edits and persists the independent Simplified label in %s, preserving failed/cancelled drafts and explicit clearing',
+    async (locale) => {
+      const f = fixture('tags', locale);
+      await settle();
+      let inputs = f.descendants(f.get('tag-rows'), 'input');
+      expect(inputs).toHaveLength(4);
+      expect(f.texts(f.get('tag-rows'))).toContain(f.t.cn);
+      expect(inputs[1]!.value).toBe('');
+      inputs[1]!.value = '已儲存';
+      inputs[1]!.oninput?.();
+      f.confirm.mockReturnValue(false);
+      expect(f.window.qigongJournalMayLeave?.()).toBe(false);
+      await f.get('journal-reload').onclick?.();
+      expect(inputs[1]!.value).toBe('已儲存');
+      f.fetchMock.mockResolvedValueOnce(new Response('{}', { status: 409 }));
+      await f.get('tag-save').onclick?.();
+      expect(f.get('journal-status').textContent).toBe(f.t.conflict);
+      expect(inputs[1]!.value).toBe('已儲存');
+      await f.get('tag-save').onclick?.();
+      const last = f.fetchMock.mock.calls.filter((c) => c[1]?.method === 'PUT').at(-1)!;
+      expect(last[1]?.headers).toMatchObject({ 'x-csrf-token': 'test-csrf' });
+      expect(jsonBody(last[1]?.body)).toMatchObject({
+        version: 1,
+        tags: [
+          {
+            id: f.catalog.tags[0]!.id,
+            name_zh_tw: '放鬆',
+            name_zh_cn: '已儲存',
+            name_en: 'Relaxed',
+            active: true
+          }
+        ]
+      });
+      expect(f.window.qigongJournalMayLeave?.()).toBe(true);
+      inputs = f.descendants(f.get('tag-rows'), 'input');
+      inputs[1]!.value = '';
+      inputs[1]!.oninput?.();
+      await f.get('tag-save').onclick?.();
+      expect(
+        jsonBody(f.fetchMock.mock.calls.filter((c) => c[1]?.method === 'PUT').at(-1)![1]?.body)
+      ).toMatchObject({ tags: [{ name_zh_cn: null }] });
+    }
+  );
   it.each(['en', 'zh_TW'] as const)(
     'parses all %s scripts and keeps SDK capabilities outside cached parameters',
     (locale) => {

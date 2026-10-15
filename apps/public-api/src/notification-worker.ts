@@ -49,7 +49,8 @@ try {
     pool,
     'qigong_worker_runtime',
     { requestId: randomUUID() },
-    (client) => client.query<{ ready: boolean }>('SELECT ops.locale_schema_ready() ready')
+    (client) =>
+      client.query<{ ready: boolean }>('SELECT ops.feeling_tag_locales_schema_ready() ready')
   );
   if (!schema.rows[0]?.ready) throw new Error('Notification worker schema mismatch');
   // Existing notification/practice lanes retain their six-attempt bound.

@@ -10,6 +10,7 @@ const fields = (value: unknown, locale: Locale, keys: readonly string[]): unknow
   return result;
 };
 // Explicit presentation-only paths. Never recursively translate arbitrary name/alias/note/reason fields.
+// Feeling labels are selected from stored translations/snapshots by SQL, never converted here.
 export const localizeSystemLabels = (locale: Locale, value: unknown): unknown => {
   if (locale !== 'zh_CN' || !object(value)) return value;
   const result: Record<string, unknown> = { ...value };
@@ -19,7 +20,7 @@ export const localizeSystemLabels = (locale: Locale, value: unknown): unknown =>
   for (const key of ['rows', 'entries', 'grants', 'top', 'streaks', 'applications'])
     if (Array.isArray(result[key]))
       result[key] = result[key].map((item) => fields(item, locale, regions));
-  for (const key of ['methods', 'badges', 'mix', 'feelingTags'])
+  for (const key of ['methods', 'badges', 'mix'])
     if (Array.isArray(result[key]))
       result[key] = result[key].map((item) => {
         const label = fields(item, locale, ['name', 'group', 'parent_name']);

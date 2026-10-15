@@ -1,8 +1,25 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { isPracticeNoteConflict, practiceNoteSchema } from '../src/practice-notes.js';
+import { feelingTagsInput } from '../src/admin-journal-routes.js';
 
 describe('practice note HTTP validation', () => {
+  it('validates an optional literal Simplified translation without coercion, accepting explicit clearing and legacy omission', () => {
+    const tag = { name_zh_tw: '放鬆', name_en: 'Relaxed', active: true },
+      parse = (name: unknown) =>
+        feelingTagsInput.safeParse({ version: 1, tags: [{ ...tag, name_zh_cn: name }] });
+    for (const value of ['已儲存', '字'.repeat(40), '😀'.repeat(40), '', null])
+      expect(parse(value).success).toBe(true);
+    for (const value of ['字'.repeat(41), 'a\0', 3, {}, []])
+      expect(parse(value).success).toBe(false);
+    expect(feelingTagsInput.parse({ version: 1, tags: [tag] }).tags[0]).not.toHaveProperty(
+      'name_zh_cn'
+    );
+    expect(
+      feelingTagsInput.parse({ version: 1, tags: [{ ...tag, name_zh_cn: ' 已儲存 ' }] }).tags[0]
+        ?.name_zh_cn
+    ).toBe('已儲存');
+  });
   it('accepts independent text and tag selection, preserving omission rather than clearing', () => {
     expect(practiceNoteSchema.parse({})).toEqual({});
     expect(

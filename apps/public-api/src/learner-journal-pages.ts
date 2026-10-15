@@ -57,7 +57,7 @@ export const learnerJournalScript = String.raw`
       for(const entry of data.entries){const card=node('article');card.append(node('h2',(mode==='feed'?entry.alias+' · ':'')+entry.date));
         if(mode==='feed'){preview(card,entry.practiceNote,entry.feelingTags,entry.methods);}else{
           const visibility=node('p',entry.active?t.published:t.unpublished);card.append(visibility);preview(card,entry.practiceNote,entry.feelingTags,entry.methods||[]);
-          if(entry.active){const old=node('div',undefined,'preview');old.append(node('strong',t.publishedPreview));preview(old,entry.publishedNote,(entry.publishedTags||[]).map(v=>v[locale]),(entry.publishedMethods||[]).map(v=>v[locale]));card.append(old);}
+          if(entry.active){const old=node('div',undefined,'preview');old.append(node('strong',t.publishedPreview));preview(old,entry.publishedNote,(entry.publishedTags||[]).map(v=>v[locale]??v.zh_TW),(entry.publishedMethods||[]).map(v=>v[locale]??v.zh_TW));card.append(old);}
           const draft={alias:entry.alias,shareNote:entry.shareNote,shareFeelings:entry.shareFeelings,externalEnabled:entry.externalEnabled};drafts.set(entry.checkinId,draft);
           const label=node('label',t.alias),input=node('input');input.maxLength=80;input.value=draft.alias;input.oninput=()=>{draft.alias=input.value;closing();};label.append(input);card.append(label);
           for(const [key,title]of [['shareNote',t.shareNote],['shareFeelings',t.shareFeelings],['externalEnabled',t.external]]){const label=node('label'),input=node('input');input.type='checkbox';input.checked=draft[key];input.onchange=()=>{draft[key]=input.checked;closing();};label.append(input,node('span',title));card.append(label);}
