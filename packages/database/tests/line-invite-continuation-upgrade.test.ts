@@ -56,10 +56,14 @@ suite('LINE invitation continuation schema32 to33 compatibility', () => {
       expect(
         (await db.pool.query('SELECT ops.review_notification_schema_ready() ready')).rows[0]!.ready
       ).toBe(true);
-      expect((await runMigrations(db.pool, directory, 'continuation-new')).applied).toEqual([
+      await copyFile(
+        path.join(directory, '0033_line_invite_continuation.sql'),
+        path.join(old, '0033_line_invite_continuation.sql')
+      );
+      expect((await runMigrations(db.pool, old, 'continuation-new')).applied).toEqual([
         '0033_line_invite_continuation.sql'
       ]);
-      expect((await runMigrations(db.pool, directory, 'continuation-repeat')).applied).toEqual([]);
+      expect((await runMigrations(db.pool, old, 'continuation-repeat')).applied).toEqual([]);
       expect(await fingerprints()).toEqual(before);
       expect(
         (await db.pool.query('SELECT * FROM platform.line_invite_continuations')).rowCount

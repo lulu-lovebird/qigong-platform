@@ -3,6 +3,7 @@ import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
 import { whatsappWorkspaceCredentialSchema } from './whatsapp-browser-session.js';
 import { practiceNoteSchema } from './practice-notes.js';
+import { communityNoticeSchema } from './community-notes.js';
 import { journalPublishInput } from './journal-routes.js';
 import { isLearnerPrivacyError } from './learner-privacy-routes.js';
 import {
@@ -40,6 +41,7 @@ export const registerChannelWorkspace = (
   const saveInput = credential
     .extend(practiceNoteSchema.shape)
     .extend({
+      communityNotice: provider === 'line' ? communityNoticeSchema : z.never().optional(),
       requestId: z.uuid(),
       date: z.iso.date(),
       version: z.number().int().min(0).max(2147483647),
@@ -183,7 +185,9 @@ export const registerChannelWorkspace = (
           const v = saveInput.parse(data);
           return await execute(
             request.id,
-            'SELECT platform.channel_workspace_save($1,$2,$3,$4,$5,$6,$7,$8) data',
+            provider === 'line'
+              ? 'SELECT platform.community_workspace_save($1,$2,$3,$4,$5,$6,$7,$8,$9) data'
+              : 'SELECT platform.channel_workspace_save($1,$2,$3,$4,$5,$6,$7,$8) data',
             [
               provider,
               cred,
@@ -192,7 +196,8 @@ export const registerChannelWorkspace = (
               v.version,
               v.methods,
               v.practiceNote ?? null,
-              v.feelingTagIds ?? null
+              v.feelingTagIds ?? null,
+              ...(provider === 'line' ? [v.communityNotice ?? null] : [])
             ]
           );
         }

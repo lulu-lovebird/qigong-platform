@@ -25,8 +25,8 @@ export const apiLogRedaction = Object.freeze({
   censor: '[REDACTED]'
 });
 
-export const minimumMigrationVersion = '0033_line_invite_continuation.sql';
-export const maximumMigrationVersion = '0033_line_invite_continuation.sql';
+export const minimumMigrationVersion = '0034_community_note_sharing.sql';
+export const maximumMigrationVersion = '0034_community_note_sharing.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

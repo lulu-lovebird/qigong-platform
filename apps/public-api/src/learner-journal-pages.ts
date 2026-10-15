@@ -7,11 +7,20 @@ import {
   lineJournalStreamScript
 } from './line-journal-stream.js';
 import { telegramWorkspaceBootstrap } from './telegram-workspace-pages.js';
+import { communityNoteTexts } from './community-notes.js';
 export const renderLearnerJournalPage = (
   locale: LearnerLocale,
-  options: { lineStream?: boolean } = {}
+  options: { lineStream?: boolean; communityNotes?: boolean } = {}
 ) => {
-  const t = journalTexts(locale);
+  const community = communityNoteTexts(locale);
+  const enabled = options.communityNotes !== false;
+  const t = {
+    ...journalTexts(locale),
+    communityDefault: enabled,
+    ...(enabled
+      ? { shareHelp: community.notice + '。' + community.detail, mineHelp: community.existing }
+      : {})
+  };
   return `<!DOCTYPE html><html lang="${locale === 'en' ? 'en' : 'zh-Hant'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>${t.feed}</title><style>
 *{box-sizing:border-box}body{font:16px/1.6 system-ui,sans-serif;margin:0;background:#f3f6f4;color:#203027}main{max-width:760px;padding:16px;margin:auto}h1{font-size:24px}h2{font-size:18px}button,input,select{font:inherit;max-width:100%}button{padding:10px 14px;background:#285c3b;border:0;border-radius:8px;color:white;cursor:pointer}button:disabled{opacity:.5}input:not([type=checkbox]),select{padding:8px;border:1px solid #b9cbbd;border-radius:6px;width:100%}label{display:block;margin:10px 0}input[type=checkbox]{width:18px;height:18px;margin-right:8px}article{padding:18px;border:1px solid #dce6df;background:white;border-radius:12px;margin:16px 0;overflow-wrap:anywhere}p{white-space:pre-wrap;overflow-wrap:anywhere}.actions{display:flex;flex-wrap:wrap;gap:8px}.muted{color:#61746b}.pill{display:inline-block;background:#edf3ee;border-radius:1rem;padding:4px 10px;margin:4px}.preview{padding:12px;background:#f5f7f6;border-radius:6px}fieldset{border:0;margin:0;padding:0;min-width:0}[hidden]{display:none!important}#journal-status[data-error=true]{color:#a12c24}footer{font-size:12px;margin:24px 0;overflow-wrap:anywhere}@media(max-width:500px){.actions>button{flex:1 1 auto}article{padding:14px}}
 ${options.lineStream ? lineJournalStreamStyles : ''}
@@ -34,13 +43,13 @@ export const learnerJournalScript = String.raw`
   const failure=e=>status(e.status===401||e.status===403?t.denied:e.status===409?t.conflict:t.failed,true);
   const preview=(card,note,tags,methods=[])=>{if(methods.length)card.append(node('p',t.methods+': '+methods.join('、')));if(note)card.append(node('p',note));const pills=node('div');for(const tag of tags)pills.append(node('span',typeof tag==='string'?tag:tag.name,'pill'));card.append(pills);};
   /*LINE_STREAM_FACTORY*/
-  const lineFeed=typeof lineJournalStreamEnabled!=='undefined'&&lineJournalStreamEnabled?createLineJournalStream({api,status,onPrivacy:privacy=>{$('sharing-help').textContent=(privacy?.active?journalPrivacyUI.sharing:t.shareHelp)+' '+t.streamNotice;}}):null;
+  const lineFeed=typeof lineJournalStreamEnabled!=='undefined'&&lineJournalStreamEnabled?createLineJournalStream({api,status,onPrivacy:privacy=>{$('sharing-help').textContent=(t.communityDefault?t.shareHelp:privacy?.active?journalPrivacyUI.sharing:t.shareHelp)+' '+t.streamNotice;}}):null;
   const lineMode=()=>{if(!lineFeed)return;$('line-feed').hidden=mode!=='feed';$('journal-editor').hidden=mode==='feed';$('previous').hidden=mode==='feed';$('next').hidden=mode==='feed';$('journal-page').hidden=mode==='feed';};
   const load=async()=>{
     lineMode();if(lineFeed&&mode==='feed'){++generation;drafts.clear();loaded=false;baseline=signature();$('mine-help').hidden=true;return lineFeed.reset();}
     const own=++generation;status(t.loading);lock(true);
     try{const data=await api('/telegram/journal/'+(mode==='feed'?'feed':'own'),{page});if(own!==generation)return;
-      total=data.total;if($('sharing-help'))$('sharing-help').textContent=(data.privacy?.active?journalPrivacyUI.sharing:t.shareHelp)+(lineFeed?' '+t.streamNotice:'');$('mine-help').textContent=(data.privacy?.active?journalPrivacyUI.sharing:t.mineHelp)+(lineFeed?' '+t.streamNotice:'');drafts.clear();$('journal-entries').replaceChildren();$('mine-help').hidden=mode!=='mine';
+      total=data.total;if($('sharing-help'))$('sharing-help').textContent=(t.communityDefault?t.shareHelp:data.privacy?.active?journalPrivacyUI.sharing:t.shareHelp)+(lineFeed?' '+t.streamNotice:'');$('mine-help').textContent=(t.communityDefault?t.mineHelp:data.privacy?.active?journalPrivacyUI.sharing:t.mineHelp)+(lineFeed?' '+t.streamNotice:'');drafts.clear();$('journal-entries').replaceChildren();$('mine-help').hidden=mode!=='mine';
       if(!data.entries.length)$('journal-entries').append(node('p',t.empty));
       for(const entry of data.entries){const card=node('article');card.append(node('h2',(mode==='feed'?entry.alias+' · ':'')+entry.date));
         if(mode==='feed'){preview(card,entry.practiceNote,entry.feelingTags,entry.methods);}else{

@@ -3,6 +3,7 @@ import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
 import { learnerLocale } from './learner-locale.js';
 import { practiceNoteSchema } from './practice-notes.js';
+import { communityNoticeSchema } from './community-notes.js';
 import { isLearnerPrivacyError } from './learner-privacy-routes.js';
 import {
   renderTelegramWorkspacePage,
@@ -26,6 +27,7 @@ const reportInput = credential.extend({
     .optional()
 });
 export const telegramPracticeSaveSchema = credential.extend(practiceNoteSchema.shape).extend({
+  communityNotice: communityNoticeSchema,
   requestId: z.uuid(),
   date: z.iso.date(),
   version: z.number().int().min(0).max(2_147_483_647),
@@ -175,7 +177,7 @@ export const registerTelegramWorkspace = (app: FastifyInstance, pool: Pool) => {
       const value = input.data;
       return await execute(
         request.id,
-        'SELECT platform.telegram_workspace_save($1,$2,$3,$4,$5,$6,$7::uuid[]) data',
+        "SELECT platform.community_workspace_save('telegram',$1,$2,$3,$4,$5,$6,$7::uuid[],$8) data",
         [
           value.token,
           value.requestId,
@@ -183,7 +185,8 @@ export const registerTelegramWorkspace = (app: FastifyInstance, pool: Pool) => {
           value.version,
           value.methods,
           value.practiceNote ?? null,
-          value.feelingTagIds ?? null
+          value.feelingTagIds ?? null,
+          value.communityNotice ?? null
         ]
       );
     } catch (error) {

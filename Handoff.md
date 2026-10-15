@@ -1,5 +1,15 @@
 # Qigong Platform — 交接摘要
 
+## 最新候選：LINE/TG明示心得分享（schema34，已核准提交部署）
+
+- 使用者確認邀請已成功。新要求已核准本機：LINE與Telegram表單明示「打卡心得供所有學員閱讀」、無分享checkbox、不想分享留白。正式仍4aa38f1／33，沒有任何正式寫入／批量公開／env、Console或通知開關變更；private web-admin-permissions-review.md仍保留排除。
+- 調查時6筆LINE非空心得（全渠道9）、publications0、active policy0／acceptances0；管理端私人紀錄不等於已刊登。新notice是當次內容分享，不回填／冒充LINE網站同意或發布draft政策。
+- 新0034 forced-RLS core.community_note_origins＋transactional community_workspace_save：LINE/TG新版帶notice version後新心得同TX刊登，空白不刊登、external FALSE。只有練功的舊記錄可本人首次新寫心得；原有私人文字／加notice重試不會被公開。新自動心得可更新／清空；本人手動分享／撤回優先，不被save/replay重發，版本及當前note對上才刷新快照。
+- 新API exact34／worker ops.community_notes_schema_ready／phase19；33→34保留舊私人note及全非metadata指紋，新表空／forced RLS、重跑0／舊gate拒絕。0001–0033／deps／lockfile不改。WA、legacy沒有notice的client與external opt-in保持，不繞過必要同意／reflection gates。
+- 新DB16＋HTTP2＋VM5項均通過，source TS／format/lint/build通過，額外all-test TS仍10既有錯。Chrome390/1280 LINE繁中/TG雙語打卡＋feed12頁真DOM保存與心得顯示通過，note卡無checkbox／無私密標題、zero overflow／exceptions。SDK/backend synthetic，未實測provider；preview/Chrome已停。
+- **歷史驗證阻礙（後續已有獨立乾淨叢集675通過）：**中間673曾過；增加privacy2項與修正畫面後完整回歸先後遇WA timezone400、TG miniapp channel valid_to時間戳constraint、journal source conflict測試先遇practice identity unavailable。WA/TG單獨重跑過，journal最後未再重跑，根因未確認；該輪3次上限後停止。使用者後續明確核准commit/push/deploy；改用全新獨立PostgreSQL16／55454，完整675（API488／DB179／config2／identity6）及format/lint/source TS/build成功，未改授權條件或測試斷言。此結果不證明原共用叢集flakiness根因已修復。新fixture曾TG身份setup失敗，已明示合成active channel一天前／assert ready，該suite現通過，但不當作其他問題根因修復。
+- 證據/tmp/qigong-community-notes-*，詳見[設計／測試阻礙](docs/operations/community-note-sharing.md)。已獲後續發布核准，獨立乾淨叢集完整驗證成功，進行exact CI、正式33備份實際還原與matching34 API-worker；34不可binary-only回33，流量後對帳含新心得／分享／撤回狀態。
+
 ## 最新部署：LINE邀請接續4aa38f1／schema33
 
 - 使用者核准commit/push/deploy，程式4aa38f1709222e2f38b72f51c97bb8923f7f8d64，CI38677398987成功／651tests。正式2026-10-15 03:47:26–03:47:44 UTC維護18秒，32→33/reapply0，API-worker matching exact0033／phase18。

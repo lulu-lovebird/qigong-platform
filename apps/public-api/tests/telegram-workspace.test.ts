@@ -324,6 +324,34 @@ suite('Telegram workspace HTTP, bot menu and durable delivery integration', () =
       /Private reflection|feeling|private@example|phone|token/i
     );
   });
+  it('publishes a disclosed Telegram note to the learner feed with separate external sharing off', async () => {
+    await confirm();
+    const result = await save({
+      practiceNote: 'Telegram community reflection',
+      communityNotice: 'student-community-notes-v1'
+    });
+    expect(result.statusCode, result.body).toBe(200);
+    expect(result.json()).toMatchObject({ communityShared: true, communitySharing: 'automatic' });
+    const feed = await post('/telegram/journal/feed', { page: 1 });
+    expect(feed.statusCode, feed.body).toBe(200);
+    expect(
+      feed
+        .json<{ entries: Array<{ practiceNote: string }> }>()
+        .entries.some((e) => e.practiceNote === 'Telegram community reflection')
+    ).toBe(true);
+    expect(
+      (
+        await root.query(
+          'SELECT external_enabled FROM core.journal_publications WHERE checkin_id=$1',
+          [result.json<{ checkinId: string }>().checkinId]
+        )
+      ).rows[0]!.external_enabled
+    ).toBe(false);
+    expect((await save({ communityNotice: 'invalid-version' })).statusCode).toBe(400);
+    const html = (await app.inject('/telegram/checkin')).body;
+    expect(html).toContain('打卡心得供所有學員閱讀');
+    expect(html).not.toMatch(/type="checkbox"[^>]*(?:share|community)/);
+  });
   it('performs versioned corrections, keeps a stale request from overwriting, and reconciles combo badges', async () => {
     await confirm();
     const first = await save({ methods: ['dayan_chu', 'dayan_gao'] });
@@ -492,7 +520,7 @@ suite('Telegram workspace HTTP, bot menu and durable delivery integration', () =
       'qigong_worker_runtime',
       { requestId: randomUUID() },
       (client) =>
-        client.query<{ ready: boolean }>('SELECT ops.line_invite_continuation_schema_ready() ready')
+        client.query<{ ready: boolean }>('SELECT ops.community_notes_schema_ready() ready')
     );
     expect(ready.rows[0]!.ready).toBe(true);
     await expect(

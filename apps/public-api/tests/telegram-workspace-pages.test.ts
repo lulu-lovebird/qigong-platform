@@ -119,6 +119,7 @@ const fixture = (
   options: {
     entries?: Entry[];
     confirmed?: boolean;
+    savedSharing?: 'automatic' | 'legacy_private' | 'manual';
     hash?: string;
     locale?: 'en' | 'zh_TW';
     channel?: 'line';
@@ -185,7 +186,13 @@ const fixture = (
       data = { status: 'ready', token: 'a'.repeat(43), expiresIn: 840 };
     else if (path.endsWith('/profile')) data = profile;
     else if (path.endsWith('/save'))
-      data = { checkinId: randomUUID(), version: 4, action: 'regular', receiptQueued: true };
+      data = {
+        checkinId: randomUUID(),
+        version: 4,
+        action: 'regular',
+        receiptQueued: true,
+        ...(options.savedSharing ? { communitySharing: options.savedSharing } : {})
+      };
     else if (body.view === 'methods')
       data = {
         days: 30,
@@ -292,6 +299,55 @@ const tick = async () => {
 };
 
 describe('Telegram workspace generated scripts and unsaved private drafts', () => {
+  it.each(['telegram', 'line'] as const)(
+    'shows the explicit non-checkbox notice and submits its version for %s',
+    async (channel) => {
+      const f = fixture('checkin', {
+        locale: 'zh_TW',
+        ...(channel === 'line' ? { channel: 'line' as const } : {})
+      });
+      await tick();
+      expect(f.html).toContain('id="community-note-disclosure"');
+      expect(f.html).toContain('打卡心得供所有學員閱讀');
+      expect(f.html).not.toMatch(/type="checkbox"[^>]*(?:share|community)/);
+      const method = f.all('[data-method]')[0]!;
+      method.checked = true;
+      await method.onchange?.();
+      f.get('note').value = 'Shared text';
+      f.get('note').oninput?.();
+      await click(f.get('submit'));
+      const call = f.fetchMock.mock.calls.find(
+        ([path]) => typeof path === 'string' && path.endsWith('/workspace/save')
+      );
+      expect(jsonBody(call?.[1]?.body)).toMatchObject({
+        communityNotice: 'student-community-notes-v1',
+        practiceNote: 'Shared text'
+      });
+      expect(jsonBody(call?.[1]?.body)).not.toHaveProperty('externalEnabled');
+    }
+  );
+  it.each(['legacy_private', 'manual'] as const)(
+    'keeps the native page open and reports preserved %s visibility instead of implying a public save',
+    async (savedSharing) => {
+      const f = fixture('checkin', { native: true, hash: '', locale: 'zh_TW', savedSharing });
+      await tick();
+      const method = f.all('[data-method]')[0]!;
+      method.checked = true;
+      await method.onchange?.();
+      f.get('note').value = 'Edited existing note';
+      f.get('note').oninput?.();
+      await click(f.get('submit'));
+      expect(f.app.close).not.toHaveBeenCalled();
+      expect(f.get('status').textContent).toContain(
+        savedSharing === 'manual' ? '保留原分享設定' : '私人紀錄'
+      );
+    }
+  );
+  it('does not change the WhatsApp writing notice or enable its community mode', () => {
+    const html = renderChannelWorkspacePage({ platform: 'whatsapp' }, 'checkin', 'zh_TW');
+    expect(html).not.toContain('id="community-note-disclosure"');
+    expect(html).toContain('workspaceCommunityNotes=false');
+  });
   it('exchanges a native launch without a private link and preserves signed SDK parameters', async () => {
     const f = fixture('checkin', {
       native: true,

@@ -215,6 +215,46 @@ suite('LINE workspace HTTP and private summaries', () => {
     expect(await deliverChannelPracticeReceipts(runtime, 'line', sender, () => {}, 3)).toBe(1);
     expect(sender).toHaveBeenCalledTimes(1);
   });
+  it('saves a disclosed LINE reflection atomically into the student stream, with no sharing checkbox or external enablement', async () => {
+    await confirm();
+    const date = (await profile()).today;
+    const payload = {
+      requestId: randomUUID(),
+      date,
+      version: 0,
+      methods: ['dayan_chu'],
+      practiceNote: 'LINE community reflection',
+      feelingTagIds: [],
+      communityNotice: 'student-community-notes-v1'
+    };
+    const saved = await post('/line/workspace/save', payload);
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(saved.json()).toMatchObject({ communityShared: true, communitySharing: 'automatic' });
+    const stream = await post('/line/journal/feed', { cursor: null });
+    expect(stream.statusCode, stream.body).toBe(200);
+    expect(
+      stream
+        .json<{ entries: Array<{ practiceNote: string }> }>()
+        .entries.some((e) => e.practiceNote === 'LINE community reflection')
+    ).toBe(true);
+    const row = (
+      await root.query(
+        'SELECT active,external_enabled FROM core.journal_publications WHERE checkin_id=$1',
+        [saved.json<{ checkinId: string }>().checkinId]
+      )
+    ).rows[0]!;
+    expect(row).toEqual({ active: true, external_enabled: false });
+    expect(
+      (await post('/line/workspace/save', { ...payload, communityNotice: 'invalid-version' }))
+        .statusCode
+    ).toBe(400);
+    expect(
+      (await post('/line/workspace/save', { ...payload, externalEnabled: true })).statusCode
+    ).toBe(400);
+    const html = (await app.inject('/line/checkin')).body;
+    expect(html).toContain('打卡心得供所有學員閱讀');
+    expect(html).not.toMatch(/type="checkbox"[^>]*(?:share|community)/);
+  });
   it('uses fixed recipient and stable retry key and sanitizes transport errors', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response('{}'));
     vi.stubGlobal('fetch', fetch);

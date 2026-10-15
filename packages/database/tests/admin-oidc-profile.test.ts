@@ -193,7 +193,7 @@ suite('Authenticated administrator metadata refresh without authorization change
           { requestId: randomUUID() },
           (c) =>
             c.query(
-              'SELECT ops.line_invite_continuation_schema_ready() current,ops.line_profile_schema_ready() previous'
+              'SELECT ops.community_notes_schema_ready() current,ops.line_profile_schema_ready() previous'
             )
         )
       ).rows[0]
