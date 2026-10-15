@@ -2,7 +2,7 @@
 
 ## Status
 
-Local work approved; **not committed, pushed or deployed**. Production remains `2ec42e2` / schema35. This is an editable catalog translation, not an automatic conversion of learner content. Publishing requires separate approval.
+Deployed after separate user approval: **`2f5a4eb` / schema36**. See [deployment and actual-restoration evidence](feeling-tag-locales-deployment.md). This is an editable catalog translation, not an automatic conversion of learner content.
 
 ## Administration
 
@@ -25,7 +25,7 @@ Changing only Simplified participates in dirty tracking, discard confirmation, r
 
 Only new `0036_feeling_tag_simplified_labels.sql` is added. Deployed0001–0035 and dependency metadata/lockfiles stay untouched. Existing save/read function definitions keep their grants/ownership and access/locking semantics; the private save implementation captures the extra column without replacing its consent wrapper or changing omission behavior.
 
-Candidate API min/max are exact36; worker gate is `ops.feeling_tag_locales_schema_ready()` / `phase-21-feeling-tag-locales`. Production35 is unchanged and its readiness rejects36. A later release needs separately approved coordinated maintenance, final encrypted backups and actual restoration, matching API/worker and preservation checks. Do not binary-only roll back36 to35 or discard translations/post-release writes; any downgrade needs a matching database and approved reconciliation.
+Deployed API min/max are exact36; worker gate is `ops.feeling_tag_locales_schema_ready()` / `phase-21-feeling-tag-locales`. The previous35 build rejects36. The separately approved coordinated maintenance, final encrypted backups, actual restoration and matching API/worker checks are recorded in the deployment evidence. Future incompatible releases require the same explicit review. Do not binary-only roll back36 to35 or discard translations/post-release writes; any downgrade needs a matching database and approved reconciliation.
 
 ## Verification
 
@@ -37,4 +37,4 @@ Candidate API min/max are exact36; worker gate is `ops.feeling_tag_locales_schem
 - Test-only fixtures were corrected to project the writable schema (rather than posting catalog metadata) and include the existing required region assignment. No product validation was weakened.
 - Extra all-test TypeScript still has the10 pre-existing errors; older timestamp-constraint intermittency is not claimed fixed.
 
-Evidence: `/tmp/qigong-tag-locales-{verify,all-types,cdp}.log`, preview/CDP scripts and six screenshots. No production/Console/notification flag or policy-publication changes. Preserve and exclude unrelated `docs/operations/web-admin-permissions-review.md` from any later commit.
+Evidence: `/tmp/qigong-tag-locales-{verify,all-types,cdp}.log`, preview/CDP scripts and six screenshots. Local/clone validation made no production writes; the separately approved deployment is recorded above. No Console/notification flag or policy-publication changes. Preserve and exclude unrelated `docs/operations/web-admin-permissions-review.md` from any later commit.

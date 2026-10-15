@@ -1,6 +1,15 @@
 # Qigong Platform — 交接摘要
 
-## 最新本機：快速標籤可編輯簡中對照（未提交／部署）
+## 最新部署：快速標籤簡中對照2f5a4eb／schema36
+
+- 使用者另核准commit/push/deploy；2f5a4ebeba66c2dbad17406a3d99bf14aa254245、CI38771867155成功，完整729（API538／DB183／config2／identity6）＋format/lint/source TS/build。2026-10-15 16:53:43–16:54:01 UTC維護18秒，35→36 apply1／repeat0、matching exact36 API-worker／phase21；歷史0001–0035不動，36現已部署不可再改。
+- 新三欄快速標籤editor：簡中選填可保存，空白fallback繁中；舊資料不自動轉字／補填，歷史selection／publication不改。省略舊client不清除，explicit NULL可清除，權限／CSRF／版本／重複驗證仍有效。
+- final off-host AESGCM DB/roles/env-systemd逐一解密hash，實際restore final35 snapshot與old binary ready，再於final clone36驗證才正式migrate；75舊表／17people／24checkins及所有舊journal_source hash保留，只排除metadata架構／時間及兩個新增nullable欄位。owner／forcedRLS／effective ACL／舊函式安全屬性保留，1新gate PUBLIC execute0。
+- 真compiled整editor HTML三語＋實cloneAPI保存／reload／未送出guard／old omission／clear／stale CSRF；LINE新選取及明確發布後cursor顯示簡中，rename不改snapshot/sourceHash。舊scope/grant/Authgear/private/sourceHash/external撤回、邀請friend/resume/quota/native/manual、community舊私人／撤回、三語review、24reports＋30HTML＋49badges及matching worker mock皆過，零真人provider測試send。
+- 189HTTPS checks過，synthetic req.url遮罩；log verifier的JS quoting修正後重新驗證，非產品變更。APIactive/NRestarts0/exit0、timeractive、worker16:54:40 UTC後續success/exit0；env bytehash及640保持，TG reminders/review既有true、WA未設／policy draft不變。無正式合成紀錄或批量翻譯；請真人重新載入標籤頁驗收。
+- /root/qigong-deploy-2f5a4eb、deployment-tools/2f5a4eb、已停rehearsal-2f5a4eb及分離encrypted backup/key保留；clone臨時worker.env／credential fixture刪。36不可binary-only回35，需matching DB/API/worker＋流量後語系及新寫入對帳另核准。見[部署／還原證據](docs/operations/feeling-tag-locales-deployment.md)。web-admin-permissions-review.md仍排除，all-test TS仍10既有錯，原時間戳間歇根因不稱已修。
+
+## 快速標籤簡中對照本機紀錄（後續已部署2f5a4eb）
 
 - 使用者確認本機修改。Web admin快速標籤新增獨立簡中欄位，繁中／簡中／英文並列；簡中選填40 codepoints，未填fallback繁中，非自動轉換。dirty／reset／失敗保留／CSRF／whole-catalog版本及taxonomy雙重post-lock權限保留，跨標籤重複驗證含簡中；舊client省略不清除，明確NULL可清除。
 - 新0036新增catalog與selected-tag snapshot兩個nullable name_zh_cn，無資料回填；新選取捕捉簡中、舊選取／published JSON不改。journal_source只在實際有簡中時加key，舊sourceHash不變；新發布可含簡中，舊snapshot缺key用繁中。SQL選定標籤原樣顯示，DTO不再對feelingLabels二次轉字。
