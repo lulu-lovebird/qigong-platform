@@ -1,6 +1,16 @@
 # Qigong Platform — 交接摘要
 
-## 最新候選：LINE/TG明示心得分享（schema34，已核准提交部署）
+## 最新部署：LINE/TG明示心得分享9d00120／schema34
+
+- 使用者另核准commit/push/deploy，9d00120484f0ef46ba83ed65166c1ac176a60e4d，CI38719995438成功／675tests；正式2026-10-15 10:32:13–10:32:30 UTC維護17秒，33→34／reapply0，matching API-worker exact34／phase19。
+- 表單明示「打卡心得供所有學員閱讀」、無分享checkbox／私密標題，新版notice下新心得同TX刊登，空白不刊登；舊私人／撤回及手動設定保留，WA／external opt-in不變。沒有代寫正式心得、回填同意、發布draft政策或批量公開。
+- 原共用叢集問題後先按上限停止，後續核准改全新隔離PG16／55454完整675（API488／DB179／config2／identity6）＋format/lint/source TS/build通過，未改斷言或正式授權；CI exact SHA亦過。原flakiness根因不稱已修；額外all-test TS仍原10錯。專用本機container已停，原55440未動。
+- 正式33snapshot＋roles clone實際還原完整指紋／4aa API ready，34升級／舊gate拒絕；最終站外AESGCM DB/roles/env-systemd逐一decrypt-hash、roles重套／DB實際還原相同／舊33ready後才主站migration。
+- 原74 application tables／16people／21checkins與全非metadata指紋保留，新origin表空；兩份env bytehash不變、review/learner flag true、WA unconfigured／policy draft。新release clone真API驗收LINE/TG跨地區互讀、空白／retry／清空／重寫、legacy private與withdraw不重發、external off／private helper拒絕，matching worker(mock)不發心得；通知頁整HTML雙語真API保存亦過。
+- 139主站＋1PNG共140HTTPS checks成功，synthetic req.url REDACTED；APIactive/NRestarts0/status0、timeractive、workerResultsuccess/status0。本機Chrome12頁通過但非真人LINE/TG交付；請關舊頁，以新日期或原無心得記錄寫新心得，由另學員驗收。舊私人要本人另發布。
+- /root/qigong-deploy-9d00120、deployment-tools/9d00120、已停rehearsal-9d00120與分開站外backup/key保留，clone臨時env/合成fixture已刪。34不能binary-only回33，需matching33DB＋4aa38f1 API-worker與流量後對帳；見[部署／還原證據](docs/operations/community-note-sharing-deployment.md)。untracked web-admin-permissions-review.md仍排除。
+
+## LINE/TG明示心得分享（本機／候選紀錄，後續已部署9d00120）
 
 - 使用者確認邀請已成功。新要求已核准本機：LINE與Telegram表單明示「打卡心得供所有學員閱讀」、無分享checkbox、不想分享留白。正式仍4aa38f1／33，沒有任何正式寫入／批量公開／env、Console或通知開關變更；private web-admin-permissions-review.md仍保留排除。
 - 調查時6筆LINE非空心得（全渠道9）、publications0、active policy0／acceptances0；管理端私人紀錄不等於已刊登。新notice是當次內容分享，不回填／冒充LINE網站同意或發布draft政策。
@@ -170,7 +180,7 @@
 - preview與測試同時使用55440曾觸發受控角色依賴保護，停止preview後相關與完整verify通過；不稱為先前間歇性問題已修復。所有預覽／Chrome已停、合成DB／角色清理。證據/tmp/qigong-whatsapp-browser-{verify-final,all-types}.log、preview／cdp scripts及synthetic screenshots；見[whatsapp-browser](docs/operations/whatsapp-browser.md)。
 - 未commit／push／部署、未啟用WA、未改憑證／Meta assets／政策draft，主站仍97de588／26。發布另核准、正式26clone／matching API-worker／最終加密備份實際還原與真人驗收；27回26須matching DB＋97de588，不可binary-only。原untracked web-admin-permissions-review.md繼續排除。
 
-> 最新主站為 `4aa38f1709222e2f38b72f51c97bb8923f7f8d64`／`0033_line_invite_continuation.sql`，2026-10-15 03:47 UTC完成核准部署；LINE邀請加好友後接續及pending本人持有效邀請確認後核准，未批核現有資料。review与learner reminder true、WA unconfigured／policy draft，原資料／偏好／綁定／權限与env保留。
+> 最新主站為 `9d00120484f0ef46ba83ed65166c1ac176a60e4d`／`0034_community_note_sharing.sql`，2026-10-15 10:32 UTC完成核准部署；LINE/TG新心得明示供學員閱讀、無checkbox，原私人資料不回填公開。邀請接續保留；review与learner reminder true、WA unconfigured／policy draft，原資料／偏好／綁定／權限与env保留。
 
 ## Authgear管理員Email修復（已部署97de588／schema26，使用者已確認Gmail重登可讀Email）
 
