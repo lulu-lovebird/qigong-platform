@@ -1,5 +1,12 @@
 # Qigong Platform — 交接摘要
 
+## 通知設定locale錯誤與checkbox排版（本機修復，未提交／部署）
+
+- 使用者回報勾選2類保存出locale not defined與checkbox文字上下排列，確認本機修復。原因shell adminLocaleScript的locale在shell IIFE内，而page script附在外部；頁面独立IIFE＋source-controlled const locale，修正save/disconnect/events path；global label display:grid原繼承造成checkbox換行，新notify-option flex scoped至#notify-preferences、input固定不縮＋span可wrap、44px觸控行，不改共用label。
+- 新tests/review-notification-page.test.ts7項執行實際完整HTML/script，不注入locale（以免mask bug）：zh/en渲染events與雙勾save含正確locale/CSRF、disconnect、失敗保留勾選、binding confirm與test、scoped markup。全636tests通過format/lint/sourceTS/build；額外all-test TS既有10錯誤。
+- Chrome390/1280雙語4布局通過，實際form requestSubmit確認兩checkbox保存且locale正確、first-line上下差<=6px／checkbox與span左右同列、零水平溢出／runtime exception；synthetic backend無正式資料。screenshots與preview/cdp /tmp/qigong-review-page-fix-*保留，Chrome與preview已停止。
+- 只改admin-review-notification-page.ts＋新增VM tests，無migration/role/binding/prefs/runtimeenv或發送開關變更，主站仍8f98da9/schema32、review/learner reminder flag true、WA unconfigured／policy draft。未commit/push/deploy，发布另核准；同schema UI回退可matching API-worker release切換，不需DB還原。原untracked web-admin-permissions-review.md仍排除。證據/tmp/qigong-review-page-fix-{verify,all-types}.log。
+
 ## 最新運維：待審通知發送已啟用（2026-10-15 01:04 UTC）
 
 - 使用者另行明確核准啟用REVIEW_NOTIFICATIONS_ENABLED。只原子設worker.env此flag=true，其他bytes／640權限／owner-group保留，API.env hash不變、learner reminder true与WA unconfigured保持；未改角色、個人通知偏好或綁定。

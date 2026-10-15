@@ -40,8 +40,11 @@ export const renderReviewNotificationPage = (locale: AdminLocale, canManageAdmin
     };
   return renderAdminShell(
     'notifications',
-    `<section class="card"><p>${t.intro}</p><p>${t.privacy}</p><p id="notify-bound"></p><div class="actions"><button id="notify-begin" type="button">${t.begin}</button><button id="notify-disconnect" class="secondary" type="button">${t.disconnect}</button></div><section id="notify-link" hidden><p>${t.instructions}</p><textarea id="notify-command" readonly aria-label="Private binding command"></textarea><form id="notify-confirm"><label>${en ? 'Telegram confirmation code' : 'Telegram確認碼'}<input name="code" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="off" required></label><button type="submit">${t.confirm}</button></form><p id="notify-expiry"></p></section></section><section class="card"><form id="notify-preferences"><label><input name="adminEnabled" type="checkbox">${t.admin}</label><label><input name="learnerEnabled" type="checkbox">${t.learner}</label><button type="submit">${t.save}</button></form><p><button id="notify-test" type="button">${t.test}</button></p></section><p id="status" role="status" aria-live="polite"></p><section class="card"><div id="notify-counts"></div><div id="notify-events"></div><button id="notify-reload" type="button">${t.reload}</button></section>`,
+    `<style>#notify-preferences .notify-option{display:flex;align-items:flex-start;gap:.6rem;min-height:44px;margin:.5rem 0;font-size:1rem;cursor:pointer}#notify-preferences .notify-option input[type="checkbox"]{flex:0 0 1.1rem;width:1.1rem;height:1.1rem;margin:.25rem 0 0}#notify-preferences .notify-option span{min-width:0;flex:1;overflow-wrap:anywhere}</style><section class="card"><p>${t.intro}</p><p>${t.privacy}</p><p id="notify-bound"></p><div class="actions"><button id="notify-begin" type="button">${t.begin}</button><button id="notify-disconnect" class="secondary" type="button">${t.disconnect}</button></div><section id="notify-link" hidden><p>${t.instructions}</p><textarea id="notify-command" readonly aria-label="Private binding command"></textarea><form id="notify-confirm"><label>${en ? 'Telegram confirmation code' : 'Telegram確認碼'}<input name="code" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="off" required></label><button type="submit">${t.confirm}</button></form><p id="notify-expiry"></p></section></section><section class="card"><form id="notify-preferences"><label class="notify-option"><input name="adminEnabled" type="checkbox"><span>${t.admin}</span></label><label class="notify-option"><input name="learnerEnabled" type="checkbox"><span>${t.learner}</span></label><button type="submit">${t.save}</button></form><p><button id="notify-test" type="button">${t.test}</button></p></section><p id="status" role="status" aria-live="polite"></p><section class="card"><div id="notify-counts"></div><div id="notify-events"></div><button id="notify-reload" type="button">${t.reload}</button></section>`,
     String.raw`
+(()=>{const locale=` +
+      JSON.stringify(locale) +
+      String.raw`;
 const ui=` +
       JSON.stringify(t) +
       String.raw`;const $=id=>document.getElementById(id);let current=null,link=null,busy=false;
@@ -56,6 +59,7 @@ $('notify-confirm').onsubmit=event=>{event.preventDefault();void action(async()=
 $('notify-preferences').onsubmit=event=>{event.preventDefault();void action(async()=>{if(!current)return;await api('/preferences',{version:current.revision,adminEnabled:event.target.elements.adminEnabled.checked,learnerEnabled:event.target.elements.learnerEnabled.checked,locale});await load();$('status').textContent=ui.saved;});};
 $('notify-disconnect').onclick=()=>action(async()=>{if(!current||!confirm(ui.cancel))return;await api('/preferences',{version:current.revision,adminEnabled:false,learnerEnabled:false,locale,disconnect:true});$('notify-command').value='';await load();});
 $('notify-test').onclick=()=>action(async()=>{await api('/test',{});$('status').textContent=ui.saved;});$('notify-reload').onclick=()=>action(load);void action(load);
+})();
 `,
     locale,
     canManageAdmins
