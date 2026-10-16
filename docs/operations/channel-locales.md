@@ -2,7 +2,7 @@
 
 ## Current deployment
 
-LINE, Telegram and WhatsApp learner interfaces support `zh_TW` (Traditional Chinese), `zh_CN` (Simplified Chinese) and `en`. The management backend and system notifications support the same choices. Initial three-language release: `2ec42e2` / schema35. Current release: `6a2ae3f` / schema36 with compact admin UI and [near-real-time receipts](realtime-practice-receipts.md); the previous `2f5a4eb` release added [editable Simplified quick-tag labels](feeling-tag-locales.md) after separate approval. See [three-language implementation and boundaries](trilingual-locales.md) and [deployment/recovery evidence](trilingual-locales-deployment.md).
+LINE, Telegram and WhatsApp learner interfaces support `zh_TW` (Traditional Chinese), `zh_CN` (Simplified Chinese) and `en`. The management backend and system notifications support the same choices. Initial three-language release: `2ec42e2` / schema35. Current release: `bcd9c60` / schema37 with [verified learner author names](learner-author-names.md) with compact admin UI and [near-real-time receipts](realtime-practice-receipts.md); the previous `2f5a4eb` release added [editable Simplified quick-tag labels](feeling-tag-locales.md) after separate approval. See [three-language implementation and boundaries](trilingual-locales.md) and [deployment/recovery evidence](trilingual-locales-deployment.md).
 
 Language is an interface/recipient preference, not authentication, identity association, enrollment region, practice time zone or authorization. Singapore/Malaysia do not force Simplified Chinese. Existing choices remain intact; no preference or user-content backfill occurs.
 
@@ -21,7 +21,7 @@ Typed dictionaries translate source-owned UI and current built-in catalog displa
 
 Privacy UI is translated, but the approved document language/version/hash and acceptance identity are not fabricated. Formal Simplified legal text requires review. WhatsApp Simplified decision delivery requires an explicitly configured, approved `zh_CN` template variation; it never silently substitutes Traditional Chinese.
 
-The matching release requires the complete immutable migration chain through new **`0036_feeling_tag_simplified_labels.sql`**, exact36 API/worker and `ops.feeling_tag_locales_schema_ready()`. Historical0001–0036 must not be edited. Publishing/deployment and a coordinated recovery/reconciliation plan require separate approval. Browser mocks and local tests are not provider/device acceptance. Preserve all legacy bots and unrelated local files.
+The matching release requires the complete immutable migration chain through new **`0037_learner_author_names.sql`**, exact37 API/both workers and `ops.learner_author_names_schema_ready()`. Historical0001–0037 must not be edited. Publishing/deployment and a coordinated recovery/reconciliation plan require separate approval. Browser mocks and local tests are not provider/device acceptance. Preserve all legacy bots and unrelated local files.
 
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 

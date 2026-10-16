@@ -2,7 +2,7 @@
 
 ## Status and diagnosed cause
 
-Deployed and explicitly enabled after separate user approval: **`6a2ae3f` / same schema36**. See [deployment, Linux rehearsal and recovery evidence](realtime-practice-receipts-deployment.md). The existing one-minute worker remains active as fallback. This work adds a separate continuous receipt process, not an API-side provider send.
+Initially deployed/enabled with **`6a2ae3f` / schema36**; current production is **`bcd9c60` / schema37** with the same active dispatcher and [learner-only author names](learner-author-names.md). See [deployment, Linux rehearsal and recovery evidence](realtime-practice-receipts-deployment.md). The existing one-minute worker remains active as fallback. This work adds a separate continuous receipt process, not an API-side provider send.
 
 Pre-implementation read-only production observations:
 
@@ -22,7 +22,7 @@ New files: `practice-receipt-dispatcher.ts`, `practice-receipt-runtime.ts`, `pra
 - Uses the existing restricted notifier account and `qigong_worker_runtime`; a dedicated pool is capped at4 connections. No new table privileges, migration or public endpoint.
 - Starts checking immediately. Independent LINE/TG lanes idle-poll every1000ms; one in-flight batch per lane, maximum3 claimed rows, existing sequential delivery within each batch. A slow LINE request does not block Telegram.
 - Full batches continue after25ms, with a1000ms pause after at most10 full batches. Lane/query/failure signals back off1–30s to prevent a busy failure loop. Existing per-receipt available-at retry/backoff and8-attempt limit remain unchanged.
-- Each batch checks the existing exact36 architecture gate before claiming. Schema mismatch stops new work and drains the other lane; it cannot recall an already in-flight accepted send. Query failures retry without logging SQL values.
+- Each batch checks the matching architecture gate before claiming (currently `ops.learner_author_names_schema_ready()` / exact37; the original receipt release used36). Schema mismatch stops new work and drains the other lane; it cannot recall an already in-flight accepted send. Query failures retry without logging SQL values.
 - Claim, pre-send eligibility/consent/identity/lease checks and finish use the existing restricted functions. LINE retains the same receipt UUID retry key. WhatsApp receipts are never dispatched by this runtime.
 - The save API and its transaction are unchanged. It commits practice data plus the existing outbox atomically; the next poll sees only committed rows. A rolled-back enqueue cannot send, and provider latency is not added to the learner HTTP request.
 - The old one-minute worker is **unchanged** and remains a fallback. Atomic lease claims coordinate the two consumers without re-claiming the same live lease. The continuous process is the primary low-latency path; normal notices/reminders/badges remain in the operational worker.
@@ -49,7 +49,7 @@ Evidence: `/tmp/qigong-receipt-realtime-{integration,verify,all-types,build}.log
 
 ## Rollout/recovery procedure — separately approved for this release
 
-1. Review exact-SHA CI, same36 compatibility and backups/actual restore; historical0001–0036 and API/worker contracts remain unchanged.
+1. Review exact-SHA CI, matching API/both-worker schema compatibility and backups/actual restore; deployed historical migrations remain immutable.
 2. Preserve the original worker env and notification flags. Install the matching binary and review the new service hardening on Linux. Verify the notifier has both intended provider configurations without printing secrets.
 3. Explicitly approve adding only the new activation flag and starting/enabling the new service. Keep the existing minute timer as fallback; no bulk opt-in or service-policy publication.
 4. Measure aggregate commit/queue/provider-acceptance latency and backlog with no personal-content logging; obtain actual LINE/TG device acceptance.

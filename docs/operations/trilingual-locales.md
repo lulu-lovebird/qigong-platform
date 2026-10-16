@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-Initial three-language release: `2ec42e2acfcbf2ccd34662ff7b5a17a3ab514d67` / schema35. Current production is `6a2ae3f` / schema36 with [compact admin UI](admin-compact-ui.md) and [near-real-time receipts](realtime-practice-receipts.md); the previous `2f5a4eb` release added [editable quick-tag translations](feeling-tag-locales.md); the design/verification below records the initial35 release. See [deployment, final restoration and verification](trilingual-locales-deployment.md). Provider configuration and legal-policy publication remain separate; WhatsApp is still unconfigured and policy remains draft.
+Initial three-language release: `2ec42e2acfcbf2ccd34662ff7b5a17a3ab514d67` / schema35. Current production is `bcd9c60` / schema37 with [verified learner author names](learner-author-names.md) with [compact admin UI](admin-compact-ui.md) and [near-real-time receipts](realtime-practice-receipts.md); the previous `2f5a4eb` release added [editable quick-tag translations](feeling-tag-locales.md); the design/verification below records the initial35 release. See [deployment, final restoration and verification](trilingual-locales-deployment.md). Provider configuration and legal-policy publication remain separate; WhatsApp is still unconfigured and policy remains draft.
 
 Canonical locales are `zh_TW`, `zh_CN` and `en`. LINE, Telegram and WhatsApp learner pages and the administration interface expose all three choices. Simplified Chinese is a language choice, not a Singapore/Malaysia region rule, identity claim, enrollment assignment, time zone or permission.
 
@@ -39,7 +39,7 @@ WhatsApp remains unconfigured. Simplified decision-template delivery requires th
 
 Only new `0035_simplified_chinese_locale.sql` is added; historical0001–0034 and dependency manifests/lockfiles are unchanged. It expands locale constraints/allowlists, permits verified LINE preferences and adds nullable binding-challenge locale. Existing function ownership/ACL/RLS semantics are retained; new restricted functions revoke PUBLIC execution.
 
-The initial matching API required exact35 (current36 compatibility is documented with quick-tag translations), architecture `phase-20-simplified-chinese`; the worker checks `ops.locale_schema_ready()`. Migration34 builds fail readiness on35. This is an exact-version coordinated release, not an online expand-compatible deployment. A later deployment needs maintenance/drain, final encrypted backups plus actual restore rehearsal, matching API/worker, preservation checks and separately approved activation.
+The initial matching API required exact35 (current37 compatibility is documented with learner author names), architecture `phase-20-simplified-chinese`; the worker checks `ops.locale_schema_ready()`. Migration34 builds fail readiness on35. This is an exact-version coordinated release, not an online expand-compatible deployment. A later deployment needs maintenance/drain, final encrypted backups plus actual restore rehearsal, matching API/worker, preservation checks and separately approved activation.
 
 Do not roll a35 database back by swapping only binaries or deleting migration history. Downgrade requires matching34 database/API/worker and approved reconciliation of post-release writes, including language choices that34 cannot represent. Never silently discard new writes or downgrade a user's language choice.
 

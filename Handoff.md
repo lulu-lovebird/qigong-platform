@@ -1,6 +1,15 @@
 # Qigong Platform — 交接摘要
 
-## 最新本機：LINE／TG心得流統一驗證暱稱（未提交／部署）
+## 最新部署：跨渠道心得流作者暱稱bcd9c60／schema37
+
+- 使用者另核准commit/push/deploy；bcd9c60da56085ef1979b4a29db52cc46ff40851、CI38915728260成功／790 tests（API598／DB184／config2／identity6）。2026-10-16 14:35:59–14:36:21 UTC維護22秒，先停minute timer／drain realtime及minute worker，再停API做final backup；matching exact37 API＋兩worker／phase22，正式apply1/repeat0。歷史0001–0036不動，37現已部署不可改。
+- Final DB/roles/env/systemd含RTunit及enable狀態站外AESGCM逐一decrypt-hash，role/settings重套＋final DB實際restore與old6a/36ready，再於final clone37驗證後正式migration。75舊表／18people／30checkins全部舊data／LINEcache／pubalias／snapshots／sourceHash／grants／audit／consent保留（只metadata架構與時間更新），新TGcache空／forcedRLS，舊函式安全屬性不變＋4newfns／PUBLICexec0／API rawcache select false。
+- 兩learner feed套各作者已驗證LINE/TG nick，editor／staff／partner仍原alias不寫pub。真compiled clone6個跨reader/locale、native HMAC／private webhook過期proof、防偽、sourceHash／publication不變、staff/partner真HTTP原alias＋synthetic credential revoke過，零provider test send／正式合成資料。scope/grant/Authgear/private/external、邀請friend/resume/quota/native、community/manual、三語tags/review、24reports/30HTML/49badges及minute mock回歸過。
+- 真Linux hardened systemd clone新37 continuous14個LINE/TG mock jobs均attempt1，median1.069/1.044s、max1.373/1.343s，SIGTERM exit0/restart0／無私文或schemafailure；只在clone取消舊regression待送列以隔離14-job測試。既有RT flag/提醒/review true、兩份env bytehash及640／WA未設／policy draft不變，unit/enabled不改。
+- 195HTTPS及both-provider notice三語兩渠道／req.url遮罩過；APIactive/restart0/exit0，RT14:36:19 UTC起動enabled/active/restart0、heartbeat3/no schema/db/batch errors，minute timeractive／14:37:24 UTC success/exit0。只讀checkpoint LINE2active posts皆套nickname；TG4仍原alias／cache0，必須作者本人下次native launch／private Bot才捕捉，不拿報名資料回填或猜LINE連結。請user重開心得流驗收，舊6a回條真人已通過不代表新nick已驗收。
+- /root/qigong-deploy-bcd9c60、deployment-tools/bcd9c60、stopped rehearsal-bcd9c60/socket55449與分離backup/key保留，clone env/community/realtime fixture移除、temporary systemdunit移除。37不可binary-only回36，需停/drain API與兩worker並matchingDB／profile/queue/流量後對帳另核准；不得還原舊快照覆蓋新寫入。見[部署／恢復與驗收界線](docs/operations/learner-author-names-deployment.md)。permissions-review與legacy不動，extraTS仍10既有錯／原時間戳間歇不稱修。
+
+## 跨渠道作者暱稱本機紀錄（後續已部署bcd9c60）
 
 - 使用者確認修正。只讀正式診斷當時LINE2筆active publications都有LINE cache、TG4筆generated alias無LINE連結；LINE cursor原只修LINE作者、TG一般feed仍原alias。新37只包learner facades：LINE來源用LINE verified name、TG來源用Telegram verified name，沒cache保留原分享alias／安全fallback；不依姓名/Email/phone合併、不用報名姓名，不改pub alias/snapshots/sourceHash。
 - 新forced-RLS Telegram profile cache以既有identity_id鍵；private matching webhook secret/private chat/from.id/nonbot＋recent message date、或MiniApp HMAC/bot/subject/auth_date驗證後才refresh。profile_at與last webhook updateID防跨來源過期／重播覆蓋，未知subject不建person/cache，缺name不清除，audits不含name。舊TG作者須下一次有效native launch或Bot私聊才有cache，不掃getChat、不猜LINE身份。

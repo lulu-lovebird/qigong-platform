@@ -2,7 +2,7 @@
 
 ## Status and diagnosis
 
-Local repair approved; **not committed, pushed or deployed**. Production remains `6a2ae3f` / schema36 with its active realtime receipt service. The user has now confirmed that release's normal check-in receives its receipt immediately; that acceptance does not cover this new nickname candidate.
+Deployed after separate user authorization: **`bcd9c60` / schema37**, including the matching realtime receipt service. See [deployment, preservation and acceptance boundary](learner-author-names-deployment.md). The user has now confirmed that release's normal check-in receives its receipt immediately; that acceptance does not cover this new nickname candidate.
 
 Read-only investigation found6 active publications:2 LINE publications with verified LINE cache rows,4 Telegram publications using generated aliases and no LINE identity link. The LINE cursor decorated LINE authors only; Telegram/general learner feed still returned stored publication aliases. No real names or reflection contents were printed and no accounts were matched by name/Email/phone.
 
@@ -34,7 +34,7 @@ Three-language notice explicitly explains verified LINE/TG author names and the 
 
 Only new `0037_learner_author_names.sql` is added. Existing0001–0036/dependency metadata/lockfiles remain immutable. It adds the empty Telegram profile cache, restricted refresh/private presentation helpers and the new architecture gate; existing feed function ownership/ACL/security attributes are preserved.
 
-Candidate API requires exact37 / `phase-22-learner-author-names`. **Both** the minute notification worker and continuous receipt runtime now check `ops.learner_author_names_schema_ready()`. The existing production36 binaries/gates reject37. A future publication requires separate commit/push/deploy approval, final encrypted backups plus actual restore/preservation tests, and coordinated drain/stop/restart of **API, minute worker and realtime receipt service**. Preserve all existing operational flags and subscriptions. No live service was stopped or reconfigured during local repair.
+Deployed API requires exact37 / `phase-22-learner-author-names`. **Both** the minute notification worker and continuous receipt runtime now check `ops.learner_author_names_schema_ready()`. The previous36 binaries/gates reject37. The separately approved release performed final encrypted backups, actual restore/preservation and coordinated drain/stop/restart of **API, minute worker and realtime receipt service**; details are linked above. Existing operational flags and subscriptions were preserved. The earlier local repair itself made no live changes; future publication requires its own approval.
 
 A37→36 downgrade needs matching DB/API/both-worker code and approved reconciliation of post-release data/cache/queue updates. Binary-only schema rollback or replacing live writes with an old preparation dump is unsafe. This candidate itself neither emits extra chat messages nor changes realtime polling/batch behavior.
 
@@ -49,4 +49,4 @@ Full dedicated PostgreSQL16 `pnpm verify`: **790 tests** (API598 / database184 /
 - Actual compiled API + independent restricted synthetic PostgreSQL browser preview: **12 layouts**, LINE/TG ×3 locales ×390/1280. Both names render literally, missing author stays on safe alias, no registration-name leakage/HTML injection, cross-provider notice intact, original sharing-editor alias retained, no overflow/runtime/API failure. Provider identity was mocked; the native profile proof itself was HMAC-verified by the real endpoint.
 - Harness fixture added its missing note row so the existing own-journal visibility rules could include it; no product visibility check was weakened. A DDL CASE expression was parenthesized during initial parsing validation; whole generated-HTML tests exposed and corrected the older broad channel-name substitution.
 
-Evidence: `/tmp/qigong-author-names-{verify,all-types,profile-integration,cdp}.log`, preview/CDP scripts and12 screenshots. Local test and browser clusters are independent. No production/provider/Console changes, profile-name export or real test messages. Preserve unrelated `docs/operations/web-admin-permissions-review.md` outside later commits.
+Evidence: `/tmp/qigong-author-names-{verify,all-types,profile-integration,cdp}.log`, preview/CDP scripts and12 screenshots. Local test and browser clusters are independent. Local/clone tests made no production writes or provider/Console changes, profile-name export or real test messages; the subsequent approved deployment is recorded separately above. Preserve unrelated `docs/operations/web-admin-permissions-review.md` outside later commits.
