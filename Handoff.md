@@ -1,6 +1,15 @@
 # Qigong Platform — 交接摘要
 
-## 最新本機：LINE／TG近即時打卡回條（未提交／部署／啟用）
+## 最新部署／啟用：近即時打卡回條6a2ae3f（同schema36）
+
+- 使用者另核准commit/push/deploy並啟用新service。6a2ae3fc526ee67feed33f1a9f0d52c22b0bf61b，CI38836351039成功／766 tests（API575／DB183／config2／identity6）。2026-10-16 01:52:10–01:52:32 UTC維護22秒，同36／phase21，零migration／DDL。原a952及新API restored36皆ready，75表／18people／27checkins全資料/metadata與所有舊source hashes保留。
+- Final DB/roles/env-systemd站外AESGCM逐一decrypt/hash、role重套與DB實際restore，再同36驗證後切API/worker；source/env sidecar排除、compiled及newunit manifest checksum驗證。API env byte-identical，worker env atomic只新增PRACTICE_RECEIPTS_REALTIME_ENABLED=true，舊keys逐一相同、owner/group/640保持，TG reminders/review既有true、WA未設/policy draft不動。
+- qigong-practice-receipts.service已installed/enabled/active，qigong-notifier、1000ms idle/3每lane、pool4、192MiB/CPU50%/90s stop。01:52:30 UTC起動，NRestarts0/exit0，初始heartbeat2、無worker/schema/db error、memory約28MiB；當時pending/sending0且啟用後新回條0，所以未稱正式手機已1秒收到。舊minute timer先恢復作fallback、01:53:34 UTCworker success/exit0；API active/restart0。
+- 真Linux systemd clone按相同hardening＋mock preload跑continuous entry，idle後tx enqueue LINE7/TG7皆attempt1，mock median1.091/1.065s/max1.383/1.358s，SIGTERM clean exit0/no restart/no private logs。首輪另drain舊regression13筆造成27 transports與fixture14假設不符；清fixture／新invocation重跑strict14過，非產品duplicate。temp unit stopped/removed，正式ExecStart無mock。
+- compiled clone scope/grant/Authgear/private/sourceHash/external、邀請friend/resume/quota/native/manual、community/manual withdrawal、三語tag/reviewer、24reports/30HTML/49badges與legacyworker mock過；189HTTPS/req.url redaction過，無正式合成打卡或真人測試send。新service今後正常派送已核准receipt，須真人下一筆驗收。
+- /root/qigong-deploy-6a2ae3f、deployment-tools/6a2ae3f、已停rehearsal-6a2ae3f/socket55448及分離backup/key保留；pre final DB/roles/config與post-activation config/unit均加密decrypt/hash。clone worker.env/community/realtime fixture刪。rollback先stop/disable新service再切舊API/worker，保留minute fallback與queue；只審核新flag不覆蓋其他env、不還原DB/丟新寫入，forced kill仍10min lease。見[部署／啟用／還原證據](docs/operations/realtime-practice-receipts-deployment.md)。原10個extra TS／時間戳間歇不稱修，permissions-review仍排除。
+
+## 近即時打卡回條本機紀錄（後續已部署／啟用6a2ae3f）
 
 - 使用者確認實作。只讀診斷：minute timer＋Accuracy1min，24h實際間隔median70s；48h LINE17筆median48.42s/max135.21s、TG5筆median53.85s/max57.83s，均first attempt/delivered、當時pending0。匹配worker啟動後約0.82s/1.31s，主要等排程；all-route成功POST median0.158/p90.333/max1.583非save專用量測，未裝pg_stat_statements、URLs遮罩保留。delivered_at不是手機顯示時間。
 - 新dispatcher/runtime/worker與qigong-practice-receipts.service模板：明確PRACTICE_RECEIPTS_REALTIME_ENABLED=true才開，預設false不建pool／不需憑證。既有qigong-notifier／worker role、獨立pool上限4，LINE/TG獨立lane，idle1000ms／batch3／full25ms且10批後休息1s，錯誤1–30s退避。舊minute worker不改當fallback，lease原子claim協作；API不等provider、commit後下一poll才可見，WA不送。

@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-Initial three-language release: `2ec42e2acfcbf2ccd34662ff7b5a17a3ab514d67` / schema35. Current production is `a952176` / schema36 with [compact admin UI](admin-compact-ui.md); the previous `2f5a4eb` release added [editable quick-tag translations](feeling-tag-locales.md); the design/verification below records the initial35 release. See [deployment, final restoration and verification](trilingual-locales-deployment.md). Provider configuration and legal-policy publication remain separate; WhatsApp is still unconfigured and policy remains draft.
+Initial three-language release: `2ec42e2acfcbf2ccd34662ff7b5a17a3ab514d67` / schema35. Current production is `6a2ae3f` / schema36 with [compact admin UI](admin-compact-ui.md) and [near-real-time receipts](realtime-practice-receipts.md); the previous `2f5a4eb` release added [editable quick-tag translations](feeling-tag-locales.md); the design/verification below records the initial35 release. See [deployment, final restoration and verification](trilingual-locales-deployment.md). Provider configuration and legal-policy publication remain separate; WhatsApp is still unconfigured and policy remains draft.
 
 Canonical locales are `zh_TW`, `zh_CN` and `en`. LINE, Telegram and WhatsApp learner pages and the administration interface expose all three choices. Simplified Chinese is a language choice, not a Singapore/Malaysia region rule, identity claim, enrollment assignment, time zone or permission.
 

@@ -2,7 +2,7 @@
 
 ## Status and diagnosed cause
 
-Local implementation approved; **not committed, pushed, deployed or operationally enabled**. Production remains `a952176` / schema36 and its existing one-minute worker schedule. This work adds a separate continuous receipt process, not an API-side provider send.
+Deployed and explicitly enabled after separate user approval: **`6a2ae3f` / same schema36**. See [deployment, Linux rehearsal and recovery evidence](realtime-practice-receipts-deployment.md). The existing one-minute worker remains active as fallback. This work adds a separate continuous receipt process, not an API-side provider send.
 
 Pre-implementation read-only production observations:
 
@@ -45,9 +45,9 @@ New coverage: explicit disabled entry/no credentials, flag validation, immediate
 
 The actual one-second idle-poll integration completed with a mocked provider at about1.1s in the local run; this is not a production/provider benchmark. The compiled entry ran through a symlink with outbound fetch blocked and shut down cleanly via SIGTERM, proving the entry-path handling used by a current-release symlink. A revocation fixture was corrected to close its active interaction channel before revoking identity; the original DB protection and strict one-send assertion were retained.
 
-Evidence: `/tmp/qigong-receipt-realtime-{integration,verify,all-types,build}.log`. No production changes, service start, provider test message or real credential copied into fixtures. Linux `systemd-analyze verify` and real-user delivery timing remain deployment/acceptance gates; the unit template was not installed or enabled during local work.
+Evidence: `/tmp/qigong-receipt-realtime-{integration,verify,all-types,build}.log`. Local implementation tests made no production changes, service start, provider test message or real-credential fixture. The later deployment passed Linux `systemd-analyze verify`, real hardened-service mock rehearsal and explicit production activation as documented above. Real-user/provider/mobile delivery timing remains an acceptance gate.
 
-## Future rollout — separate approval required
+## Rollout/recovery procedure — separately approved for this release
 
 1. Review exact-SHA CI, same36 compatibility and backups/actual restore; historical0001–0036 and API/worker contracts remain unchanged.
 2. Preserve the original worker env and notification flags. Install the matching binary and review the new service hardening on Linux. Verify the notifier has both intended provider configurations without printing secrets.
@@ -55,4 +55,4 @@ Evidence: `/tmp/qigong-receipt-realtime-{integration,verify,all-types,build}.log
 4. Measure aggregate commit/queue/provider-acceptance latency and backlog with no personal-content logging; obtain actual LINE/TG device acceptance.
 5. Rollback: stop/disable the realtime service before switching to a prior binary that lacks this entry, retain the existing minute fallback and durable queue, and review only the new flag/config change. Do not restore an old DB or discard new check-ins/receipt state. Editing an env file alone does not hot-disable a running process; stop/restart explicitly.
 
-This is implementation approval, not commit/push/deploy or operational activation approval. Preserve and exclude unrelated `docs/operations/web-admin-permissions-review.md`.
+The initial implementation approval did not authorize publication; the subsequent commit/push/deploy and operational activation were separately approved. Future operational changes still require their own review. Preserve and exclude unrelated `docs/operations/web-admin-permissions-review.md`.

@@ -40,7 +40,11 @@ Quick-tag release `2f5a4eb` requires exact `0036_feeling_tag_simplified_labels.s
 
 ## Compact UI same-schema release
 
-Production `a952176` retains exact36 / `ops.feeling_tag_locales_schema_ready()` / phase21. No migration applier or DDL ran. Both old2f5a4eb and new API readiness passed on the final restored36 snapshot; all data and metadata fingerprints were identical before switching. The user separately approved publication. See [deployment evidence](../operations/admin-compact-ui-deployment.md). A reviewed same-schema rollback switches matching API/worker and the saved systemd release override only; it must not restore an older DB/env or overwrite post-release writes.
+Compact UI release `a952176` retains exact36 / `ops.feeling_tag_locales_schema_ready()` / phase21. No migration applier or DDL ran. Both old2f5a4eb and new API readiness passed on the final restored36 snapshot; all data and metadata fingerprints were identical before switching. The user separately approved publication. See [deployment evidence](../operations/admin-compact-ui-deployment.md). A reviewed same-schema rollback switches matching API/worker and the saved systemd release override only; it must not restore an older DB/env or overwrite post-release writes.
+
+## Continuous receipt service same-schema release
+
+Production `6a2ae3f` retains exact36/phase21 with a separately approved continuous receipt service and `PRACTICE_RECEIPTS_REALTIME_ENABLED=true`. No migration or table privilege change ran; final actual restoration preserved every data/metadata/source fingerprint before activation. The one-minute worker remains fallback. See [activation/recovery evidence](../operations/realtime-practice-receipts-deployment.md). Before rollback to a binary without the new entry, stop/disable the continuous service and review only the new flag while preserving other env changes, in-flight leases, queue and current database writes.
 
 ## Required Controls
 
