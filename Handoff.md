@@ -1,5 +1,13 @@
 # Qigong Platform — 交接摘要
 
+## 最新本機：LINE／TG近即時打卡回條（未提交／部署／啟用）
+
+- 使用者確認實作。只讀診斷：minute timer＋Accuracy1min，24h實際間隔median70s；48h LINE17筆median48.42s/max135.21s、TG5筆median53.85s/max57.83s，均first attempt/delivered、當時pending0。匹配worker啟動後約0.82s/1.31s，主要等排程；all-route成功POST median0.158/p90.333/max1.583非save專用量測，未裝pg_stat_statements、URLs遮罩保留。delivered_at不是手機顯示時間。
+- 新dispatcher/runtime/worker與qigong-practice-receipts.service模板：明確PRACTICE_RECEIPTS_REALTIME_ENABLED=true才開，預設false不建pool／不需憑證。既有qigong-notifier／worker role、獨立pool上限4，LINE/TG獨立lane，idle1000ms／batch3／full25ms且10批後休息1s，錯誤1–30s退避。舊minute worker不改當fallback，lease原子claim協作；API不等provider、commit後下一poll才可見，WA不送。
+- 保留pre-send eligibility／privacy／identity／lease、LINE stable retry UUID、原8次／available_at與10min leases；無DBmigration、API／queue表／授權／prefs／schemaGate變更，同36。SIGTERM/INT停止新claim／喚醒sleep、drain現有batch及兩lane後close pool，90s服務stop allowance，forced kill後仍原lease恢復；不保證exactly once／收訊順序／固定端到端秒數。
+- 獨立PG16完整pnpm verify **766 tests**（API575／DB183／config2／identity6）＋format/lint/source TS/build成功；新commit／rollback可見性、真1s idlepoll、本機mock約1.1s、14筆backlog、concurrent fallback、撤權、retry同key／不洩私文、schema啟動與批次間、SIGTERM drain／symlink compiled entry及raw table拒絕皆過。撤權fixture補先關active channel，原保護／one-send斷言未放寬。all-test TS仍原10錯。
+- service模板未裝／未啟動，Linuxunit verify與真人LINE/TG timing留後續。日誌只channel/count/time/heartbeat／泛化錯誤，無recipient/token/payload；私密心得／感受不進摘要。docs/operations/realtime-practice-receipts.md與/tmp/qigong-receipt-realtime-*證據保留。正式仍a952176／36、舊排程／flags不動，未commit/push/deploy，啟用新旗標另核准；rollback需先stop新service保留minute fallback與queue，不還原舊DB。web-admin-permissions-review.md仍排除。
+
 ## 最新部署：Compact Web Admin a952176（同schema36）
 
 - 使用者另核准commit/push/deploy，a95217611373dd26814ab04b1f08dfdc69685e6f，CI38823188338成功／完整738（API547／DB183／config2／identity6）。2026-10-15 23:28:41–23:29:00 UTC維護19秒；同36／phase21，contract只有SELECT，無migration applier／DDL／data backfill，matching API-worker一起切換。

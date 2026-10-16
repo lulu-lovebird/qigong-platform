@@ -1,0 +1,30 @@
+[Unit]
+Description=Near-real-time qigong LINE and Telegram practice receipts
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=qigong-notifier
+Group=qigong-notifier
+WorkingDirectory=/opt/qigong-platform/current
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/qigong-platform/notification-worker.env
+ExecStart=/usr/bin/node apps/public-api/dist/practice-receipt-worker.js
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=90
+MemoryMax=192M
+CPUQuota=50%
+TasksMax=32
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
