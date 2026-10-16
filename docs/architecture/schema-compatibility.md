@@ -46,6 +46,10 @@ Compact UI release `a952176` retains exact36 / `ops.feeling_tag_locales_schema_r
 
 Production `6a2ae3f` retains exact36/phase21 with a separately approved continuous receipt service and `PRACTICE_RECEIPTS_REALTIME_ENABLED=true`. No migration or table privilege change ran; final actual restoration preserved every data/metadata/source fingerprint before activation. The one-minute worker remains fallback. See [activation/recovery evidence](../operations/realtime-practice-receipts-deployment.md). Before rollback to a binary without the new entry, stop/disable the continuous service and review only the new flag while preserving other env changes, in-flight leases, queue and current database writes.
 
+## Local learner-author-name candidate (not deployed)
+
+The approved local repair adds only new `0037_learner_author_names.sql`: an empty forced-RLS verified Telegram display cache and learner-only feed decorators, without rewriting registration, publication, source hashes or identity links. Candidate API is exact37 / `phase-22-learner-author-names`; both minute worker and realtime receipt runtime use `ops.learner_author_names_schema_ready()`. Production is still6a2ae3f/36 with its active realtime service. Publishing remains separately approved and requires drain/stop of API **and both workers**, final encrypted backups/actual restore and full preservation checks before coordinated37 activation. A37→36 rollback needs matching DB/API/both-worker artifacts and approved post-traffic/cache/queue reconciliation, not binary-only rollback. See [local design and verification](../operations/learner-author-names.md).
+
 ## Required Controls
 
 - CI tests the old and new application compatibility ranges against the same expand schema.

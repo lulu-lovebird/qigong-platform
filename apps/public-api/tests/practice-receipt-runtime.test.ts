@@ -143,7 +143,7 @@ suite('Restricted continuous receipt dispatcher and committed outbox', () => {
     await root.query('UPDATE identity.platform_identities SET revoked_at=NULL');
     await root.query('UPDATE identity.person_interaction_channels SET valid_to=NULL');
     await root.query(
-      "UPDATE core.platform_metadata SET architecture_version='phase-21-feeling-tag-locales'"
+      "UPDATE core.platform_metadata SET architecture_version='phase-22-learner-author-names'"
     );
   });
   afterAll(async () => {
@@ -475,7 +475,7 @@ suite('Restricted continuous receipt dispatcher and committed outbox', () => {
     } finally {
       c.abort();
       await root.query(
-        "UPDATE core.platform_metadata SET architecture_version='phase-21-feeling-tag-locales'"
+        "UPDATE core.platform_metadata SET architecture_version='phase-22-learner-author-names'"
       );
     }
   });
@@ -548,7 +548,7 @@ suite('Restricted continuous receipt dispatcher and committed outbox', () => {
       );
     } finally {
       await root.query(
-        "UPDATE core.platform_metadata SET architecture_version='phase-21-feeling-tag-locales'"
+        "UPDATE core.platform_metadata SET architecture_version='phase-22-learner-author-names'"
       );
     }
   });

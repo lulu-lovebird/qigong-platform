@@ -55,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0036_feeling_tag_simplified_labels.sql'
+      '0037_learner_author_names.sql'
     );
 
     expect(first.applied).toEqual([
@@ -94,13 +94,14 @@ describeWithDatabase('repository migrations', () => {
       '0033_line_invite_continuation.sql',
       '0034_community_note_sharing.sql',
       '0035_simplified_chinese_locale.sql',
-      '0036_feeling_tag_simplified_labels.sql'
+      '0036_feeling_tag_simplified_labels.sql',
+      '0037_learner_author_names.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0036_feeling_tag_simplified_labels.sql',
+      currentVersion: '0037_learner_author_names.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0036_feeling_tag_simplified_labels.sql',
+      maximumVersion: '0037_learner_author_names.sql',
       ready: true
     });
   });

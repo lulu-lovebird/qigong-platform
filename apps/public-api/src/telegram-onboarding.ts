@@ -1,4 +1,5 @@
 import { localeSchema, uiText } from './ui-localization.js';
+import { telegramProfileDisplayName, refreshVerifiedTelegramProfile } from './telegram-profile.js';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
@@ -39,9 +40,11 @@ const telegramUpdate = z.object({
         id: z.number().int().positive().safe(),
         first_name: z.string().min(1).max(255),
         last_name: z.string().max(255).optional(),
+        username: z.string().optional(),
         is_bot: z.boolean().optional()
       }),
-      text: z.string().optional()
+      text: z.string().optional(),
+      date: z.number().int().positive().safe().optional()
     })
     .optional()
 });
@@ -133,6 +136,27 @@ export const registerTelegramOnboarding = (
       message.from.is_bot
     ) {
       return { ok: true };
+    }
+    const displayName = telegramProfileDisplayName(message.from),
+      proofTime = message.date,
+      now = Math.floor(Date.now() / 1000);
+    if (
+      displayName &&
+      proofTime !== undefined &&
+      proofTime <= now + 60 &&
+      proofTime >= now - 86400
+    ) {
+      try {
+        await refreshVerifiedTelegramProfile(pool, request.id, {
+          subject: String(message.from.id),
+          displayName,
+          source: 'webhook',
+          proofTime,
+          updateId: parsed.data.update_id
+        });
+      } catch {
+        app.log.warn('Verified Telegram nickname refresh unavailable');
+      }
     }
     if (/^\/admin_notify(?:@\w+)?(?:\s|$)/i.test(message.text ?? '')) {
       try {

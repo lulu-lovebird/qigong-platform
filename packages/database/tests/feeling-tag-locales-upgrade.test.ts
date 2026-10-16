@@ -75,10 +75,14 @@ suite('Feeling tag translations schema35 to36', () => {
         );
       const before = await fingerprint(),
         security = (await metadata()).rows;
-      expect((await runMigrations(db.pool, directory, 'tags-new')).applied).toEqual([
+      await copyFile(
+        path.join(directory, '0036_feeling_tag_simplified_labels.sql'),
+        path.join(old, '0036_feeling_tag_simplified_labels.sql')
+      );
+      expect((await runMigrations(db.pool, old, 'tags-new')).applied).toEqual([
         '0036_feeling_tag_simplified_labels.sql'
       ]);
-      expect((await runMigrations(db.pool, directory, 'tags-repeat')).applied).toEqual([]);
+      expect((await runMigrations(db.pool, old, 'tags-repeat')).applied).toEqual([]);
       expect(await fingerprint()).toEqual(before);
       expect((await metadata()).rows).toEqual(security);
       expect(

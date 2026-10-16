@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations, withRequestContext, type Pool } from '@qigong/database';
 import { createIsolatedTestDatabase } from '../../../packages/database/tests/test-database.js';
 import { buildApp } from '../src/app.js';
+import { signMiniapp } from './telegram-miniapp-fixtures.js';
 const base = process.env.TEST_DATABASE_URL,
   suite = base ? describe : describe.skip;
 const directory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../migrations');
@@ -23,6 +24,43 @@ suite('LINE verified nickname display without authorization or identity changes'
   const uid = 'U' + 'a'.repeat(32),
     peerUid = 'U' + 'b'.repeat(32),
     origin = 'https://checkin.baiyinqigong.org';
+  const botToken = '123456:' + 'a'.repeat(35),
+    secret = 'synthetic-profile-hook-secret',
+    tgSubject = 548000000031;
+  const miniapp = async (name: string, authDate = Math.floor(Date.now() / 1000)) =>
+    app.inject({
+      method: 'POST',
+      url: '/telegram/workspace/session',
+      headers: { origin },
+      payload: {
+        initData: signMiniapp(botToken, tgSubject, authDate, {
+          user: JSON.stringify({ id: tgSubject, first_name: name })
+        })
+      }
+    });
+  const webhook = (
+    name: string,
+    id: number,
+    date = Math.floor(Date.now() / 1000),
+    options: { secret?: string; group?: boolean; bot?: boolean; other?: boolean } = {}
+  ) =>
+    app.inject({
+      method: 'POST',
+      url: '/telegram/onboarding/webhook',
+      headers: { 'x-telegram-bot-api-secret-token': options.secret ?? secret },
+      payload: {
+        update_id: id,
+        message: {
+          date,
+          chat: {
+            id: options.other ? tgSubject + 1 : tgSubject,
+            type: options.group ? 'group' : 'private'
+          },
+          from: { id: tgSubject, first_name: name, ...(options.bot ? { is_bot: true } : {}) },
+          text: '/journal'
+        }
+      }
+    });
   const post = (path: string, values: Record<string, unknown> = {}) =>
     app.inject({
       method: 'POST',
@@ -122,6 +160,12 @@ suite('LINE verified nickname display without authorization or identity changes'
     app = buildApp({
       pool: runtime,
       logger: false,
+      telegramOnboarding: {
+        botToken,
+        webhookSecret: secret,
+        regionCode: 'tw-general',
+        sendMessage: async () => {}
+      },
       line: {
         channelSecret: 'synthetic-secret-not-real',
         channelAccessToken: 'synthetic-access-not-real',
@@ -182,7 +226,7 @@ suite('LINE verified nickname display without authorization or identity changes'
     );
     expect((await db.pool.query('SELECT * FROM admin.role_grants')).rows).toEqual(grants);
   });
-  it('uses LINE author nicknames in LINE feed only, preserving TG aliases and old audience feed', async () => {
+  it('uses LINE author nicknames in all learner feeds while missing TG profiles retain the original alias', async () => {
     await query('SELECT platform.refresh_verified_line_profile($1,$2)', [peerUid, 'LINE另一位']);
     const r = await post('/line/journal/feed', { cursor: null });
     expect(r.statusCode, r.body).toBe(200);
@@ -194,8 +238,185 @@ suite('LINE verified nickname display without authorization or identity changes'
       ['line', uid, 'zh_TW']
     );
     expect(old.rows[0]!.data.entries.map((e) => e.alias)).toEqual(
-      expect.arrayContaining(['Chosen self alias', 'Chosen peer alias', 'TG分享暱稱'])
+      expect.arrayContaining(['LINE自己😀', 'LINE另一位', 'TG分享暱稱'])
     );
+  });
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'uses each author platform nickname in both learner readers in %s, preserving staff/partner aliases and publications',
+    async (locale) => {
+      await db.pool.query(
+        'UPDATE core.journal_publications SET external_enabled=TRUE,shared_with_staff=TRUE'
+      );
+      const publications = (
+        await db.pool.query('SELECT * FROM core.journal_publications ORDER BY id')
+      ).rows;
+      const people = (await db.pool.query('SELECT * FROM identity.people ORDER BY id')).rows;
+      const identities = (
+        await db.pool.query('SELECT * FROM identity.platform_identities ORDER BY id')
+      ).rows;
+      await query('SELECT platform.refresh_verified_line_profile($1,$2)', [peerUid, 'LINE另一位']);
+      const session = await miniapp('已儲存 <b>TG原文</b>😀');
+      expect(session.statusCode, session.body).toBe(200);
+      const token = session.json<{ token: string }>().token;
+      const line = await post('/line/journal/feed', { cursor: null, locale });
+      expect(line.statusCode, line.body).toBe(200);
+      const telegram = await app.inject({
+        method: 'POST',
+        url: '/telegram/journal/feed',
+        headers: { origin },
+        payload: { token, locale, page: 1 }
+      });
+      expect(telegram.statusCode, telegram.body).toBe(200);
+      const names = ['LINE自己😀', 'LINE另一位', '已儲存 <b>TG原文</b>😀'];
+      for (const response of [line, telegram]) {
+        expect(
+          response.json<{ entries: { alias: string }[] }>().entries.map((e) => e.alias)
+        ).toEqual(expect.arrayContaining(names));
+        expect(response.body).not.toContain('申請表真實姓名');
+      }
+      const aliasNames = ['Chosen self alias', 'Chosen peer alias', 'TG分享暱稱'];
+      for (const sql of [
+        'SELECT core.shared_journal_feed($1,1,TRUE) data',
+        'SELECT core.journal_audience_feed($1,1,FALSE,TRUE) data'
+      ])
+        expect(
+          (
+            await db.pool.query<{ data: { entries: { alias: string }[] } }>(sql, [locale])
+          ).rows[0]!.data.entries.map((e) => e.alias)
+        ).toEqual(expect.arrayContaining(aliasNames));
+      expect(
+        (await db.pool.query('SELECT * FROM core.journal_publications ORDER BY id')).rows
+      ).toEqual(publications);
+      expect((await db.pool.query('SELECT * FROM identity.people ORDER BY id')).rows).toEqual(
+        people
+      );
+      expect(
+        (await db.pool.query('SELECT * FROM identity.platform_identities ORDER BY id')).rows
+      ).toEqual(identities);
+    }
+  );
+  it('accepts private signed webhook names but prevents stale/replayed events from overwriting newer metadata across proof sources', async () => {
+    const now = Math.floor(Date.now() / 1000),
+      name = async () =>
+        (await db.pool.query('SELECT display_name FROM platform.telegram_verified_profiles'))
+          .rows[0]?.display_name;
+    expect((await webhook('Webhook old', 41037, now - 20)).statusCode).toBe(200);
+    expect(await name()).toBe('Webhook old');
+    expect((await miniapp('Fresh MiniApp', now - 5)).statusCode).toBe(200);
+    expect(await name()).toBe('Fresh MiniApp');
+    await webhook('Late old delivery', 41038, now - 10);
+    await webhook('Replay spoof', 41037, now + 1);
+    expect(await name()).toBe('Fresh MiniApp');
+    await webhook('New webhook', 41039, now);
+    expect(await name()).toBe('New webhook');
+    await miniapp('Old MiniApp replay', now - 5);
+    expect(await name()).toBe('New webhook');
+  });
+  it('rejects browser/profile forgeries, wrong webhook secrets, groups, bots and chat-subject mismatch without creating metadata', async () => {
+    expect((await webhook('Forged', 41037, undefined, { secret: 'wrong' })).statusCode).toBe(401);
+    for (const options of [{ group: true }, { bot: true }, { other: true }])
+      expect((await webhook('Not private', 41037, undefined, options)).statusCode).toBe(200);
+    const proof = signMiniapp(botToken, tgSubject),
+      altered = new URLSearchParams(proof);
+    altered.set('user', JSON.stringify({ id: tgSubject, first_name: 'Forged profile' }));
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/telegram/workspace/session',
+          headers: { origin },
+          payload: { initData: altered.toString() }
+        })
+      ).statusCode
+    ).toBe(401);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/telegram/workspace/session',
+          headers: { origin },
+          payload: { initData: proof, displayName: 'Browser spoof' }
+        })
+      ).statusCode
+    ).toBe(400);
+    const unknown = await app.inject({
+      method: 'POST',
+      url: '/telegram/workspace/session',
+      headers: { origin },
+      payload: { initData: signMiniapp(botToken, tgSubject + 99) }
+    });
+    expect(unknown.statusCode).toBe(403);
+    expect(
+      (await db.pool.query('SELECT * FROM platform.telegram_verified_profiles')).rowCount
+    ).toBe(0);
+  });
+  it('preserves a cached Telegram name on repeated or nameless valid proofs and keeps display audits free of names', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    await miniapp('Known provider name', now - 10);
+    await miniapp('Different replay name', now - 10);
+    const proof = signMiniapp(botToken, tgSubject, now, {
+      user: JSON.stringify({ id: tgSubject })
+    });
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/telegram/workspace/session',
+          headers: { origin },
+          payload: { initData: proof }
+        })
+      ).statusCode
+    ).toBe(200);
+    expect(
+      (await db.pool.query('SELECT display_name FROM platform.telegram_verified_profiles')).rows[0]
+        ?.display_name
+    ).toBe('Known provider name');
+    const audit = (
+      await db.pool.query(
+        "SELECT metadata FROM audit.events WHERE action='telegram.profile_refresh'"
+      )
+    ).rows;
+    expect(audit).toHaveLength(1);
+    expect(JSON.stringify(audit)).not.toContain('Known provider name');
+  });
+  it('keeps nickname cache/helpers private and cannot create orphan or cross-provider identity associations', async () => {
+    await expect(query('SELECT * FROM platform.telegram_verified_profiles', [])).rejects.toThrow();
+    await expect(
+      query('SELECT platform.learner_public_author_name($1,$2,$3)', [identity, 'alias', 'zh_TW'])
+    ).rejects.toThrow();
+    await expect(
+      query(
+        'SELECT platform.refresh_verified_telegram_profile($1,$2,$3,clock_timestamp(),$4)',
+        [String(tgSubject), 'Spoof', 'webhook', 41037],
+        true
+      )
+    ).rejects.toThrow();
+    expect(
+      (
+        await query<{ ok: boolean }>(
+          'SELECT platform.refresh_verified_telegram_profile($1,$2,$3,clock_timestamp(),$4) ok',
+          [String(tgSubject + 99), 'No identity', 'webhook', 41037]
+        )
+      ).rows[0]!.ok
+    ).toBe(false);
+    expect(
+      (await db.pool.query('SELECT * FROM platform.telegram_verified_profiles')).rowCount
+    ).toBe(0);
+  });
+  it('does not show a cached Telegram author name after its active channel is closed and identity revoked', async () => {
+    await miniapp('TG revoked nickname');
+    await db.pool.query(
+      'UPDATE identity.person_interaction_channels SET valid_to=clock_timestamp() WHERE platform_identity_id IN(SELECT id FROM identity.platform_identities WHERE platform=$1)',
+      ['telegram']
+    );
+    await db.pool.query(
+      'UPDATE identity.platform_identities SET revoked_at=clock_timestamp() WHERE platform=$1',
+      ['telegram']
+    );
+    const response = await post('/line/journal/feed', { cursor: null });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.body).not.toContain('TG revoked nickname');
+    expect(response.body).not.toContain('TG分享暱稱');
   });
   it('does not erase a known nickname when later verified claims omit it, or emit redundant profile audits', async () => {
     await post('/line/workspace/profile');
@@ -261,6 +482,7 @@ suite('LINE verified nickname display without authorization or identity changes'
       peerUid,
       'Peer private until acceptance'
     ]);
+    await miniapp('TG private until acceptance');
     await db.pool.query("UPDATE platform.learner_privacy_policies SET state='active'");
     const token = randomBytes(32).toString('base64url');
     await query("SELECT platform.begin_privacy_gate('line',$1,$2)", [uid, token]);
@@ -281,6 +503,7 @@ suite('LINE verified nickname display without authorization or identity changes'
     const feed = await post('/line/journal/feed', { cursor: null });
     expect(feed.statusCode).toBe(200);
     expect(feed.body).not.toContain('Peer private until acceptance');
+    expect(feed.body).not.toContain('TG private until acceptance');
   });
   it('still requires valid identity and applicable necessary consent', async () => {
     expect((await post('/line/workspace/profile', { idToken: 'wrong' })).statusCode).toBe(401);

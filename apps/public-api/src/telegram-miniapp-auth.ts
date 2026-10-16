@@ -1,14 +1,15 @@
 import { localeSchema } from './ui-localization.js';
+import { telegramProfileDisplayName, refreshVerifiedTelegramProfile } from './telegram-profile.js';
 import { createHmac, timingSafeEqual, randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
 import { beginLearnerPrivacy } from './learner-privacy-routes.js';
-export const verifyTelegramMiniapp = (
+export const verifyTelegramMiniappIdentity = (
   raw: string,
   botToken: string,
   now = Math.floor(Date.now() / 1000)
-): { subject: string; authDate: number } => {
+): { subject: string; authDate: number; displayName?: string } => {
   if (!raw || raw.length > 16000) throw Error('Invalid Telegram Mini App proof');
   const fields = new URLSearchParams(raw),
     seen = new Set<string>();
@@ -42,7 +43,16 @@ export const verifyTelegramMiniapp = (
     .object({ id: z.number().int().positive().safe(), is_bot: z.boolean().optional() })
     .safeParse(user);
   if (!parsed.success || parsed.data.is_bot) throw Error('Invalid Telegram Mini App user');
-  return { subject: String(parsed.data.id), authDate };
+  const displayName = telegramProfileDisplayName(user);
+  return { subject: String(parsed.data.id), authDate, ...(displayName ? { displayName } : {}) };
+};
+export const verifyTelegramMiniapp = (
+  raw: string,
+  botToken: string,
+  now = Math.floor(Date.now() / 1000)
+): { subject: string; authDate: number } => {
+  const identity = verifyTelegramMiniappIdentity(raw, botToken, now);
+  return { subject: identity.subject, authDate: identity.authDate };
 };
 export const registerTelegramMiniapp = (app: FastifyInstance, pool: Pool, botToken: string) => {
   app.post('/telegram/workspace/session', { bodyLimit: 20000 }, async (request, reply) => {
@@ -60,11 +70,24 @@ export const registerTelegramMiniapp = (app: FastifyInstance, pool: Pool, botTok
       .strict()
       .safeParse(request.body);
     if (!input.success) return reply.code(400).send({ error: 'invalid_miniapp_request' });
-    let subject: string;
+    let identity: ReturnType<typeof verifyTelegramMiniappIdentity>;
     try {
-      subject = verifyTelegramMiniapp(input.data.initData, botToken).subject;
+      identity = verifyTelegramMiniappIdentity(input.data.initData, botToken);
     } catch {
       return reply.code(401).send({ error: 'invalid_miniapp_proof' });
+    }
+    const subject = identity.subject;
+    if (identity.displayName) {
+      try {
+        await refreshVerifiedTelegramProfile(pool, request.id, {
+          subject,
+          displayName: identity.displayName,
+          source: 'miniapp',
+          proofTime: identity.authDate
+        });
+      } catch {
+        app.log.warn('Verified Telegram nickname refresh unavailable');
+      }
     }
     try {
       return await withRequestContext(

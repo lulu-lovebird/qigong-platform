@@ -39,7 +39,9 @@ const english = {
     'Read voluntarily shared reflections from all regions. Private reflections are never automatically shared.',
   mineHelp:
     'Your original reflections remain private. Preview the current content, choose what to share, and publish a separate snapshot. Private edits never automatically update a published snapshot.',
-  alias: 'Sharing nickname (not your legal name)',
+  alias: 'Custom sharing nickname (partner exports / no verified platform nickname)',
+  authorNameNotice:
+    'Learner feeds show the author’s verified LINE or Telegram profile nickname when available, otherwise the existing sharing nickname or an anonymous label. Application names, email and phone are never used. Names do not identify or link accounts.',
   shareNote: 'Share this reflection',
   shareFeelings: 'Share these feelings',
   external: 'Also allow authenticated partner systems to read this shared snapshot',
@@ -107,7 +109,9 @@ const chinese: Record<keyof typeof english, string> = {
   shareHelp: '觀摩所有地區學員自願分享的心得；私密心得不會自動公開。',
   mineHelp:
     '原始心得仍為私密。請預覽目前內容，選擇分享項目，再發布獨立快照。日後修改私密心得，不會自動改動已分享內容。',
-  alias: '分享暱稱（不使用真實姓名）',
+  alias: '自訂分享暱稱（外部分享／尚無已驗證平台暱稱時使用）',
+  authorNameNotice:
+    '學員心得流優先顯示作者所用平台的已驗證暱稱（LINE／Telegram）；尚未取得時使用既有分享暱稱或匿名代稱，不使用報名姓名、Email或電話，也不依暱稱識別或合併帳號。',
   shareNote: '分享這份心得',
   shareFeelings: '分享這些感受',
   external: '也同意讓已登入的合作系統讀取這份分享快照',

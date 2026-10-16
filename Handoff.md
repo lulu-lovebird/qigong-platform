@@ -1,5 +1,15 @@
 # Qigong Platform — 交接摘要
 
+## 最新本機：LINE／TG心得流統一驗證暱稱（未提交／部署）
+
+- 使用者確認修正。只讀正式診斷當時LINE2筆active publications都有LINE cache、TG4筆generated alias無LINE連結；LINE cursor原只修LINE作者、TG一般feed仍原alias。新37只包learner facades：LINE來源用LINE verified name、TG來源用Telegram verified name，沒cache保留原分享alias／安全fallback；不依姓名/Email/phone合併、不用報名姓名，不改pub alias/snapshots/sourceHash。
+- 新forced-RLS Telegram profile cache以既有identity_id鍵；private matching webhook secret/private chat/from.id/nonbot＋recent message date、或MiniApp HMAC/bot/subject/auth_date驗證後才refresh。profile_at與last webhook updateID防跨來源過期／重播覆蓋，未知subject不建person/cache，缺name不清除，audits不含name。舊TG作者須下一次有效native launch或Bot私聊才有cache，不掃getChat、不猜LINE身份。
+- LINE2/3arg cursor、TG journal_feed、LINE/TG community_feed套private helper保留原eligibility/consent/order/cursor；core staff/partner及WA reader aliases不改。三語author-name-help與external alias編輯文案更新，channel factory保護cross-provider notice避免LINE/Telegram被廣替換成LINE/LINE；alias資料literal text不轉字不當HTML。
+- candidate exact37／phase-22-learner-author-names／API、minute worker及realtime runtime皆check ops.learner_author_names_schema_ready。歷史0001–0036／dependencies不動。後續發佈另核准且須同時drain/stop API＋兩worker，final備份actual restore/data preservation；37不可binary-only回36，需matchingDB與worker/queue/cache流量後對帳。正式仍6a2ae3f／36、flags與services未改。
+- 獨立PG16完整pnpm verify **790 tests**（API598／DB184／config2／identity6）＋format/lint/source TS/build過；both-reader三語真HTTP names／pub/people/identity不變、external/staff aliases原樣，signed spoof/stale/missing/permission/privacy/revocation／raw helper拒絕、36→37整表/source/functions attrs保留/cache0/repeat0皆過。Realtime11項仍過。額外all-test TS仍10既有錯，時間戳間歇不稱修。
+- 實compiled API＋獨立受限PG合成資料Chrome **12 layouts**（2reader×3locale×390/1280），兩平台nicknames含Hant/emoji/markup原字呈現、缺cache alias、安全notice與原external-editor alias保留，無overflow/exception/API failure；signed TG proof真驗HMAC但provider/OIDC模擬，非真人驗收。own-note fixture補缺note row，未放寬visibility；DDL CASE parenthesized修parse，整HTML抓出舊字串廣替換。/tmp/qigong-author-names-*，見[設計驗證](docs/operations/learner-author-names.md)。無正式寫入／Console／profile names輸出／真人testsend，permissions-review仍排除。
+- **6a2ae3f真人驗收補記：**使用者已確認打卡後馬上收到回條（good job）；此驗收不等於本輪新暱稱修正已發佈／驗收。
+
 ## 最新部署／啟用：近即時打卡回條6a2ae3f（同schema36）
 
 - 使用者另核准commit/push/deploy並啟用新service。6a2ae3fc526ee67feed33f1a9f0d52c22b0bf61b，CI38836351039成功／766 tests（API575／DB183／config2／identity6）。2026-10-16 01:52:10–01:52:32 UTC維護22秒，同36／phase21，零migration／DDL。原a952及新API restored36皆ready，75表／18people／27checkins全資料/metadata與所有舊source hashes保留。

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { renderAdminJournalPage } from '../src/admin-journal-pages.js';
 import { renderLearnerJournalPage } from '../src/learner-journal-pages.js';
 import { journalTexts } from '../src/journal-locale.js';
+import { renderChannelWorkspacePage } from '../src/channel-workspace-pages.js';
 
 type Event = { preventDefault: () => void; returnValue?: string };
 type Handler = (event?: Event) => void | Promise<void>;
@@ -238,6 +239,23 @@ const settle = async () => {
   for (let i = 0; i < 5; i++) await setImmediate();
 };
 describe('Journal generated pages and unsaved-edit behavior', () => {
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'discloses verified platform author names in both learner readers without relabeling the external sharing editor in %s',
+    (locale) => {
+      const t = journalTexts(locale);
+      for (const html of [
+        renderLearnerJournalPage(locale),
+        renderChannelWorkspacePage({ platform: 'line', liffId: '123-profile' }, 'journal', locale)
+      ]) {
+        expect(html).toContain('id="author-name-help"');
+        expect(html).toContain(t.authorNameNotice);
+        expect(html).toContain(t.alias);
+        expect(html).not.toContain('其他渠道作者保留分享暱稱');
+        for (const script of html.matchAll(/<script>([\s\S]*?)<\/script>/g))
+          expect(() => new Script(script[1]!)).not.toThrow();
+      }
+    }
+  );
   it.each(['zh_TW', 'zh_CN', 'en'] as const)(
     'edits and persists the independent Simplified label in %s, preserving failed/cancelled drafts and explicit clearing',
     async (locale) => {

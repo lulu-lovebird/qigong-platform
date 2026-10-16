@@ -1,4 +1,5 @@
 import { lineUiText } from './line-ui-localization.js';
+import { journalTexts } from './journal-locale.js';
 import { uiText, uiDictionary } from './ui-localization.js';
 import { whatsappBrowserBootstrap, whatsappLoginMarkup } from './whatsapp-browser-bootstrap.js';
 import type { LearnerLocale } from './learner-locale.js';
@@ -9,7 +10,6 @@ import {
   telegramWorkspaceBootstrap,
   type TelegramWorkspacePage
 } from './telegram-workspace-pages.js';
-import { journalTexts } from './journal-locale.js';
 import { renderLearnerJournalPage } from './learner-journal-pages.js';
 export type WorkspaceChannel = { platform: 'line'; liffId: string } | { platform: 'whatsapp' };
 export type ChannelWorkspacePage = TelegramWorkspacePage | 'journal';
@@ -133,21 +133,6 @@ export const renderChannelWorkspacePage = (
         )
         .replaceAll(original.rankingPrivacy, rankingPrivacy);
     }
-    if (page === 'journal') {
-      const original = journalTexts(lang);
-      html = html
-        .replaceAll(
-          original.streamNotice,
-          lineUiText(
-            lang,
-            'LINE作者對此心得流顯示已驗證的LINE暱稱，尚未取得時顯示匿名學員；其他渠道作者保留分享暱稱。卡片含練功地區、時間及截止當次日期的連續／累計統計，不公開私密原文或逐日歷史。'
-          )
-        )
-        .replaceAll(
-          original.alias,
-          lineUiText(lang, '其他分享渠道／外部分享使用的暱稱（LINE心得流使用LINE暱稱）')
-        );
-    }
     // All three presentation languages are supported; the verified LINE subject remains unchanged.
   }
   if (channel.platform === 'whatsapp' && page !== 'journal') {
@@ -207,5 +192,12 @@ export const renderChannelWorkspacePage = (
         'const mayLeave = (includeZone=true) => !busy && (!dirty(includeZone)||window.confirm(t.discard));window.whatsappMayLeave=()=>{if(!mayLeave())return false;leaving=true;syncClosing();return true;};window.whatsappLeaveCancelled=()=>{leaving=false;syncClosing();};'
       );
   }
-  return html.replaceAll('Telegram', channel.platform === 'line' ? 'LINE' : 'WhatsApp');
+  // The cross-author disclosure names both providers, not just the current reader channel.
+  const authorNotice = journalTexts(lang).authorNameNotice;
+  return html
+    .replaceAll(JSON.stringify(authorNotice), JSON.stringify('AUTHOR_NOTICE_JSON_SLOT'))
+    .replaceAll(authorNotice, 'AUTHOR_NOTICE_HTML_SLOT')
+    .replaceAll('Telegram', channel.platform === 'line' ? 'LINE' : 'WhatsApp')
+    .replaceAll(JSON.stringify('AUTHOR_NOTICE_JSON_SLOT'), JSON.stringify(authorNotice))
+    .replaceAll('AUTHOR_NOTICE_HTML_SLOT', authorNotice);
 };
