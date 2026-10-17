@@ -44,4 +44,8 @@ jobs:
           test -n "$TEST_DATABASE_URL"
           node -e 'const u = new URL(process.env.TEST_DATABASE_URL); if (!u.pathname.includes("test")) process.exit(1)'
       - run: pnpm build
+      - name: Typecheck all TypeScript source and tests
+        run: pnpm exec tsc -p tsconfig.eslint.json --noEmit
+      - name: Strictly typecheck receipt health CLI
+        run: pnpm exec tsc -p tsconfig.receipt-health.json
       - run: pnpm verify

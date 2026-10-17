@@ -1,8 +1,9 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { runMigrations, type Pool } from '@qigong/database';
 import { buildApp } from '../src/app.js';
 import { signMiniapp } from './telegram-miniapp-fixtures.js';
@@ -13,6 +14,91 @@ const migrationsDirectory = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../migrations'
 );
+
+const historyDiagnosticSchema = z.object({
+  tokenFound: z.boolean(),
+  tokenMatchesExpectedPerson: z.boolean(),
+  personActive: z.boolean(),
+  identityUnrevoked: z.boolean(),
+  applicationApproved: z.boolean(),
+  channelFound: z.boolean(),
+  channelOpen: z.boolean(),
+  tokenUnexpiredAtDiagnosticTransaction: z.boolean(),
+  tokenUnexpiredAtDiagnosticWallClock: z.boolean(),
+  channelStartedAtDiagnosticTransaction: z.boolean(),
+  channelStartedAtDiagnosticWallClock: z.boolean(),
+  clockMinusDiagnosticTransactionMs: z.number().finite(),
+  channelStartMinusDiagnosticTransactionMs: z.number().finite().nullable(),
+  channelStartMinusDiagnosticWallClockMs: z.number().finite().nullable(),
+  tokenExpiresMinusDiagnosticTransactionMs: z.number().finite().nullable()
+});
+const diagnoseHistoryAfterResponse = async (pool: Pool, credential: string, personId: string) => {
+  const observation = {
+    phase: 'after_history_response_read_only_transaction',
+    originalRequestTransaction: false
+  } as const;
+  const unavailable = { ...observation, available: false } as const;
+  let diagnostic:
+    | typeof unavailable
+    | (typeof observation & { available: true } & z.infer<typeof historyDiagnosticSchema>) =
+    unavailable;
+  let client: pg.PoolClient | undefined;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN READ ONLY');
+    const result = await client.query<Record<string, unknown>>(
+      `WITH observed AS MATERIALIZED (SELECT CURRENT_TIMESTAMP tx, clock_timestamp() wall)
+       SELECT l.token_hash IS NOT NULL AS "tokenFound",
+         i.id IS NOT NULL AS "tokenMatchesExpectedPerson",
+         coalesce(p.status='active',FALSE) AS "personActive",
+         i.id IS NOT NULL AND i.revoked_at IS NULL AS "identityUnrevoked",
+         EXISTS(SELECT 1 FROM identity.onboarding_applications a
+           WHERE a.person_id=p.id AND a.platform='telegram'
+             AND a.external_subject_id=l.telegram_user_id AND a.status='approved') AS "applicationApproved",
+         ch.id IS NOT NULL AS "channelFound",
+         ch.id IS NOT NULL AND ch.valid_to IS NULL AS "channelOpen",
+         coalesce(l.expires_at>o.tx,FALSE) AS "tokenUnexpiredAtDiagnosticTransaction",
+         coalesce(l.expires_at>o.wall,FALSE) AS "tokenUnexpiredAtDiagnosticWallClock",
+         coalesce(ch.valid_from<=o.tx,FALSE) AS "channelStartedAtDiagnosticTransaction",
+         coalesce(ch.valid_from<=o.wall,FALSE) AS "channelStartedAtDiagnosticWallClock",
+         (extract(epoch FROM(o.wall-o.tx))*1000)::double precision AS "clockMinusDiagnosticTransactionMs",
+         (extract(epoch FROM(ch.valid_from-o.tx))*1000)::double precision AS "channelStartMinusDiagnosticTransactionMs",
+         (extract(epoch FROM(ch.valid_from-o.wall))*1000)::double precision AS "channelStartMinusDiagnosticWallClockMs",
+         (extract(epoch FROM(l.expires_at-o.tx))*1000)::double precision AS "tokenExpiresMinusDiagnosticTransactionMs"
+       FROM observed o
+       LEFT JOIN platform.telegram_checkin_links l ON l.token_hash=$1::bytea
+       LEFT JOIN identity.people p ON p.id=$2::uuid
+       LEFT JOIN identity.platform_identities i ON i.person_id=p.id AND i.platform='telegram'
+         AND i.external_subject_id=l.telegram_user_id
+       LEFT JOIN LATERAL(SELECT c.id,c.valid_from,c.valid_to
+         FROM identity.person_interaction_channels c
+         WHERE c.person_id=p.id AND c.platform_identity_id=i.id
+         ORDER BY (c.valid_to IS NULL) DESC,c.valid_from DESC LIMIT 1) ch ON TRUE`,
+      [createHash('sha256').update(credential).digest(), personId]
+    );
+    const parsed = historyDiagnosticSchema.safeParse(result.rows[0]);
+    if (parsed.success) diagnostic = { ...observation, available: true, ...parsed.data };
+  } catch {
+    // Never leak connection details, SQL errors, credential hashes or provider subjects.
+    diagnostic = unavailable;
+  } finally {
+    if (client) {
+      let destroy = false;
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        destroy = true;
+        diagnostic = unavailable;
+      }
+      try {
+        client.release(destroy);
+      } catch {
+        diagnostic = unavailable;
+      }
+    }
+  }
+  return diagnostic;
+};
 
 describeWithDatabase('separate Telegram onboarding webhook', () => {
   let pool: Pool;
@@ -373,9 +459,51 @@ describeWithDatabase('separate Telegram onboarding webhook', () => {
     expect((await history(undefined)).statusCode).toBe(400);
     expect((await history('a'.repeat(43))).statusCode).toBe(403);
     const initial = await history(token);
-    expect(initial.statusCode, initial.body).toBe(200);
+    const initialFailure =
+      initial.statusCode !== 200
+        ? await diagnoseHistoryAfterResponse(pool, token, person.rows[0]!.id)
+        : undefined;
+    expect(initial.statusCode, JSON.stringify(initialFailure)).toBe(200);
     expect(initial.json().entries).toEqual([]);
     expect(initial.json().currentStreak).toBe(0);
+    // Validate diagnostic projection after the initial request, without delaying that request.
+    const invalidDiagnostic = await diagnoseHistoryAfterResponse(
+      pool,
+      'a'.repeat(43),
+      person.rows[0]!.id
+    );
+    expect(invalidDiagnostic).toMatchObject({
+      phase: 'after_history_response_read_only_transaction',
+      originalRequestTransaction: false,
+      available: true,
+      tokenFound: false,
+      tokenMatchesExpectedPerson: false
+    });
+    const validDiagnostic = await diagnoseHistoryAfterResponse(pool, token, person.rows[0]!.id);
+    expect(validDiagnostic).toMatchObject({
+      phase: 'after_history_response_read_only_transaction',
+      originalRequestTransaction: false,
+      available: true,
+      tokenFound: true,
+      tokenMatchesExpectedPerson: true,
+      personActive: true,
+      identityUnrevoked: true,
+      applicationApproved: true,
+      channelFound: true,
+      channelOpen: true
+    });
+    const diagnosticText = JSON.stringify([invalidDiagnostic, validDiagnostic]);
+    for (const forbidden of [
+      token,
+      'a'.repeat(43),
+      ...[token, 'a'.repeat(43)].map((value) => createHash('sha256').update(value).digest('hex')),
+      person.rows[0]!.id,
+      identity.rows[0]!.id,
+      'Test Learner',
+      'learner@example.com',
+      '+886912345678'
+    ])
+      expect(diagnosticText.includes(forbidden)).toBe(false);
     const submit = (methodCodes: string[]) =>
       app.inject({
         method: 'POST',
@@ -616,8 +744,10 @@ describeWithDatabase('separate Telegram onboarding webhook', () => {
       }
     });
     const principal = await pool.query<{ id: string }>(
-      `SELECT id FROM admin.principals WHERE oidc_subject = 'checkin-reviewer'`
+      `INSERT INTO admin.principals (oidc_issuer, oidc_subject, display_name)
+       VALUES ('https://admin.example.com', 'timezone-reviewer', 'Timezone Reviewer') RETURNING id`
     );
+    expect(principal.rows).toHaveLength(1);
     const person = await pool.query<{ id: string }>(
       `INSERT INTO identity.people (preferred_name, practice_timezone, membership_status)
        VALUES ('Timezone Learner', 'Pacific/Honolulu', 'pending') RETURNING id`
@@ -670,11 +800,30 @@ describeWithDatabase('separate Telegram onboarding webhook', () => {
         payload: { initData: signMiniapp('123456:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 54322) }
       })
     ).json<{ token: string }>().token;
-    const someoneElse = await pool.query<{ id: string }>(
-      `SELECT id FROM core.checkins WHERE person_id <> $1 LIMIT 1`,
-      [person.rows[0]!.id]
+    const someoneElse = await pool.query<{ id: string; person_id: string }>(
+      `WITH other_person AS (
+         INSERT INTO identity.people(preferred_name,practice_timezone,membership_status)
+         VALUES('Synthetic ownership fixture','UTC','pending') RETURNING id
+       ), other_identity AS (
+         INSERT INTO identity.platform_identities(person_id,platform,external_subject_id)
+         SELECT id,'telegram','54323' FROM other_person RETURNING id,person_id
+       ), other_assignment AS (
+         INSERT INTO core.person_region_assignments(person_id,region_id,assignment_type,valid_from,assigned_by_principal_id)
+         SELECT id,$1,'primary',CURRENT_DATE-3,$2 FROM other_person RETURNING id,person_id
+       ) INSERT INTO core.checkins(person_id,submitted_via_identity_id,practice_date,practice_timezone,entry_kind,region_assignment_id)
+         SELECT p.id,i.id,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date,'UTC','regular',a.id
+         FROM other_person p JOIN other_identity i ON i.person_id=p.id
+         JOIN other_assignment a ON a.person_id=p.id RETURNING id,person_id`,
+      [regionId, principal.rows[0]!.id]
     );
     expect(someoneElse.rows).toHaveLength(1);
+    expect(someoneElse.rows[0]!.person_id === person.rows[0]!.id).toBe(false);
+    const otherSelection = await pool.query(
+      `INSERT INTO core.checkin_method_selections(checkin_id,practice_method_id)
+       SELECT $1,id FROM core.practice_methods WHERE code='dayan_chu'`,
+      [someoneElse.rows[0]!.id]
+    );
+    expect(otherSelection.rowCount).toBe(1);
     const otherCorrection = await app.inject({
       method: 'POST',
       url: '/telegram/checkin/correct',
