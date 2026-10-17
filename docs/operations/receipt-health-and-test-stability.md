@@ -1,4 +1,4 @@
-# 回條健康監測與測試穩定性（已部署362c4ef／schema37，正式告警未啟用）
+# 回條健康監測與測試穩定性（目前0ec97d5／schema37，正式告警未啟用）
 
 ## 範圍與狀態
 
@@ -70,9 +70,9 @@ pnpm exec tsc -p tsconfig.receipt-health.json
 
 CLI 亦以 `@ts-check`／JSDoc 明確型別與 unknown JSON 邊界通過獨立 strict 檢查；不以未檢查的 JavaScript 繞過型別要求。
 
-## CI 型別防線與 Telegram 測試隔離（已核准提交／發布）
+## CI 型別防線與 Telegram 測試隔離（已部署0ec97d5／schema37）
 
-使用者先核准以下3檔案的本機實作，再另核准單一Telegram測試檔的案例隔離與安全診斷，最後核准commit／push／deploy；不包含時鐘或告警啟用變更。提交前GitHub仍執行先前workflow；新門檻須由候選exact-SHA CI實際驗證成功後才可部署。
+使用者先核准以下3檔案的本機實作，再另核准單一Telegram測試檔的案例隔離與安全診斷，最後核准commit／push／deploy；不包含時鐘或告警啟用變更。新門檻已由exact-SHA CI **38995975957**對 **0ec97d5**實際驗證：兩具名步驟與完整819tests首輪皆成功，後續同37部署完成。見[本次CI／測試部署與恢復紀錄](ci-type-gates-deployment.md)；告警仍未啟用。
 
 - `.github/workflows/ci.yml`：保留既有 `verify` job、permissions、Node24、PostgreSQL health／test-database guard、frozen-lockfile install與build。在build後、原 `pnpm verify` 前加入具名步驟：`Typecheck all TypeScript source and tests`、`Strictly typecheck receipt health CLI`，執行上述兩條命令。任一步非零即阻擋，沒有continue-on-error或自動重試。
 - `tsconfig.receipt-health.json`：繼承base，啟用allowJs／checkJs／noEmit／allowImportingTsExtensions，只include `scripts/check-receipt-health.mjs`及自動解析的匯入依賴。保留strict／noUncheckedIndexedAccess／exactOptionalPropertyTypes；明確skipLibCheck=false，維持原手動CLI命令的檢查強度。不把未檢查的其他MJS腳本宣稱為已涵蓋。
@@ -87,7 +87,7 @@ CLI 亦以 `@ts-check`／JSDoc 明確型別與 unknown JSON 邊界通過獨立 s
 
 後續只修改 `telegram-onboarding.test.ts`：時區案例自行建立reviewer與另一學員的具完整FK／功法選取打卡，不再讀取前一案例留下的資料；歷史查詢失敗時，以另一個 `BEGIN READ ONLY` transaction收集allowlisted資格布林與時間差，明確標記originalRequestTransaction=false。診斷經schema投影，沒有姓名、ID、token、hash或SQL exception；有效／無效credential投影及敏感值不出現檢查皆過。原有channel時間起點、期限／跨人拒絕斷言與production SQL未改。
 
-時區／history案例各自單獨通過，該檔4/4通過，兩道型別／lint／格式檢查通過；沒有重跑整輪取綠燈，也沒有重現原403，因此根因仍未結案。證據 `/tmp/qigong-telegram-isolation-{timezone,history-final,file}.log`。使用者現已核准提交／推送／發布；必須由新exact-SHA CI的兩道型別門檻與完整verify共同通過，不以本機個別案例成功冒充整輪或GitHub CI成功。
+時區／history案例各自單獨通過，該檔4/4通過，兩道型別／lint／格式檢查通過；沒有重跑整輪取綠燈，也沒有重現原403，因此根因仍未結案。證據 `/tmp/qigong-telegram-isolation-{timezone,history-final,file}.log`。後續已依使用者核准提交／推送，exact-SHA CI兩道型別門檻與完整verify共同通過後才部署。這不抹除前述817/2失敗證據，不證明原403或測試主機時鐘根因已修復；無重跑CI取綠燈、時間條件或主機設定變更。
 
 ## 時間戳間歇問題：已證實與未證實
 

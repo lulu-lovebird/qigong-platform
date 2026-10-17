@@ -1,5 +1,15 @@
 # Qigong Platform — 交接摘要
 
+## 最新部署：嚴格CI型別門檻與Telegram測試隔離0ec97d5（同schema37）
+
+- 使用者核准commit/push/deploy；正式 **0ec97d50216a6797cb55ccf78520ee89a30496c5**，exact-SHA CI **38995975957**首輪成功，兩新具名type gates與完整 **819 tests**（API625／DB186／config2／identity6）、format／lint／sourceTS／build皆過，無manual rerun或鬆斷言。保留原verify job／permissions／Node24／PostgreSQL／frozen lock；TS170檔含tests88覆蓋與隔離TS2322正反驗證仍有效，CLI新project strict／checkJs／skipLibCheck=false。
+- Telegram時區案例自建reviewer／另一人完整FK與功法選取checkin，不依賴前例；歷史失敗診斷只回傳布林／時間差，明示事後READ ONLY且非原交易，無credential／hash／IDs／個資／原SQL錯誤。既有channel起點／期限／拒絕斷言／production SQL不改。先前817pass/2fail與clock負差保留，根因未宣稱已修；新CI通過不等於VM時鐘穩定或原403原因已證實。
+- 此次僅CI／測試／config／文件：**240個compiled runtime files與362c4ef逐位元組相同**。同exact37／phase22，歷史0001–0037／deps／lockfiles／business source／API與兩worker gate不動；沒有migration runner／DDL／DB grant／回填／provider Console／NTP或clocksource變更。
+- 2026-10-17 **02:48:36–02:48:56 UTC／20秒**維護，停timer／drain兩worker再停API；final DB／roles／runtime站外AESGCM decrypt-hash並實際還原到隔離PG16/socket55481，old362與new都37ready。**76表／18people／30checkins**全資料／metadata／cache／pub／sourceHash／grants／consent／audit／security attrs與RLS／ACL全等後才切matchingSHA；未restore正式DB或覆蓋新流量，post-runtime config也站外加密decrypt-hash過。
+- compiled clone admin／scope／grants／Authgear／private／external／community／三語tags/review／invite friend-resume-quota-native／both-reader names、24reports／30HTML／49badges／minute worker全過。真Linux hardened continuous mock14jobs皆attempt1、LINE/TG median1.013/0.999s、max1.318/1.303s，heartbeat fresh/error0/idlelogs0／SIGTERM正常，非真人provider或手機benchmark。暫存unit卸除、clone停／env與community/realtime credential fixture刪。
+- 正式195HTTPS過；API **02:48:52**、RT **02:48:54 UTC**起動active/restart0/exit0，RT既有enabled／minute timeractive、新API後minute成功。一次性health healthy、兩lane成功age333ms/error0、pending/sending/failed/expiredLease皆0；release後deliverySamples0／p95null，不冒充真人回條新驗收。既有env byte-identical／640、API/minute/RTunits byte-identical、flags與個別選擇保持，WA未設／policy draft不變；**未安裝或啟用告警排程／sink／通知**。
+- 同37回退至matching362c4ef API＋兩worker與saved override，先stop/drain、preserve currentenv/queue、不restoreDB或丟新寫入。guarded rollback已備未觸發；37不可binary-only降36。/root/qigong-deploy-0ec97d5、deployment-tools/0ec97d5、stopped rehearsal-0ec97d5／55481及分離站外backup/key保留；見[部署／實際恢復／驗收界線](docs/operations/ci-type-gates-deployment.md)。無關permissions-review與legacy不動。
+
 ## 最新部署：回條進度監測與測試型別362c4ef（同schema37，正式告警未啟用）
 
 - 使用者核准commit/push/deploy；正式 **362c4efad8514ae52a9c7e0106ca6bc0f2932511**，exact-SHA CI **38990247558**成功／819tests（API625／DB186／config2／identity6），format／lint／sourceTS／build及本機、Linux release額外all-test／CLI strict-JS皆過。維持phase22／exact37，歷史0001–0037／deps／CI不變，未執行migration runner／DDL／grant或回填。
