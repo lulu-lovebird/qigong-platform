@@ -1,8 +1,8 @@
-# Web Admin 唯讀成就榜（schema38候選，僅核准提交／推送，未部署）
+# Web Admin 唯讀成就榜（已部署a9f6f50／schema38）
 
 ## 範圍
 
-使用者先核准第一版唯讀成就榜的本機實作，後續僅核准commit／push並等待exact-SHA CI；**沒有核准部署**。正式紀錄仍為0ec97d5／schema37；不操作正式入口／DB／provider Console／env／服務／旗標／告警或主機時鐘。歷史0001–0037、套件metadata／依賴／lockfiles、無關permissions-review與legacy不動。
+使用者先核准本機實作與commit／push，exact-SHA CI通過後明確核准方案A協調維護及寫入後保留38／入口隔離與前進修復。正式已部署 **a9f6f50／schema38**，見[維護中止／續行、實際還原與回復界線](admin-achievements-deployment.md)。沒有provider Console、其他env／旗標、告警或主機時鐘變更；歷史0001–0038現已部署不可改，套件metadata／依賴／lockfiles、無關permissions-review與legacy不動。
 
 新增 `/admin/achievements`，放在「報表／分析」內、練功排行榜之後。提供49種徽章、六類分組、共享圖示、條件說明、目前規則版本、設定狀態、獲獎人數及按徽章載入的學員名單。繁中／簡中／英文，沿用compact desktop／phone樣式；點選徽章後移至可聚焦名單區，提供返回圖鑑連結。
 
@@ -37,11 +37,11 @@ HTTP回應no-store，HTML附既有CSP／no-referrer／nosniff。只有GET／HEAD
 
 ## Schema 與發布界線
 
-新增且尚未部署的 `0038_admin_achievements.sql`，phase-23-admin-achievements。**不新增table，不修改既有award/rule/season/person/check-in/profile/publication/job/audit資料**；只改platform架構metadata／migration ledger並新增4個函式。
+已部署的 `0038_admin_achievements.sql`，phase-23-admin-achievements；此artifact現不可改。**不新增table，不修改既有award/rule/season/person/check-in/profile/publication/job/audit資料**；只改platform架構metadata／migration ledger並新增4個函式。
 
 API min/max exact38；minute worker及realtime receipt runtime均用 `ops.admin_achievements_schema_ready()`，API和兩worker須matching38。37→38 preservation檢查涵蓋所有既有table hash（metadata僅排除預期架構／updated_at）、私人note source、stored award版本、jobs、RLS／ACL與舊function安全attrs；repeat migration為0。舊36→37升級測試固定只重播至37，不把新38混進舊邊界測試。
 
-本候選不是37可接受的rolling expand release。正式發布另需核准相容橋接版，或明確審核的協調維護方案：drain／stop API＋minute＋realtime，final加密備份實際還原、38 clone preservation，再migration／matching切換。**不能只退37 binary**；降版要matching DB/API/兩worker及新流量對帳，不能拿舊snapshot覆蓋新寫入。見schema-compatibility contract。
+本次不是rolling expand release；使用者明確另核准方案A維護例外，先checkin專用入口閘、drain／stop API＋兩worker、final加密備份實際還原與38 clone preservation，再matching38切換。**resume-boundary之後保留38，不能退37 binary或還原舊DB snapshot**；僅可隔離成就榜／必要全站維護並前進修復。正常入口已回原始位元組；hold variant僅隔離演練，沒有宣稱有38相容舊功能build。未來其他發布仍依schema-compatibility contract另審。
 
 ## 本機驗證與證據
 
@@ -52,4 +52,4 @@ API min/max exact38；minute worker及realtime receipt runtime均用 `ops.admin_
 - 真compiled API＋受限DB Chrome **12 layouts**（global/regional ×3 locales ×390/1280），24 screenshots，實際49cards／不同scope人數、literal名字／emoji、CSP、44px手機controls／16px輸入、無頁面overflow／JS exception／API failure；名單可聚焦且可回圖鑑。都是合成身分與模擬登入，不是真人／IdP或手機實機驗收。
 - Browser harness初次阻擋既有外部logo，改由攔截器供應同一公開PNG而不放寬CSP；初次preview未設定LINE造成既有capability404，補僅合成LINE設定；重建DB時舊preview殘留controlled-role ACL依賴被guard拒絕，先正常結束並驗證preservation，再清理自己專用的合成DB重建，未放寬guard或改共享roles。產品API／資料隔離斷言未放寬。
 
-證據：`/tmp/qigong-admin-achievements-{verify-2,types,cli-types,cdp-final}.log`、`browser-results.json`、`browser-preservation.json`及`*-catalog.png`／`*-recipients.png`；preview／Chrome／專用container結束後停止。私人合成DB設定不放Git／日誌，零正式存取／provider test send。本輪沒有修正或宣稱解決舊VM時鐘／間歇403問題。後續僅提交／推送以觸發候選exact-SHA CI，不能以本機851通過冒充GitHub結果；不作正式發布／入口維護閘或資料庫／服務操作，部署與回復準備仍需另核准。
+證據：`/tmp/qigong-admin-achievements-{verify-2,types,cli-types,cdp-final}.log`、`browser-results.json`、`browser-preservation.json`及`*-catalog.png`／`*-recipients.png`；preview／Chrome／專用container結束後停止。私人合成DB設定不放Git／日誌，零正式存取／provider test send。本輪沒有修正或宣稱解決舊VM時鐘／間歇403問題。後續exact-SHA CI **39001849304**對a9f6f50實際851通過；另依方案A核准完成正式38發布、201HTTPS及資料／權限保留。部署維護219秒含安全守衛中止／修正；詳見部署紀錄，不能以本機驗證冒充真人驗收，也未啟用正式告警。

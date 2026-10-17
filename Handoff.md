@@ -1,6 +1,19 @@
 # Qigong Platform — 交接摘要
 
-## Web Admin 唯讀成就榜schema38候選（僅核准提交／推送，未部署）
+## 最新部署：唯讀成就榜a9f6f50／schema38（方案A入口閘，已恢復正常）
+
+- 使用者明確核准方案A協調維護例外：checkin專用維護／成就榜隔離閘、final encrypted actual restore/preservation、API＋兩worker matching38；恢復寫入或worker處理後保留38／隔離與前進修復，**不退37 binary／不回灌舊snapshot**。正式 **a9f6f50c6bef40e77353db61cd152c6eccbc3d49**，exact-SHA CI **39001849304**成功／851（API649／DB194／config2／identity6），兩嚴格type gates及format／lint／build過。新0038 apply1/repeat0，phase23／exact38／ops.admin_achievements_schema_ready；歷史0001–0038現不可改，不是rolling expand。
+- 實際checkin入口維護 **2026-10-17 04:53:41–04:57:20 UTC／219秒（3m39s）**，API04:53:42停。先site-only fence503／no-store／RetryAfter60，再drain/stop minute timer＋RT＋minute、停API／確認無寫交易。原Caddyfile獨立站台、所有3100 ingress僅此host，normal／maintenance／feature-hold經adapt/validate及私人loopback55487真Caddy測試，其他配置canonical全等。正常入口最後整份Caddyfile byte-identical、owner/mode保持；hold僅演練未正式啟用。
+- 初次正式contract在migration前EACCES：postgres OS user讀不到root私有標記；維持gate，不降版／不restore。實查formal ledger仍37／全部quiescent、無resume marker；root控制端保留private marker檢查，postgres helper僅檢查服務inactive與root傳入非秘密maintenance hash，**未放寬file/DB權限**。resume前正式37再次與final snapshot exact全等才續行；事件／中止時間完整保留。
+- Final DB／roles／runtime含Caddy maintenance與saved original/hold variants站外AESGCM decrypt-hash；runtime實際extract到私人隔離目錄驗env640及Caddy兩hash，final decrypted roles/settings＋DB實際restore到PG16/socket55486，old0ec37ready／candidate38拒37，clone38preservation才正式apply。**76表／19people／35checkins**及awards／versions／rules／season／cache／pub／sourceHash／grants／consent／jobs／audit／RLS/ACL／oldfn attrs保留，只meta架構/time＋ledger/new4fn變。準備snapshot僅33checkins，未拿來覆蓋最新35筆。production未做DB restore／人工歷史重算；normalworker恢復另計。
+- matching38 API04:56:42起動，入口仍關、workers未開時readiness＋guest新routes及exact38指紋再次全等；**04:56:44先寫resume-boundary才啟RT／minute處理**，完成正常minute及首heartbeat／one-shothealth才open gate04:57:20。此後不可用舊DB或37，即使未有新HTTP流量。API／RTactive/restart0/exit0、RTenabled，minute新版本success／timeractive。預開health healthy、兩lane queue pending/sending/failed/expired0、deliverySamples0/p95null，非新手機秒數驗收。
+- clone真compiled scoped成就榜role×locale6組、49badges、distinct counts／people／literalname／pager、跨區與content denied，award/job/audit全row fingerprints不變；PUBLICexec0／rawApiBadgeSELECTfalse／workerReaderfalse／helperAPIexecfalse。其餘scope/grants/Authgear/private/external/community/三語tags/review/invite/name及24reports/30HTML/49badges/minute回歸過；新fixture誤建第二global被23505阻，改用既有root＋新合成country，未改guard/權限。
+- 真Linux hardened RT clone14mock jobs均attempt1，LINE/TG median1.219/1.200s、max1.515/1.497s，heartbeat fresh/error0/idlelogs0/SIGTERM正常；無真人provider test send。正式 **201HTTPS**及actual achievement-q req.url遮罩probe過；無正式fake learner／checkin／note／award／binding。API/worker env byte-identical／640、原units及三既有flags／個別選擇保持，WA未設／policy draft，未啟scheduled monitor／alerts/sink，未碰NTP/clocksource。舊clock／403根因不宣稱修復。
+- /root/qigong-deploy-a9f6f50含guarded ingress.py／normal/maintenance/hold來源與JSON/metadata、final restore/preservation／halt+resume evidence；tools在deployment-tools/a9f6f50；clone-a9f6f50／55486已停，worker/community/realtime/achievement credential fixture刪。站外backups/deployment-a9f6f50與key分離，post-runtime/normal-ingress/guard archive另encrypt/decrypt-hash。詳見[部署、實際還原與不可回退界線](docs/operations/admin-achievements-deployment.md)。權限review／legacy不動；下一步是真管理員唯讀驗收，日期／規則編輯仍未做。
+
+## Web Admin 唯讀成就榜本機／提交階段（後續a9f6f50已部署）
+
+以下保留當時的本機／僅提交核准紀錄；目前發布與回復界線以上段為準。
 
 - 使用者先核准唯讀成就榜本機實作，後續僅核准提交／推送並等待exact-SHA CI；**未核准部署或正式變更**。正式紀錄仍0ec97d5／schema37，不操作正式DB／入口／Console／env／服務／旗標／告警／clocksource或NTP。歷史0001–0037、deps／lockfiles、無關permissions-review與legacy保留。
 - 新/admin/achievements與GET catalog／:code/recipients／capabilities，獨立cap控制報表組導覽；49徽章六分類、共享圖示／規則條件／版本、configured提示、distinct獲獎人數、分頁名單／期間／UTC記錄時間，三語／compact手機與desktop。可依目前地區／目前互動管道／literal名稱／季節活動年度篩選；點徽章會focus／scroll至名單並可返回圖鑑，不重算／補發／撤銷或猜活動日期。
