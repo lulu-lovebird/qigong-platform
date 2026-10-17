@@ -1,5 +1,15 @@
 # Qigong Platform — 交接摘要
 
+## Web Admin 唯讀成就榜schema38候選（僅核准提交／推送，未部署）
+
+- 使用者先核准唯讀成就榜本機實作，後續僅核准提交／推送並等待exact-SHA CI；**未核准部署或正式變更**。正式紀錄仍0ec97d5／schema37，不操作正式DB／入口／Console／env／服務／旗標／告警／clocksource或NTP。歷史0001–0037、deps／lockfiles、無關permissions-review與legacy保留。
+- 新/admin/achievements與GET catalog／:code/recipients／capabilities，獨立cap控制報表組導覽；49徽章六分類、共享圖示／規則條件／版本、configured提示、distinct獲獎人數、分頁名單／期間／UTC記錄時間，三語／compact手機與desktop。可依目前地區／目前互動管道／literal名稱／季節活動年度篩選；點徽章會focus／scroll至名單並可返回圖鑑，不重算／補發／撤銷或猜活動日期。
+- 新0038_admin_achievements.sql僅4個restricted definer read fns（含private scope helper與ops gate）＋metadata/ledger，不新增table／raw table讀權；PUBLICexec0，API不能直接讀badge原表或helper，worker不讀admin名單。需stats.read／learner.read／checkin.read且每人3scope交集，region/country/cohort都套，counts與rows同population；content-only或stats-only拒絕。人名不轉換／不授權，未讀心得／Email／電話／provider subject或credential；同名不合併，同人多年度不重複計人，revoked／非現行rule-version不算。
+- 瀏覽僅讀已儲存awards，不呼叫learner achievements會觸發的evaluate、不動jobs／audit；BEGIN READ ONLY、DTO投影、read前後全row award/job/audit fingerprints驗證。37→38全舊table/source/securityattrs/RLS/ACL保留，僅預期metadata架構／time變；舊36→37測試pin到37而非放寬斷言。API exact38、minute與RT matching ops.admin_achievements_schema_ready／phase23；發布另審expand bridge或協調維護，需drain API＋兩worker、final encrypted actual restore/preservation，38不能binary-only回37／不以舊snapshot蓋新流量。
+- Node24獨立PG16／55482完整verify **851 tests**（API649／DB194／config2／identity6），format／lint／sourceTS／build過；初次3個新VM Request字串化lint問題改typed narrowing，未關規則。兩道嚴格型別額外檢查過；new DB7／upgrade1／HTTP15／VM7，加nav／branding覆蓋。全套最終重驗以/tmp/qigong-admin-achievements-verify-final.log為準，不以此宣稱舊PG時間負差／403根因已修。
+- 另一獨立browser PG16／55483、compiled API／55484、private headless Chrome／55485：**12 layouts／24 screenshots**（global/regional×3locale×390/1280），49cards／scope差異、markup與emoji literal、無overflow／JS exceptions／API failure，手機44px/16px、焦點與返回圖鑑通過。皆合成身分／模擬登入，不是真IdP／手機真人驗收，provider sends0；logo僅用相同公開PNG攔截供應，不放寬CSP。初始preview外部logo阻擋／未設定LINE cap404／未dispose舊previewDB的controlled-role guard皆只修測試harness，保留檢查。
+- /tmp/qigong-admin-achievements-*有verify／types／CDP／browser-results／browser-preservation與24圖；preview／Chrome與專用containers驗證後停止，私人合成設定不入Git／log。操作／API／範圍與發布界線見[本機設計驗證](docs/operations/admin-achievements.md)。目前不含活動／規則寫入管理或匯出；僅本候選commit/push已核准，等待該SHA CI。部署、入口維護閘、schema38相容應急版與正式回復作業仍需另行核准，不自動執行。
+
 ## 最新部署：嚴格CI型別門檻與Telegram測試隔離0ec97d5（同schema37）
 
 - 使用者核准commit/push/deploy；正式 **0ec97d50216a6797cb55ccf78520ee89a30496c5**，exact-SHA CI **38995975957**首輪成功，兩新具名type gates與完整 **819 tests**（API625／DB186／config2／identity6）、format／lint／sourceTS／build皆過，無manual rerun或鬆斷言。保留原verify job／permissions／Node24／PostgreSQL／frozen lock；TS170檔含tests88覆蓋與隔離TS2322正反驗證仍有效，CLI新project strict／checkJs／skipLibCheck=false。

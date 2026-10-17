@@ -11,11 +11,15 @@ const base = process.env.TEST_DATABASE_URL,
 suite('Learner-only author names schema36 to37 preservation', () => {
   it('preserves all old data, aliases, hashes, grants and cache without copying registration names into the new profile table', async () => {
     const db = await createIsolatedTestDatabase(base!),
-      old = await mkdtemp(path.join(tmpdir(), 'qigong-authors36-'));
+      old = await mkdtemp(path.join(tmpdir(), 'qigong-authors36-')),
+      current = await mkdtemp(path.join(tmpdir(), 'qigong-authors37-'));
     try {
-      for (const file of await readdir(directory))
+      for (const file of await readdir(directory)) {
         if (file.endsWith('.sql') && file < '0037_')
           await copyFile(path.join(directory, file), path.join(old, file));
+        if (file.endsWith('.sql') && file < '0038_')
+          await copyFile(path.join(directory, file), path.join(current, file));
+      }
       await runMigrations(db.pool, old, 'authors-old');
       const row = (
         await db.pool.query<{ checkin: string; identity: string }>(
@@ -75,10 +79,10 @@ suite('Learner-only author names schema36 to37 preservation', () => {
         beforeFunctions = (await functions()).rows,
         source = (await db.pool.query('SELECT platform.journal_source($1) source', [row.checkin]))
           .rows[0];
-      expect((await runMigrations(db.pool, directory, 'authors-new')).applied).toEqual([
+      expect((await runMigrations(db.pool, current, 'authors-new')).applied).toEqual([
         '0037_learner_author_names.sql'
       ]);
-      expect((await runMigrations(db.pool, directory, 'authors-repeat')).applied).toEqual([]);
+      expect((await runMigrations(db.pool, current, 'authors-repeat')).applied).toEqual([]);
       expect(await fingerprint()).toEqual(before);
       expect(
         (await db.pool.query('SELECT platform.journal_source($1) source', [row.checkin])).rows[0]
@@ -125,6 +129,7 @@ suite('Learner-only author names schema36 to37 preservation', () => {
     } finally {
       await db.dispose();
       await rm(old, { recursive: true, force: true });
+      await rm(current, { recursive: true, force: true });
     }
   });
 });

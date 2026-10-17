@@ -12,6 +12,7 @@ import {
 export type AdminPage =
   | 'overview'
   | 'leaderboard'
+  | 'achievements'
   | 'methods'
   | 'review'
   | 'access'
@@ -25,6 +26,7 @@ export type AdminPage =
 const navigation: ReadonlyArray<{ page: AdminPage; path: string; label: AdminTextKey }> = [
   { page: 'overview', path: '/admin/', label: 'navOverview' },
   { page: 'leaderboard', path: '/admin/leaderboard', label: 'navLeaderboard' },
+  { page: 'achievements', path: '/admin/achievements', label: 'navAchievements' },
   { page: 'methods', path: '/admin/method-analysis', label: 'navMethods' },
   { page: 'review', path: '/admin/applications', label: 'navReview' },
   { page: 'access', path: '/admin/administrators', label: 'navAccess' },
@@ -42,13 +44,17 @@ const navigationGroups: ReadonlyArray<{
   label: AdminTextKey;
   pages: readonly AdminPage[];
 }> = [
-  { id: 'reports', label: 'navGroupReports', pages: ['overview', 'leaderboard', 'methods'] },
+  {
+    id: 'reports',
+    label: 'navGroupReports',
+    pages: ['overview', 'leaderboard', 'achievements', 'methods']
+  },
   { id: 'learners', label: 'navGroupLearners', pages: ['review', 'learners', 'invites'] },
   { id: 'journal', label: 'navGroupJournal', pages: ['journal', 'shared', 'tags'] },
   { id: 'settings', label: 'navGroupSettings', pages: ['access', 'privacy', 'notifications'] }
 ];
 const deferredNavigation = (page: AdminPage) =>
-  ['journal', 'tags', 'learners', 'shared', 'privacy', 'invites'].includes(page);
+  ['journal', 'tags', 'learners', 'shared', 'privacy', 'invites', 'achievements'].includes(page);
 // All shell inputs come from source-controlled page definitions, never user data.
 export const renderAdminShell = (
   page: AdminPage,
@@ -68,7 +74,7 @@ export const renderAdminShell = (
         .filter((item) => item.page !== 'access' || canManageAdmins);
       if (!items.length) return '';
       const visible = items.some((item) => !deferredNavigation(item.page));
-      return `<section class="nav-group" data-nav-group="${group.id}" aria-labelledby="nav-group-${group.id}"${visible ? '' : ' hidden'}><h2 class="nav-group-title" id="nav-group-${group.id}">${text[group.label]}</h2><div class="nav-group-links">${items.map((item) => `<a href="${item.path + adminLocaleQuery(locale)}"${item.page === 'invites' ? ' class="journal-nav" data-line-invites-nav hidden' : ['journal', 'tags', 'learners', 'shared', 'privacy'].includes(item.page) ? ` class="journal-nav" data-journal-nav="${item.page}" hidden` : ''}${item.page === page ? ' aria-current="page"' : ''}>${text[item.label]}</a>`).join('')}</div></section>`;
+      return `<section class="nav-group" data-nav-group="${group.id}" aria-labelledby="nav-group-${group.id}"${visible ? '' : ' hidden'}><h2 class="nav-group-title" id="nav-group-${group.id}">${text[group.label]}</h2><div class="nav-group-links">${items.map((item) => `<a href="${item.path + adminLocaleQuery(locale)}"${item.page === 'achievements' ? ' class="journal-nav" data-achievements-nav hidden' : item.page === 'invites' ? ' class="journal-nav" data-line-invites-nav hidden' : ['journal', 'tags', 'learners', 'shared', 'privacy'].includes(item.page) ? ` class="journal-nav" data-journal-nav="${item.page}" hidden` : ''}${item.page === page ? ' aria-current="page"' : ''}>${text[item.label]}</a>`).join('')}</div></section>`;
     })
     .join('');
   return `<!doctype html>
@@ -89,6 +95,7 @@ ${adminLayoutStyles}
   if(disclosure&&typeof matchMedia==='function'){const mobile=matchMedia('(max-width:760px)');const adaptNavigation=()=>{disclosure.open=!mobile.matches;};adaptNavigation();mobile.addEventListener?.('change',adaptNavigation);}
   if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-journal-nav]').length)fetch('/admin/api/journal/capabilities?lang='+locale,{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-journal-nav]'))a.hidden=!(c&&c[({journal:'canReadJournal',tags:'canManageTags',learners:'canManageLearners',shared:'canReadShared',privacy:'canPublishPrivacy'})[a.dataset.journalNav]]===true);refreshNavigationGroups();}).catch(refreshNavigationGroups);
   if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-line-invites-nav]').length)fetch('/admin/api/line-invites/capabilities',{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-line-invites-nav]'))a.hidden=c?.canManage!==true;refreshNavigationGroups();}).catch(refreshNavigationGroups);
+  if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-achievements-nav]').length)fetch('/admin/api/achievements/capabilities',{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-achievements-nav]'))a.hidden=c?.canReadAchievements!==true;refreshNavigationGroups();}).catch(refreshNavigationGroups);
   const mayLeave=()=>typeof window==='undefined'||!window.qigongJournalMayLeave||window.qigongJournalMayLeave();
   language.addEventListener('change',() => {
     const next=language.value;

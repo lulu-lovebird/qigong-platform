@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { accessCookie, registerAdminAccessRoutes } from './admin-access.js';
 import { renderReviewPage } from './admin-pages.js';
 import { registerAdminJournalRoutes } from './admin-journal-routes.js';
+import { registerAdminAchievementRoutes } from './admin-achievement-routes.js';
 import { registerAdminLearnerRoutes } from './admin-learner-routes.js';
 import { registerAdminLineInvites } from './admin-line-invite-routes.js';
 import { registerReviewNotificationRoutes } from './admin-review-notification-routes.js';
@@ -413,6 +414,8 @@ export const registerAdminRoutes = (
       timingSafeEqual(sha256(csrf), sha256(saved))
     );
   });
+
+  registerAdminAchievementRoutes(app, pool, principalFor);
 
   registerAdminJournalRoutes(app, pool, principalFor, (request) => {
     const value = request.headers['x-csrf-token'],

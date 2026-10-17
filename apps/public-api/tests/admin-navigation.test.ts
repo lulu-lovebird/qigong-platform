@@ -34,7 +34,13 @@ const make = (): Node => {
 };
 const fixture = (
   locale: AdminLocale = 'zh_TW',
-  options: { allowed?: boolean; admin?: boolean; mobile?: boolean; fail?: boolean } = {}
+  options: {
+    allowed?: boolean;
+    achievements?: boolean;
+    admin?: boolean;
+    mobile?: boolean;
+    fail?: boolean;
+  } = {}
 ) => {
   const html = renderAdminShell('tags', '', '', locale, options.admin ?? false),
     nodes = new Map<string, Node>();
@@ -54,6 +60,7 @@ const fixture = (
       const page = /data-journal-nav="([^"]+)"/.exec(attrs)?.[1];
       if (page) link.dataset.journalNav = page;
       if (attrs.includes('data-line-invites-nav')) link.dataset.invites = 'true';
+      if (attrs.includes('data-achievements-nav')) link.dataset.achievements = 'true';
       group.links.push(link);
       links.push(link);
     }
@@ -76,13 +83,15 @@ const fixture = (
     return Response.json(
       url.includes('line-invites')
         ? { canManage: options.allowed ?? false }
-        : {
-            canReadJournal: options.allowed ?? false,
-            canManageTags: options.allowed ?? false,
-            canManageLearners: options.allowed ?? false,
-            canReadShared: options.allowed ?? false,
-            canPublishPrivacy: options.allowed ?? false
-          }
+        : url.includes('achievements')
+          ? { canReadAchievements: options.achievements ?? options.allowed ?? false }
+          : {
+              canReadJournal: options.allowed ?? false,
+              canManageTags: options.allowed ?? false,
+              canManageLearners: options.allowed ?? false,
+              canReadShared: options.allowed ?? false,
+              canPublishPrivacy: options.allowed ?? false
+            }
     );
   });
   const document = {
@@ -95,7 +104,9 @@ const fixture = (
           ? links.filter((link) => link.dataset.journalNav)
           : selector === '[data-line-invites-nav]'
             ? links.filter((link) => link.dataset.invites)
-            : []
+            : selector === '[data-achievements-nav]'
+              ? links.filter((link) => link.dataset.achievements)
+              : []
   };
   const context = vm.createContext({
     document,
@@ -145,7 +156,7 @@ describe('Compact grouped admin navigation', () => {
       await settle();
       expect([...f.groups.keys()]).toEqual(['reports', 'learners', 'journal', 'settings']);
       const expected = {
-        reports: ['/admin/', '/admin/leaderboard', '/admin/method-analysis'],
+        reports: ['/admin/', '/admin/leaderboard', '/admin/achievements', '/admin/method-analysis'],
         learners: ['/admin/applications', '/admin/learners', '/admin/line-invites'],
         journal: ['/admin/journal', '/admin/shared-journal', '/admin/practice-feeling-tags'],
         settings: ['/admin/administrators', '/admin/privacy-policy', '/admin/notifications']
@@ -179,6 +190,17 @@ describe('Compact grouped admin navigation', () => {
     ).toBe(true);
     expect(f.links.some((link) => link.href.startsWith('/admin/administrators'))).toBe(false);
     expect(f.groups.get('settings')?.links.some((link) => !link.hidden)).toBe(true);
+  });
+  it('requires an independent reporting capability for the achievement link', async () => {
+    const granted = fixture('en', { achievements: true });
+    const denied = fixture('en', { allowed: true, achievements: false });
+    const failed = fixture('en', { achievements: true, fail: true });
+    expect(granted.links.find((link) => link.dataset.achievements)?.hidden).toBe(true);
+    await settle();
+    expect(granted.links.find((link) => link.dataset.achievements)?.hidden).toBe(false);
+    expect(denied.links.find((link) => link.dataset.achievements)?.hidden).toBe(true);
+    expect(failed.links.find((link) => link.dataset.achievements)?.hidden).toBe(true);
+    expect(granted.groups.get('journal')?.hidden).toBe(true);
   });
   it('keeps capability links and empty headings hidden on failed permission requests', async () => {
     const f = fixture('en', { fail: true });
