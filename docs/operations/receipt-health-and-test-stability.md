@@ -1,10 +1,10 @@
-# 回條健康監測與測試穩定性（已核准發布，正式告警未啟用）
+# 回條健康監測與測試穩定性（已部署362c4ef／schema37，正式告警未啟用）
 
 ## 範圍與狀態
 
-使用者先核准第 2、3 項的本機實作／驗證，後續另核准 **commit、push、deploy**；**不包含啟用正式告警**。發布前正式為 bcd9c60／schema37，本次維持同37。本輪不改 migration 0001–0037、schema gate、資料庫權限、套件／lockfile、API 路由、派送資格、重試／租約或既有旗標。不修改 `docs/operations/web-admin-permissions-review.md` 與 legacy repositories。
+使用者先核准第 2、3 項的本機實作／驗證，後續另核准 **commit、push、deploy**；**不包含啟用正式告警**。已於2026-10-17部署 **362c4ef**，維持schema37；見[部署、實際回復驗證與驗收界線](receipt-health-deployment.md)。本輪不改 migration 0001–0037、schema gate、資料庫權限、套件／lockfile、API 路由、派送資格、重試／租約或既有旗標。不修改 `docs/operations/web-admin-permissions-review.md` 與 legacy repositories。
 
-監測程式、只讀收集工具與告警判斷已實作；收件對象、通知管道、排程、安裝與啟用仍須另核准。工具不發 Telegram／LINE 訊息，也不復用學員提醒或審核通知綁定。
+監測程式、只讀收集工具與告警判斷已隨版本提供；收件對象、通知管道、監控排程安裝與啟用仍須另核准。工具不發 Telegram／LINE 訊息，也不復用學員提醒或審核通知綁定。
 
 10 個額外測試 TypeScript 錯誤已清零。已修正兩個已知失敗 suite 中「原本應已生效」的 fixture 起始時間，並補確定性的時間窗測試。**第3項的環境時鐘問題尚未結案**：最後整輪曾再次遇到既有心得流空清單間歇，之後在專用叢集直接量到資料庫時間負差。沒有修正共享主機／VM clock，不能宣稱 PostgreSQL 間歇已根治。詳見下方證據與界線。
 

@@ -1,5 +1,15 @@
 # Qigong Platform — 交接摘要
 
+## 最新部署：回條進度監測與測試型別362c4ef（同schema37，正式告警未啟用）
+
+- 使用者核准commit/push/deploy；正式 **362c4efad8514ae52a9c7e0106ca6bc0f2932511**，exact-SHA CI **38990247558**成功／819tests（API625／DB186／config2／identity6），format／lint／sourceTS／build及本機、Linux release額外all-test／CLI strict-JS皆過。維持phase22／exact37，歷史0001–0037／deps／CI不變，未執行migration runner／DDL／grant或回填。
+- 2026-10-17 **01:27:15–01:27:36 UTC／21秒**控制維護；停timer／drain兩worker再停API，final DB／roles／runtime站外AESGCM解密hash＋實際還原final snapshot到隔離PG16/socket55480，old bcd與new皆37ready；**76表／18people／30checkins**全資料、securityattrs／RLS／ACL、metadata、cache／pub／sourceHash／grants／consent／audit指紋全等才切binary。保留currentenv，不用舊snapshot覆蓋流量。post-runtime archive另站外加密decrypt-hash過。
+- 新dispatcher idle成功也更新每渠道progress；worker30s heartbeat含monotonic完成／成功poll age、error與schema狀態，不逐秒記錄成功idle。新operator-only CLI與alert判斷已隨release提供，**無告警排程／外部sink／收件人或通知啟用**；未挪用學員／review綁定。10個既有extraTS錯誤清零，不改strict、不刪斷言；PG測試時鐘問題仍未結案。
+- 真compiled clone管理／scope／grants／Authgear／private／sourceHash／external、community legacy／manual、三語tags/review／24reports／30HTML／49badges、invite friend／resume／quota／native與both-reader verified names／staff-partner原alias及minute worker全過。真Linux同hardening realtime mock14個jobs全attempt1，LINE/TG median0.972/0.950s、max1.269/1.241s；heartbeat兩lane fresh／error0、idle成功log0、SIGTERM正常，零真人provider test send。暫存unit卸除、clone停止／合成env與credential fixture移除。
+- 正式 **195HTTPS**與實際req.url遮罩probe過；API01:27:30、RT01:27:34起動active/restart0/exit0，minute在新API啟動後success／timeractive，RT既有enabled保持。一次性root工具health=healthy，兩lane成功age842ms、pending/sending/failed/expiredLease皆0；當時新release deliverySamples0／p95null，不宣稱新真人秒數驗收。無scheduledmonitor安裝、alert sent0。
+- API／worker env byte-identical／mode640，既有API／minute／RT serviceunit byte-identical、正常ExecStart無mock；realtime/reminders/review既有flags true及個別選擇保持，WA未設／policy draft不變。只改current release與API版本override。PG VM／NTP／clocksource未改，不把測試17,054samples負差或舊空feed間歇說成已根治。
+- 回復：same37可stop/drain API＋兩worker，切matching bcd9c60 binaries與saved override，再readiness／resume；**不restoreDB／不丟新流量**。guarded rollback已準備但未觸發；37不可binary-only降36。/root/qigong-deploy-362c4ef、deployment-tools/362c4ef、stopped rehearsal-362c4ef／55480與站外backup/key分離保留；見[部署／回復／驗收界線](docs/operations/receipt-health-deployment.md)。無關permissions-review與legacy不動。
+
 ## 優先收尾2／3：回條監測與型別已核准提交／發布；PG時鐘問題未結案
 
 - 使用者後續核准commit／push／deploy；正式告警排程與通知啟用不在本次範圍。發布前正式仍bcd9c60／schema37，API／minute及realtime worker／flags／env／Console尚未修改；歷史0001–0037、deps／lockfiles、CI及原permissions-review／legacy不動。
