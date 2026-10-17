@@ -203,11 +203,9 @@ describe('shared learner pages without database or real LIFF SDK', () => {
     'keeps %s/%s feeling selection separate from authored text',
     async (platform, locale) => {
       const id = '12345678-1234-4234-8234-123456789abc';
-      const page = renderCheckinPage({
-        platform,
-        locale,
-        ...(platform === 'line' ? { liffId: 'test-liff' } : {})
-      });
+      const page = renderCheckinPage(
+        platform === 'line' ? { platform, locale, liffId: 'test-liff' } : { platform, locale }
+      );
       const f = fixture(page, { feelingTags: [{ id, name: '<script>放鬆</script>' }] });
       await setImmediate();
       const textarea = f.get('practiceNote');

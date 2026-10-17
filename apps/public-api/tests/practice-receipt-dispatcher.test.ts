@@ -22,10 +22,11 @@ describe('Dedicated near-real-time practice receipt lanes', () => {
   });
   it('checks immediately and picks up newly committed work after a one-second idle poll', async () => {
     const c = new AbortController(),
+      options = base(c),
       events: string[] = [];
     let queued = false;
     await runPracticeReceiptLane({
-      ...base(c),
+      ...options,
       deliver: async () => {
         events.push(queued ? 'claim1' : 'claim0');
         if (queued) c.abort();
@@ -37,6 +38,10 @@ describe('Dedicated near-real-time practice receipt lanes', () => {
       }
     });
     expect(events).toEqual(['claim0', 'wait1000', 'claim1']);
+    expect(options.report.mock.calls.map(([event]) => event)).toEqual([
+      { kind: 'poll', channel: 'line', claimed: 0, failures: 0, durationMs: expect.any(Number) },
+      { kind: 'batch', channel: 'line', claimed: 1, failures: 0, durationMs: expect.any(Number) }
+    ]);
   });
   it('drains full batches without a minute wait but pauses every bounded burst', async () => {
     const c = new AbortController(),

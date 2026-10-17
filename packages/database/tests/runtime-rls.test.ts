@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -72,7 +73,14 @@ describeWithDatabase('runtime roles and request-scoped RLS', () => {
               ('https://members.example.com', 'runtime-b', 'Learner B'),
               ('https://members.example.com', 'runtime-c', 'Learner C') RETURNING id`
     );
-    [learnerA, learnerB, learnerC] = people.rows.map(({ id }) => id);
+    const [personA, personB, personC] = people.rows;
+    assert(
+      personA && personB && personC && people.rows.length === 3,
+      'Expected three fixture people'
+    );
+    learnerA = personA.id;
+    learnerB = personB.id;
+    learnerC = personC.id;
     await pool.query(
       `INSERT INTO core.person_region_assignments
          (person_id, region_id, assignment_type, valid_from)
@@ -160,7 +168,11 @@ describeWithDatabase('runtime roles and request-scoped RLS', () => {
     withRequestContext(
       runtimePool,
       'qigong_api_runtime',
-      { requestId: randomUUID(), personId, principalId },
+      {
+        requestId: randomUUID(),
+        ...(personId ? { personId } : {}),
+        ...(principalId ? { principalId } : {})
+      },
       async (client) => {
         const result = await client.query<{ id: string }>(
           `SELECT id FROM identity.people ORDER BY id`

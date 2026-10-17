@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import pg from 'pg';
+import pg, { type QueryResultRow } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runMigrations, withRequestContext, type Pool } from '../src/index.js';
 import { createIsolatedTestDatabase } from './test-database.js';
@@ -51,7 +51,7 @@ describeWithDatabase('administrator OIDC sessions', () => {
     await database.dispose();
   });
 
-  const invoke = <T>(sql: string, params: string[]) =>
+  const invoke = <T extends QueryResultRow>(sql: string, params: string[]) =>
     withRequestContext(runtimePool, 'qigong_api_runtime', { requestId: randomUUID() }, (client) =>
       client.query<T>(sql, params)
     );

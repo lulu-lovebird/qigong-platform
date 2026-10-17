@@ -88,7 +88,9 @@ suite.each(['line', 'telegram'] as const)('Disclosed %s community notes', (chann
     ).rows[0]!.data;
   const feed = async (who = reader) =>
     (
-      await query<{ data: { entries: Array<{ id: string; practiceNote: string }> } }>(
+      await query<{
+        data: { snapshotAt?: string; entries: Array<{ id: string; practiceNote: string }> };
+      }>(
         who.channel === 'line'
           ? 'SELECT platform.line_journal_stream($1,NULL) data'
           : "SELECT platform.journal_feed($1,'zh_TW',1) data",
@@ -204,7 +206,28 @@ suite.each(['line', 'telegram'] as const)('Disclosed %s community notes', (chann
     const id = randomUUID();
     const first = await save('Public snapshot', 0, id);
     const privateEdit = await save('LATER PRIVATE TEXT', first.version, randomUUID(), null);
-    expect((await feed()).entries[0]!.practiceNote).toBe('Public snapshot');
+    const afterPrivate = await feed();
+    // Preserve the original content assertion. On failure, expose only timing/eligibility
+    // aggregates, never the snapshot text, aliases, IDs, credentials or provider subjects.
+    let diagnostic: Record<string, number | boolean | null> | undefined;
+    if (afterPrivate.entries.length !== 1) {
+      diagnostic = (
+        await db.pool.query<{ data: Record<string, number | boolean | null> }>(
+          `SELECT jsonb_build_object(
+          'publications',count(*),
+          'active',count(*) FILTER(WHERE active),
+          'atOrBeforeSnapshot',count(*) FILTER(WHERE published_at<=coalesce($1::timestamptz,clock_timestamp())),
+          'maxPublicationAheadMs',max(extract(epoch FROM(published_at-coalesce($1::timestamptz,clock_timestamp())))*1000),
+          'authorEligible',coalesce(bool_and(platform.learner_public_author_name(identity_id,alias,'zh_TW') IS NOT NULL),FALSE),
+          'futureChannels',(SELECT count(*) FROM identity.person_interaction_channels WHERE valid_from>clock_timestamp()),
+          'snapshotAheadOfClockMs',extract(epoch FROM($1::timestamptz-clock_timestamp()))*1000
+        ) data FROM core.journal_publications`,
+          [afterPrivate.snapshotAt ?? null]
+        )
+      ).rows[0]?.data;
+    }
+    expect(afterPrivate.entries, JSON.stringify(diagnostic)).toHaveLength(1);
+    expect(afterPrivate.entries[0]!.practiceNote).toBe('Public snapshot');
     await save('Public snapshot', 0, id);
     expect(JSON.stringify(await feed())).not.toContain('LATER PRIVATE TEXT');
     await save('Confirmed new public text', privateEdit.version);

@@ -1,5 +1,6 @@
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { performance } from 'node:perf_hooks';
 import { loadEnvironment } from '@qigong/config';
 import { createPool } from '@qigong/database';
 import { z } from 'zod';
@@ -11,6 +12,11 @@ import {
   type ReceiptDispatchEvent
 } from './practice-receipt-dispatcher.js';
 import { runRealtimePracticeReceipts } from './practice-receipt-runtime.js';
+import {
+  createReceiptProgress,
+  updateReceiptProgress,
+  receiptProgressSnapshot
+} from './practice-receipt-health.js';
 
 export const runPracticeReceiptWorker = async (
   source: NodeJS.ProcessEnv = process.env
@@ -35,20 +41,25 @@ export const runPracticeReceiptWorker = async (
     stop = () => control.abort();
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);
-  const started = Date.now(),
-    heartbeat = setInterval(
-      () =>
-        console.log(
-          JSON.stringify({
-            event: 'practice_receipt_worker_heartbeat',
-            uptimeSeconds: Math.round((Date.now() - started) / 1000)
-          })
-        ),
-      30000
+  const started = performance.now();
+  let progress = createReceiptProgress(!!lineToken);
+  const heartbeat = setInterval(() => {
+    const uptimeMs = performance.now() - started;
+    console.log(
+      JSON.stringify({
+        event: 'practice_receipt_worker_heartbeat',
+        uptimeSeconds: Math.round(uptimeMs / 1000),
+        lanes: receiptProgressSnapshot(progress, uptimeMs)
+      })
     );
+  }, 30000);
   heartbeat.unref();
-  const report = (event: ReceiptDispatchEvent) =>
-    console.log(JSON.stringify({ event: 'practice_receipt_' + event.kind, ...event }));
+  const report = (event: ReceiptDispatchEvent) => {
+    progress = updateReceiptProgress(progress, event, performance.now() - started);
+    // Successful idle polls update progress without a per-second log stream.
+    if (event.kind !== 'poll' || event.failures)
+      console.log(JSON.stringify({ event: 'practice_receipt_' + event.kind, ...event }));
+  };
   try {
     console.log(
       JSON.stringify({

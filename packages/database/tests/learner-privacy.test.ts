@@ -49,7 +49,7 @@ suite('Learner consent and scoped suspension', () => {
       )
     ).rows[0]!.id;
     await pool.query(
-      "INSERT INTO identity.person_interaction_channels(person_id,platform_identity_id,activation_source) VALUES($1,$2,'onboarding')",
+      "INSERT INTO identity.person_interaction_channels(person_id,platform_identity_id,activation_source,valid_from) VALUES($1,$2,'onboarding',clock_timestamp()-INTERVAL '1 day')",
       [target, ident]
     );
     await pool.query(
@@ -183,7 +183,7 @@ suite('Learner consent and scoped suspension', () => {
   const grant = async (code = 'super_admin', scope: string | null = null) => {
     await pool.query('DELETE FROM admin.role_grants WHERE principal_id=$1', [principal]);
     await pool.query(
-      "INSERT INTO admin.role_grants(principal_id,role_id,scope_type,region_id,reason) SELECT $1,id,$2,$3,'Consent fixture' FROM admin.roles WHERE code=$4",
+      "INSERT INTO admin.role_grants(principal_id,role_id,scope_type,region_id,valid_from,reason) SELECT $1,id,$2,$3,clock_timestamp()-INTERVAL '1 day','Consent fixture' FROM admin.roles WHERE code=$4",
       [principal, scope ? 'region' : 'global', scope, code]
     );
   };
@@ -449,6 +449,60 @@ suite('Learner consent and scoped suspension', () => {
     expect((await pool.query('SELECT id FROM core.checkins WHERE id=$1', [current])).rowCount).toBe(
       1
     );
+    await expect(
+      query('SELECT platform.telegram_workspace_report($1,$2,$3)', [token, 'profile', 'en'])
+    ).rejects.toThrow();
+  });
+  it('reproduces invalid future-start closure without weakening constraints, then suspends a historical active fixture', async () => {
+    await grant('regional_admin', region);
+    await expect(
+      pool.query(
+        'UPDATE identity.person_interaction_channels SET valid_to=valid_from WHERE person_id=$1',
+        [person]
+      )
+    ).rejects.toMatchObject({ code: '23514', constraint: 'person_interaction_channels_check' });
+    await pool.query(
+      "UPDATE identity.person_interaction_channels SET valid_from=clock_timestamp()+INTERVAL '1 day' WHERE person_id=$1",
+      [person]
+    );
+    await expect(
+      adminQuery('SELECT admin.suspend_learner($1,1,$2)', [
+        person,
+        'Synthetic future-start reproduction'
+      ])
+    ).rejects.toMatchObject({ code: '23514', constraint: 'person_interaction_channels_check' });
+    expect(
+      (
+        await pool.query<{ status: string }>('SELECT status FROM identity.people WHERE id=$1', [
+          person
+        ])
+      ).rows[0]?.status
+    ).toBe('active');
+    expect(
+      (
+        await pool.query(
+          'SELECT id FROM identity.person_interaction_channels WHERE person_id=$1 AND valid_to IS NULL',
+          [person]
+        )
+      ).rowCount
+    ).toBe(1);
+    // Repair only the disposable fixture: this learner is meant to be active already.
+    await pool.query(
+      "UPDATE identity.person_interaction_channels SET valid_from=clock_timestamp()-INTERVAL '1 day' WHERE person_id=$1",
+      [person]
+    );
+    await adminQuery('SELECT admin.suspend_learner($1,1,$2)', [
+      person,
+      'Synthetic historical fixture'
+    ]);
+    expect(
+      (
+        await pool.query<{ closed: boolean }>(
+          'SELECT valid_to>valid_from AS closed FROM identity.person_interaction_channels WHERE person_id=$1',
+          [person]
+        )
+      ).rows[0]?.closed
+    ).toBe(true);
     await expect(
       query('SELECT platform.telegram_workspace_report($1,$2,$3)', [token, 'profile', 'en'])
     ).rejects.toThrow();

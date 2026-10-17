@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,21 +52,30 @@ describeWithDatabase('messaging application review', () => {
               ($1, 'onboarding-b', 'operational', '乙', 'B') RETURNING id`,
       [country.rows[0]!.id]
     );
-    [regionId, otherRegionId] = regions.rows.map((row) => row.id);
+    const [region, otherRegion] = regions.rows;
+    assert(region && otherRegion && regions.rows.length === 2, 'Expected two fixture regions');
+    regionId = region.id;
+    otherRegionId = otherRegion.id;
     const principals = await pool.query<{ id: string }>(
       `INSERT INTO admin.principals (oidc_issuer, oidc_subject, display_name)
        VALUES ('https://example.com', 'reviewer-a', 'Reviewer A'),
               ('https://example.com', 'reviewer-b', 'Reviewer B') RETURNING id`
     );
-    [reviewerId, otherReviewerId] = principals.rows.map((row) => row.id);
+    const [reviewer, otherReviewer] = principals.rows;
+    assert(
+      reviewer && otherReviewer && principals.rows.length === 2,
+      'Expected two fixture reviewers'
+    );
+    reviewerId = reviewer.id;
+    otherReviewerId = otherReviewer.id;
     await pool.query(
-      `INSERT INTO admin.role_grants (principal_id, role_id, scope_type, region_id, reason)
-       SELECT $1, id, 'region', $2, 'onboarding test' FROM admin.roles WHERE code = 'regional_admin'`,
+      `INSERT INTO admin.role_grants (principal_id, role_id, scope_type, region_id, valid_from, reason)
+       SELECT $1, id, 'region', $2, clock_timestamp() - INTERVAL '1 day', 'onboarding test' FROM admin.roles WHERE code = 'regional_admin'`,
       [reviewerId, regionId]
     );
     await pool.query(
-      `INSERT INTO admin.role_grants (principal_id, role_id, scope_type, region_id, reason)
-       SELECT $1, id, 'region', $2, 'onboarding test' FROM admin.roles WHERE code = 'regional_admin'`,
+      `INSERT INTO admin.role_grants (principal_id, role_id, scope_type, region_id, valid_from, reason)
+       SELECT $1, id, 'region', $2, clock_timestamp() - INTERVAL '1 day', 'onboarding test' FROM admin.roles WHERE code = 'regional_admin'`,
       [otherReviewerId, otherRegionId]
     );
   });
@@ -201,6 +211,31 @@ describeWithDatabase('messaging application review', () => {
     expect((await list()).rows.map(({ code }) => code)).toContain('method-b');
   });
 
+  it('keeps future grants unauthorized and repairs only the intended historical-active fixture', async () => {
+    const id = await submit('subject-future-grant');
+    await completeApplication(id);
+    await pool.query(
+      "UPDATE admin.role_grants SET valid_from=clock_timestamp()+INTERVAL '1 day' WHERE principal_id=$1",
+      [reviewerId]
+    );
+    try {
+      await expect(review(id, reviewerId, 'approved')).rejects.toThrow('permission denied');
+      expect(
+        (
+          await pool.query<{ status: string; person_id: string | null }>(
+            'SELECT status,person_id FROM identity.onboarding_applications WHERE id=$1',
+            [id]
+          )
+        ).rows[0]
+      ).toEqual({ status: 'pending', person_id: null });
+    } finally {
+      await pool.query(
+        "UPDATE admin.role_grants SET valid_from=clock_timestamp()-INTERVAL '1 day' WHERE principal_id=$1",
+        [reviewerId]
+      );
+    }
+    expect((await review(id, reviewerId, 'approved')).rows[0]?.person_id).toBeTruthy();
+  });
   it('requires audited functions for enrollment and method visibility writes', async () => {
     const id = await submit('subject-direct-write');
     await completeApplication(id);

@@ -1,5 +1,16 @@
 # Qigong Platform — 交接摘要
 
+## 優先收尾2／3：回條監測與型別已核准提交／發布；PG時鐘問題未結案
+
+- 使用者後續核准commit／push／deploy；正式告警排程與通知啟用不在本次範圍。發布前正式仍bcd9c60／schema37，API／minute及realtime worker／flags／env／Console尚未修改；歷史0001–0037、deps／lockfiles、CI及原permissions-review／legacy不動。
+- dispatcher每次成功查詢均內部report batch／idle poll；worker用monotonic age在30s heartbeat帶每渠道最後完成／成功poll、最後error、連續／累積失敗與schemaMismatch；不逐秒記錄成功idle，不改claim／eligibility／lease／retry／provider/API等待行為。新practice-receipt-health.ts有嚴格allowlisted observation／state驗證，警示確認／去重／升級／恢復；缺資料／broken collection／啟動尚無進度不假裝healthy或recovered。
+- 新scripts/check-receipt-health.mjs：Node24完整source checkout，Linux root只讀本機固定systemd/current-invocation journal及postgres peer常數aggregate；不讀env、不新增DB權限、不接API或外部通知。查queue age／due／retry／failed／lease及epoch＋last24h延遲，無sample=null、少於20不做p95警報。私有0600 state＋lock／atomic rename，拒絕corrupt／symlink／backwards state；stdout只彙總，exit0 healthy/pending、1warn、2critical、3unknown。告警target／排程／安裝啟用與maintenance流程仍需另核准，沒有通知送達保證。
+- learner-pages／admin-sessions／onboarding／runtime-rls原10個extraTS錯誤全清，泛型constraint／discriminated branch／fixture presence guards／omit undefined，不any、不改strict、不刪斷言。CI仍原source-check範圍，另跑pnpm exec tsc -p tsconfig.eslint.json --noEmit已0errors。
+- 原learner-privacy／onboarding fixture原意已生效，改明確DB clock一天前。新確定性future channel會產生同名23514、equal區間仍拒絕、rollback不改person／channel；只改合成fixture回歷史後原suspend成功且舊token拒絕。future grant仍permission denied／pending無person，恢復fixture才核准；正式授權／區間／version／post-lock檢查不變。**人工future-start只證實時間敏感類別，未證明舊共用主機當時clock backwards；原PG／timezone／identity間歇根因仍開放，不稱根治。** 獨立PG16雙連線1000samples backwards0，不拿passing替代根因證明，未碰原共享cluster角色／所有權／機器時鐘。
+- 最終fresh build＋完整pnpm verify **819 tests**（API625／DB186／config2／identity6）、format／lint／sourceTS／build成功；extra all-test tsc及CLI strict-JS（@ts-check／JSDoc／unknown JSON邊界）均0errors，不以JS繞過strict。相關DB3suite32項另3輪 **32/32 ×3**；Linux Node24 network-none mock collector8情境皆過，真aggregate SQL另用隔離合成PG驗證，非實際systemd／provider／device驗收，零正式測試send。初次Linuxmock bindmount／macOS xattr屬搬移fixture問題，改明確無xattr tar後成功，不是產品重送。
+- **最終追加未解證據：**最後整輪既有community-notes Telegram作者／LINE讀者的首次feed曾空（DB185pass／1fail，原fixture本已active一天前），未用重讀、重排publication時間或鬆斷言藏錯。community測試新增length＋僅失敗時的safe aggregate診斷；target16與之後完整819過，但同步兩連線clock watch **17,054samples／跨交易負差5／同交易負差1／最大116.11104ms／queryFailed=false**。直接證明目前測試DB時間不單調；未抓失敗當下時間差，不能斷言每例同因，VM／host同步或clocksource根因仍未證實，更不推論正式。`verify-intermittent-failure.log`、`verify-after-diagnostic.log`及`clock-watch-final.json`保留；不以passing結案。共享主機／Docker VM clock變更可能影響其他專案，本輪不改clocksource／NTP／系統時間，下一步須另審核。
+- 本機專用qigong-priority23-test／55479與mock container驗證後停止／移除，私人合成設定在/tmp權限600；證據/tmp/qigong-priority23-{verify-final,types-final,repeat-1,repeat-2,repeat-3}.log與clock-probe／linux-collector.json。見[操作、門檻、驗證與未解根因](docs/operations/receipt-health-and-test-stability.md)。本次已核准提交／發布，須exact-SHA CI成功、同37備份實際還原／preservation及API＋兩worker協調切換；告警安裝／排程／送達啟用仍需另核准。
+
 ## 最新部署：跨渠道心得流作者暱稱bcd9c60／schema37
 
 - 使用者另核准commit/push/deploy；bcd9c60da56085ef1979b4a29db52cc46ff40851、CI38915728260成功／790 tests（API598／DB184／config2／identity6）。2026-10-16 14:35:59–14:36:21 UTC維護22秒，先停minute timer／drain realtime及minute worker，再停API做final backup；matching exact37 API＋兩worker／phase22，正式apply1/repeat0。歷史0001–0036不動，37現已部署不可改。

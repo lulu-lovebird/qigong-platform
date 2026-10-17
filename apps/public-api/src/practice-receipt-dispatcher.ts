@@ -18,7 +18,7 @@ export interface ReceiptBatchResult {
 }
 export type ReceiptDispatchEvent =
   | {
-      kind: 'batch';
+      kind: 'batch' | 'poll';
       channel: ReceiptChannel;
       claimed: number;
       failures: number;
@@ -67,14 +67,13 @@ export const runPracticeReceiptLane = async (options: ReceiptLaneOptions): Promi
         result.failures < 0
       )
         throw Error('Invalid receipt batch result');
-      if (result.claimed)
-        report({
-          kind: 'batch',
-          channel,
-          claimed: result.claimed,
-          failures: result.failures,
-          durationMs: Math.round(performance.now() - started)
-        });
+      report({
+        kind: result.claimed ? 'batch' : 'poll',
+        channel,
+        claimed: result.claimed,
+        failures: result.failures,
+        durationMs: Math.round(performance.now() - started)
+      });
       if (result.failures) {
         errors = Math.min(errors + 1, 6);
         burst = 0;
