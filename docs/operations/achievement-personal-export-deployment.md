@@ -54,6 +54,7 @@ Monotonic量測維護 **63.232秒**（UTC整秒標記相差63秒）；無正式m
 - 部署helper產生時曾因JavaScript replacement字串把shell regex的 `$'` 當替換指令，`bash -n`拒絕；改用literal callback後syntax檢查及演練通過，未操作正式入口或DB。
 - CI log取數一度未處理GitHub的literal `^[[…m` 色碼，proof拒絕；只修parser，精確四組測試數2／6／205／678才接受，未重跑CI。
 - 維護前health CLI第一次漏必需的 `--since`，回 `unknown`／exit3，未證明健康也未改服務；保留失敗JSON，提供原release resume epoch後實際collection才healthy。維護後均使用新resume epoch。
+- 文件提交後補充health交叉檢查：workstation與server預設Python-urllib公開HTTPS皆403，Cloudflare回應；相同公開URL以Node User-Agent則200，API loopback及帶Python UA的origin HTTPS均200。記錄為client/User-Agent相關邊緣差異，未證實是哪條Cloudflare規則或何時導入；**未修改Cloudflare或其他安全設定**，不把209項Node HTTPS成功說成所有client均可用。正式Node collector／API與workers健康；此不是舊Telegram history403根因的證明。證據 `health-transport-diagnostic.json` 保留。
 - 上述不關閉舊Docker／主機時間回退或原403根因；沒有調整時鐘或鬆化安全斷言。
 
 ## 恢復界線與證據
