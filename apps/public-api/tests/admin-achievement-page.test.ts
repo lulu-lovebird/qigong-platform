@@ -1,6 +1,7 @@
 import vm from 'node:vm';
 import { setImmediate } from 'node:timers/promises';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+afterEach(() => vi.restoreAllMocks());
 import { renderAdminAchievementsPage } from '../src/admin-achievement-page.js';
 import { achievementTexts } from '../src/admin-achievement-locale.js';
 import type { AdminLocale } from '../src/admin-locale.js';
@@ -14,6 +15,9 @@ interface Element {
   className: string;
   textContent: string;
   href: string;
+  download: string;
+  click: () => void;
+  remove: () => void;
   dataset: Record<string, string>;
   children: Element[];
   listeners: Map<string, Handler>;
@@ -34,6 +38,9 @@ const element = (tagName = 'div'): Element => {
     disabled: false,
     className: '',
     href: '',
+    download: '',
+    click: vi.fn(),
+    remove: vi.fn(),
     dataset: {},
     children: [],
     listeners: new Map(),
@@ -123,7 +130,11 @@ const recipients = (): AchievementRecipients => ({
 const all = (root: Element): Element[] => [root, ...root.children.flatMap(all)];
 const requestUrl = (input: Parameters<typeof fetch>[0]) =>
   typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-const fixture = (locale: AdminLocale = 'zh_TW', fetcher?: typeof fetch) => {
+const fixture = (
+  locale: AdminLocale = 'zh_TW',
+  fetcher?: typeof fetch,
+  options: { confirm?: () => boolean; cookie?: string } = {}
+) => {
   const nodes = new Map<string, Element>(),
     html = renderAdminAchievementsPage(locale);
   const get = (id: string) => {
@@ -134,7 +145,13 @@ const fixture = (locale: AdminLocale = 'zh_TW', fetcher?: typeof fetch) => {
     fetcher ??
       (async (input) => {
         const url = requestUrl(input);
-        return Response.json(url.includes('/recipients?') ? recipients() : catalog());
+        return Response.json(
+          url.includes('/capabilities?')
+            ? { canReadAchievements: true, canExportAchievements: false }
+            : url.includes('/recipients?')
+              ? recipients()
+              : catalog()
+        );
       })
   );
   const location = { href: 'https://checkin.baiyinqigong.org/admin/achievements?lang=' + locale };
@@ -146,10 +163,24 @@ const fixture = (locale: AdminLocale = 'zh_TW', fetcher?: typeof fetch) => {
   const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
   const code = scripts.at(-1)?.[1];
   if (!code) throw Error('Missing achievement script');
+  const body = element('body'),
+    downloads: Array<{ url: string; filename: string }> = [],
+    confirm = vi.fn<(message: string) => boolean>(options.confirm ?? (() => true));
   new vm.Script(code).runInNewContext({
     document: {
+      cookie: options.cookie ?? '__Host-qigong-admin-csrf=synthetic-csrf',
+      body,
       getElementById: get,
-      createElement: element,
+      createElement: (tag: string) => {
+        const n = element(tag);
+        n.click = () => {
+          downloads.push({ url: n.href, filename: n.download });
+        };
+        n.remove = () => {
+          body.children = body.children.filter((child) => child !== n);
+        };
+        return n;
+      },
       createTextNode: (value: string) => {
         const n = element('text');
         n.textContent = value;
@@ -163,13 +194,21 @@ const fixture = (locale: AdminLocale = 'zh_TW', fetcher?: typeof fetch) => {
     URLSearchParams,
     Intl,
     Date,
-    AbortController
+    AbortController,
+    confirm,
+    setTimeout: (handler: () => void) => {
+      handler();
+      return 0;
+    }
   });
   return {
     get,
     fetch,
     location,
     html,
+    downloads,
+    body,
+    confirm,
     buttons: () => all(get('achievements-catalog')).filter((n) => n.tagName === 'button')
   };
 };
@@ -188,14 +227,14 @@ const submit = async (f: ReturnType<typeof fixture>) => {
   await handler({ preventDefault: vi.fn() });
   await settle();
 };
-const deferred = () => {
-  let finish: ((response: Response) => void) | undefined;
-  const promise = new Promise<Response>((resolve) => {
+const deferred = <T = Response>() => {
+  let finish: ((response: T) => void) | undefined;
+  const promise = new Promise<T>((resolve) => {
     finish = resolve;
   });
   return {
     promise,
-    resolve: (response: Response) => {
+    resolve: (response: T) => {
       if (!finish) throw Error('Missing resolver');
       finish(response);
     }
@@ -255,7 +294,10 @@ describe('Read-only achievement view controller', () => {
     await submit(f);
     expect(f.buttons()).toHaveLength(1);
     expect(f.get('achievements-catalog').textContent).not.toContain('Second badge');
-    const latest = f.fetch.mock.calls.at(-1)?.[0];
+    const latest = f.fetch.mock.calls.findLast(
+      ([input]) =>
+        new URL(requestUrl(input), 'https://example.invalid').pathname === '/admin/api/achievements'
+    )?.[0];
     if (!latest) throw Error('Missing filter request');
     const url = new URL(requestUrl(latest), 'https://example.invalid');
     expect(url.searchParams.get('q')).toBe('literal_%');
@@ -320,5 +362,130 @@ describe('Read-only achievement view controller', () => {
     await click(f.get('achievements-retry'));
     expect(f.get('achievements-catalog').textContent).toContain('Literal badge');
     expect(f.get('achievements-retry').hidden).toBe(true);
+  });
+});
+
+const exportResponse = (input: Parameters<typeof fetch>[0]): Response => {
+  const url = requestUrl(input);
+  if (url.includes('/capabilities?'))
+    return Response.json({ canReadAchievements: true, canExportAchievements: true });
+  if (url.includes('/recipients?'))
+    return Response.json({ ...recipients(), total: 25, totalPages: 2 });
+  if (url.endsWith('/export/preview'))
+    return Response.json({
+      code: 'streak_3',
+      name: 'Synthetic achievement',
+      count: 25,
+      overLimit: false,
+      limit: 5000
+    });
+  if (url.endsWith('/export'))
+    return new Response('SYNTHETIC PRIVATE CSV', {
+      headers: {
+        'content-type': 'text/csv',
+        'content-disposition':
+          "attachment; filename*=UTF-8''" + encodeURIComponent('成就_streak_3.csv')
+      }
+    });
+  const data = catalog();
+  data.badges[0]!.recipientCount = 25;
+  return Response.json(data);
+};
+const exportLink = (f: ReturnType<typeof fixture>) =>
+  all(f.get('achievements-recipients')).find((n) => n.dataset.exportCsv === 'true');
+describe('Authorized personal CSV view controller', () => {
+  it('does not render export controls for an ordinary reporting capability', async () => {
+    const f = fixture('en');
+    await settle();
+    await click(f.buttons()[0]!);
+    expect(exportLink(f)).toBeUndefined();
+  });
+  it('previews all winners, confirms purpose, sends CSRF and removes/revokes the temporary download link', async () => {
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:synthetic-export'),
+      revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const f = fixture('en', async (input) => exportResponse(input));
+    await settle();
+    f.get('achievements-q').value = 'literal_%';
+    await submit(f);
+    await click(f.buttons()[0]!);
+    await click(exportLink(f)!);
+    expect(f.confirm).toHaveBeenCalledOnce();
+    expect(f.confirm.mock.calls[0]?.[0]).toContain('25');
+    const request = f.fetch.mock.calls.find(
+      ([input, init]) => requestUrl(input).endsWith('/export') && init?.method === 'POST'
+    );
+    const body = request?.[1]?.body;
+    if (typeof body !== 'string') throw Error('Missing CSV request');
+    const values: unknown = JSON.parse(body);
+    expect(values).toEqual({
+      lang: 'en',
+      q: 'literal_%',
+      purpose: 'award_contact',
+      confirmed: true
+    });
+    expect(new Headers(request?.[1]?.headers).get('x-csrf-token')).toBe('synthetic-csrf');
+    expect(f.downloads).toEqual([{ url: 'blob:synthetic-export', filename: '成就_streak_3.csv' }]);
+    expect(f.body.children).toEqual([]);
+    expect(create).toHaveBeenCalledOnce();
+    expect(revoke).toHaveBeenCalledExactlyOnceWith('blob:synthetic-export');
+    expect(f.get('achievements-recipients').textContent).not.toContain('SYNTHETIC PRIVATE CSV');
+    expect(f.get('achievements-status').textContent).toContain('Download prepared');
+  });
+  it('does not request or save a CSV after the user cancels confirmation', async () => {
+    const f = fixture('en', async (input) => exportResponse(input), { confirm: () => false });
+    await settle();
+    await click(f.buttons()[0]!);
+    await click(exportLink(f)!);
+    expect(f.fetch.mock.calls.some(([input]) => requestUrl(input).endsWith('/export'))).toBe(false);
+    expect(f.downloads).toEqual([]);
+  });
+  it('refuses oversized preview sets before confirmation or a data request', async () => {
+    const f = fixture('en', async (input) =>
+      requestUrl(input).endsWith('/preview')
+        ? Response.json({ name: 'Synthetic', count: 5001, overLimit: true, limit: 5000 })
+        : exportResponse(input)
+    );
+    await settle();
+    await click(f.buttons()[0]!);
+    await click(exportLink(f)!);
+    expect(f.confirm).not.toHaveBeenCalled();
+    expect(f.downloads).toEqual([]);
+    expect(f.get('achievements-status').textContent).toContain('5,000');
+  });
+  it('clears all protected results on export denial without saving a file', async () => {
+    const f = fixture('en', async (input) =>
+      requestUrl(input).endsWith('/export')
+        ? Response.json({ error: 'achievement_export_denied' }, { status: 403 })
+        : exportResponse(input)
+    );
+    await settle();
+    await click(f.buttons()[0]!);
+    await click(exportLink(f)!);
+    expect(f.get('achievements-catalog').textContent).toBe('');
+    expect(f.get('achievements-recipients').textContent).toBe('');
+    expect(f.downloads).toEqual([]);
+  });
+  it('does not save a delayed CSV blob after the applied scope changes', async () => {
+    const late = deferred<Blob>(),
+      create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:stale');
+    let requested = false;
+    const f = fixture('en', async (input) => {
+      const response = exportResponse(input);
+      if (requestUrl(input).endsWith('/export')) {
+        requested = true;
+        vi.spyOn(response, 'blob').mockImplementation(() => late.promise);
+      }
+      return response;
+    });
+    await settle();
+    await click(f.buttons()[0]!);
+    await click(exportLink(f)!);
+    expect(requested).toBe(true);
+    f.get('achievements-q').value = 'changed';
+    await submit(f);
+    late.resolve(new Blob(['SYNTHETIC PRIVATE CSV']));
+    await settle();
+    expect(create).not.toHaveBeenCalled();
+    expect(f.downloads).toEqual([]);
   });
 });

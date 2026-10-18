@@ -9,7 +9,7 @@ export const renderAdminAchievementsPage = (locale: AdminLocale, canManageAdmins
     'achievements',
     `
 <style>
-.achievements-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:.65rem}.achievement-card{min-width:0}.achievement-card h3{overflow-wrap:anywhere}.achievement-icon{font-size:1.7rem;margin-right:.4rem}.achievement-card p{margin:.4rem 0}#achievements-year{width:10rem;max-width:100%}.achievement-table{overflow:auto;max-width:100%}.achievement-table td{vertical-align:top;overflow-wrap:anywhere}.achievement-records{padding-left:1.2rem;margin:0}.achievement-pager{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;margin-top:.6rem}@media(max-width:600px){.achievements-grid{grid-template-columns:minmax(0,1fr)}}
+.achievements-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:.65rem}.achievement-card{min-width:0}.achievement-card h3{overflow-wrap:anywhere}.achievement-icon{font-size:1.7rem;margin-right:.4rem}.achievement-card p{margin:.4rem 0}#achievements-year{width:10rem;max-width:100%}.achievement-table{overflow:auto;max-width:100%}.achievement-table td{vertical-align:top;overflow-wrap:anywhere}.achievement-records{padding-left:1.2rem;margin:0}.achievement-pager{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;margin-top:.6rem}.achievement-export-actions{display:flex;align-items:end;flex-wrap:wrap;gap:.6rem;margin:.6rem 0}.achievement-export-link{display:inline-flex;align-items:center;min-height:var(--admin-control-height);padding:.4rem .6rem;text-decoration:underline}@media(max-width:600px){.achievements-grid{grid-template-columns:minmax(0,1fr)}}
 </style>
 <section class="card"><p>${text.intro}</p><p class="muted" id="achievements-readonly">${text.readOnly}</p>
 <form id="achievements-filters" class="filters">
@@ -27,7 +27,7 @@ export const renderAdminAchievementsPage = (locale: AdminLocale, canManageAdmins
  const t=${JSON.stringify(text)}, icons=${JSON.stringify(badgeIcons)}, fallback=${JSON.stringify(fallbackBadgeIcon)}, locale=${JSON.stringify(locale)};
  const $=id=>document.getElementById(id), node=(tag,text,className)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=String(text);if(className)n.className=className;return n;};
  const message=(text,values={})=>text.replace(/\\{([a-zA-Z]+)\\}/g,(_,key)=>String(values[key]??''));
- const initial=new URL(location.href);let selected=initial.searchParams.get('badge'),page=1,category=initial.searchParams.get('category')||'',catalog=[],applied=new URLSearchParams(),catalogGeneration=0,recipientGeneration=0,catalogController,recipientController;
+ const initial=new URL(location.href);let selected=initial.searchParams.get('badge'),page=1,category=initial.searchParams.get('category')||'',catalog=[],applied=new URLSearchParams(),catalogGeneration=0,recipientGeneration=0,canExport=false,catalogController,recipientController,exportController;
  for(const key of ['region','platform','q','year']){const value=initial.searchParams.get(key)||'';if(key==='region'&&value){const option=node('option',t.specifiedRegion);option.value=value;$('achievements-region').append(option);} $('achievements-'+key).value=value;}
  $('achievements-category').value=category;
  const group=kind=>kind==='morning'||kind==='night'?'time':kind==='summer'||kind==='winter'?'seasonal':kind;
@@ -36,10 +36,26 @@ export const renderAdminAchievementsPage = (locale: AdminLocale, canManageAdmins
  const failure=status=>status===401?t.loginExpired:status===403?t.permissionDenied:status===400?t.invalidFilter:t.unavailable;
  const setStatus=(text,error=false)=>{$('achievements-status').textContent=text;$('achievements-status').dataset.error=String(error);$('achievements-retry').hidden=!error;};
  const clear=()=>{$('achievements-catalog').replaceChildren();$('achievements-recipients').replaceChildren();$('achievements-observed').textContent='';};
- const clearAuthorization=()=>{catalogGeneration++;recipientGeneration++;catalogController?.abort();recipientController?.abort();catalog=[];clear();};
+ const clearAuthorization=()=>{catalogGeneration++;recipientGeneration++;catalogController?.abort();recipientController?.abort();exportController?.abort();exportController=undefined;canExport=false;catalog=[];clear();};
  const get=async(path,params,signal)=>{const response=await fetch(path+'?'+params,{credentials:'same-origin',cache:'no-store',signal});if(!response.ok){const error=new Error('Achievement request failed');error.status=response.status;throw error;}return response.json();};
  const updateUrl=()=>{const url=new URL(location.href);url.search=applied.toString();if(selected)url.searchParams.set('badge',selected);if(category)url.searchParams.set('category',category);history.replaceState(null,'',url.pathname+url.search);};
  const condition=badge=>message(t[({streak:'conditionStreak',total:'conditionTotal',method:'conditionMethod',combo:'conditionCombo',morning:'conditionMorning',night:'conditionNight',summer:'conditionSummer',winter:'conditionWinter'})[badge.kind]],{days:badge.threshold});
+ const csrf=()=>((document.cookie||'').split(';').map(value=>value.trim()).find(value=>value.startsWith('__Host-qigong-admin-csrf='))||'').slice('__Host-qigong-admin-csrf='.length);
+ const post=async(path,values,signal)=>{const response=await fetch(path,{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'content-type':'application/json','x-csrf-token':csrf()},body:JSON.stringify(values),signal});if(!response.ok){const error=new Error('Export refused');error.status=response.status;throw error;}return response;};
+ async function exportRecipients(purpose,link){
+  if(!canExport||exportController)return;const code=selected,values=Object.fromEntries(applied.entries()),own=recipientGeneration,controller=new AbortController();exportController=controller;const signal=controller.signal;
+  const current=()=>!signal.aborted&&own===recipientGeneration&&selected===code;
+  link.setAttribute('aria-disabled','true');link.textContent=t.exportPreparing;
+  try{
+   const preview=await(await post('/admin/api/achievements/'+encodeURIComponent(code)+'/export/preview',values,signal)).json();if(!current())return;
+   if(preview.overLimit){setStatus(t.exportTooLarge,true);return;}
+   if(!confirm(message(t.exportConfirm,{name:preview.name,count:preview.count}))||!current())return;
+   const response=await post('/admin/api/achievements/'+encodeURIComponent(code)+'/export',{...values,purpose,confirmed:true},signal),blob=await response.blob();if(!current())return;
+   let filename='achievement-'+code+'.csv';const encoded=(response.headers.get('content-disposition')||'').split("filename*=UTF-8''")[1]?.split(';')[0];try{if(encoded)filename=decodeURIComponent(encoded);}catch{ /* Keep the safe fallback. */ }
+   const objectUrl=URL.createObjectURL(blob),anchor=node('a');anchor.href=objectUrl;anchor.download=filename;document.body.append(anchor);try{anchor.click();}finally{anchor.remove();setTimeout(()=>URL.revokeObjectURL(objectUrl),1000);}setStatus(t.exportPrepared);
+  }catch(error){if(!current())return;if(error.status===401||error.status===403)clearAuthorization();setStatus(error.status===429?t.exportRateLimited:error.status===413?t.exportTooLarge:error.status===401||error.status===403?failure(error.status):t.exportFailure,true);}
+  finally{if(exportController===controller)exportController=undefined;link.setAttribute('aria-disabled','false');link.textContent=t.csvExport;}
+ }
  function renderCatalog(){
   const root=node('div');let count=0;
   for(const kind of ['streak','total','time','seasonal','combo','method']){
@@ -55,6 +71,7 @@ export const renderAdminAchievementsPage = (locale: AdminLocale, canManageAdmins
   if(!count)root.append(node('p',t.noBadges));$('achievements-catalog').replaceChildren(root);
  }
  async function loadRecipients(reveal=false){
+  exportController?.abort();exportController=undefined;
   recipientController?.abort();recipientController=new AbortController();const own=++recipientGeneration,signal=recipientController.signal;
   const target=catalog.find(b=>b.code===selected);if(!target){$('achievements-recipients').replaceChildren(node('p',t.selectBadge));return;}
   $('achievements-recipients').replaceChildren(node('p',t.loading));
@@ -62,6 +79,7 @@ export const renderAdminAchievementsPage = (locale: AdminLocale, canManageAdmins
   try{
    const data=await get('/admin/api/achievements/'+encodeURIComponent(selected)+'/recipients',query,signal);if(own!==recipientGeneration)return;
    const root=node('div'),back=node('a',t.backToCatalog);back.href='#achievements-catalog';root.append(back,node('h2',target.name+' · '+t.recipients));
+   if(canExport){const actions=node('div',undefined,'achievement-export-actions'),label=node('label',t.exportPurpose),purpose=node('select');purpose.id='achievement-export-purpose';for(const [value,title]of [['award_contact',t.purposeAwardContact],['internal_review',t.purposeInternalReview]]){const option=node('option',title);option.value=value;purpose.append(option);}purpose.value='award_contact';label.append(purpose);const link=node('a',t.csvExport,'achievement-export-link');link.href='#achievements-recipients';link.dataset.exportCsv='true';link.addEventListener('click',event=>{event.preventDefault();void exportRecipients(purpose.value,link);});actions.append(label,link);root.append(actions,node('p',t.exportPrivacy,'muted'),node('p',t.exportTextNote,'muted'));}
    if(!data.rows.length)root.append(node('p',t.noRecipients));
    else{
     const table=node('table'),head=node('thead'),headRow=node('tr');for(const label of [t.learner,t.region,t.currentChannel,t.awardPeriods,t.recordedAt])headRow.append(node('th',label));head.append(headRow);table.append(head);const body=node('tbody');
@@ -74,10 +92,10 @@ export const renderAdminAchievementsPage = (locale: AdminLocale, canManageAdmins
   }catch(error){if(signal.aborted||own!==recipientGeneration)return;if(error.status===401||error.status===403)clearAuthorization();else $('achievements-recipients').replaceChildren();setStatus(failure(error.status),true);}
  }
  async function loadCatalog(){
-  catalogController?.abort();recipientController?.abort();recipientGeneration++;catalogController=new AbortController();const own=++catalogGeneration,signal=catalogController.signal;clear();setStatus(t.loading);
+  catalogController?.abort();recipientController?.abort();exportController?.abort();exportController=undefined;recipientGeneration++;catalogController=new AbortController();const own=++catalogGeneration,signal=catalogController.signal;clear();setStatus(t.loading);
   applied=new URLSearchParams({lang:locale});for(const key of ['region','platform','q','year']){const value=$('achievements-'+key).value.trim();if(value)applied.set(key,value);}category=$('achievements-category').value;updateUrl();
   try{
-   const data=await get('/admin/api/achievements',applied,signal);if(own!==catalogGeneration)return;catalog=data.badges;
+   const [data,capabilities]=await Promise.all([get('/admin/api/achievements',applied,signal),get('/admin/api/achievements/capabilities',new URLSearchParams(),signal).catch(error=>{if(error.status===401||error.status===403)throw error;return {canExportAchievements:false};})]);if(own!==catalogGeneration)return;catalog=data.badges;canExport=capabilities.canExportAchievements===true;
    const wanted=applied.get('region')||'',select=$('achievements-region');select.replaceChildren();const all=node('option',t.allRegions);all.value='';select.append(all);for(const region of data.regions){const option=node('option',region.name);option.value=region.id;select.append(option);}if(wanted&&!data.regions.some(r=>r.id===wanted)){const option=node('option',t.unavailableRegion);option.value=wanted;select.append(option);}select.value=wanted;
    renderCatalog();$('achievements-observed').textContent=message(t.observedAt,{time:timestamp(data.observedAt)});setStatus(t.loaded);await loadRecipients();
   }catch(error){if(signal.aborted||own!==catalogGeneration)return;clearAuthorization();setStatus(failure(error.status),true);}

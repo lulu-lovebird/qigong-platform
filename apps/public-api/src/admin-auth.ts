@@ -415,7 +415,22 @@ export const registerAdminRoutes = (
     );
   });
 
-  registerAdminAchievementRoutes(app, pool, principalFor);
+  registerAdminAchievementRoutes(
+    app,
+    pool,
+    principalFor,
+    (request) => {
+      const value = request.headers['x-csrf-token'],
+        saved = cookies(request)[csrfCookie];
+      return (
+        typeof value === 'string' &&
+        typeof saved === 'string' &&
+        saved.length > 0 &&
+        timingSafeEqual(sha256(value), sha256(saved))
+      );
+    },
+    (request) => cookies(request)[sessionCookie]
+  );
 
   registerAdminJournalRoutes(app, pool, principalFor, (request) => {
     const value = request.headers['x-csrf-token'],

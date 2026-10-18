@@ -12,10 +12,14 @@ suite('Admin achievements schema37 to38 read-only expansion', () => {
   it('preserves all tables, stored award versions, private history, jobs and security metadata', async () => {
     const database = await createIsolatedTestDatabase(base!);
     const old = await mkdtemp(path.join(tmpdir(), 'achievements37-'));
+    const current = await mkdtemp(path.join(tmpdir(), 'achievements38-pinned-'));
     try {
-      for (const file of await readdir(directory))
+      for (const file of await readdir(directory)) {
         if (file.endsWith('.sql') && file < '0038_')
           await copyFile(path.join(directory, file), path.join(old, file));
+        if (file.endsWith('.sql') && file < '0039_')
+          await copyFile(path.join(directory, file), path.join(current, file));
+      }
       await runMigrations(database.pool, old, 'achievements-before');
       expect(
         (
@@ -93,12 +97,12 @@ suite('Admin achievements schema37 to38 read-only expansion', () => {
           [record.checkin]
         )
       ).rows[0]!.source;
-      expect((await runMigrations(database.pool, directory, 'achievements-after')).applied).toEqual(
-        ['0038_admin_achievements.sql']
+      expect((await runMigrations(database.pool, current, 'achievements-after')).applied).toEqual([
+        '0038_admin_achievements.sql'
+      ]);
+      expect((await runMigrations(database.pool, current, 'achievements-repeat')).applied).toEqual(
+        []
       );
-      expect(
-        (await runMigrations(database.pool, directory, 'achievements-repeat')).applied
-      ).toEqual([]);
       expect(await fingerprint()).toEqual(before);
       expect(await security()).toEqual(beforeSecurity);
       expect(
@@ -140,6 +144,7 @@ suite('Admin achievements schema37 to38 read-only expansion', () => {
     } finally {
       await database.dispose();
       await rm(old, { recursive: true, force: true });
+      await rm(current, { recursive: true, force: true });
     }
   });
 });

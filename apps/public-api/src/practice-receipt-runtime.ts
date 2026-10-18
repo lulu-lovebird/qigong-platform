@@ -35,7 +35,7 @@ export const runRealtimePracticeReceipts = async (
       'qigong_worker_runtime',
       { requestId: randomUUID() },
       (client) =>
-        client.query<{ ready: boolean }>('SELECT ops.admin_achievements_schema_ready() ready')
+        client.query<{ ready: boolean }>('SELECT ops.achievement_export_schema_ready() ready')
     );
     return result.rows[0]?.ready === true;
   };

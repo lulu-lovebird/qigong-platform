@@ -153,12 +153,12 @@ suite('Authenticated read-only achievement HTTP boundaries', () => {
             headers: headers('content')
           })
         ).json()
-      ).toEqual({ canReadAchievements: false });
+      ).toEqual({ canReadAchievements: false, canExportAchievements: false });
       expect(
         (
           await app.inject({ url: '/admin/api/achievements/capabilities', headers: headers() })
         ).json()
-      ).toEqual({ canReadAchievements: true });
+      ).toEqual({ canReadAchievements: true, canExportAchievements: false });
     } finally {
       await app.close();
     }

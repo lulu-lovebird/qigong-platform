@@ -58,6 +58,14 @@ Production is **a9f6f50 / exact38**, after exact-SHA CI39001849304 succeeded. Th
 
 **After the resume boundary, retain38: no37 binary and no old-snapshot DB restore.** Use the validated achievement-only ingress hold, or full checkin maintenance for a broader fault, and fix forward with a reviewed38 build while preserving all new writes/queues/consents/audit. There is no assumed38-compatible old-functionality emergency binary. The ingress helper refuses unrelated later config drift; do not overwrite other sites with saved stale config. This case-specific exception does not waive the default expand contract for future rolling releases. All0001–0038 artifacts are now immutable. See [design/security](../operations/admin-achievements.md).
 
+## Personal achievement export exact39 local candidate (not published)
+
+The locally authorized personal CSV export adds `0039_achievement_personal_export.sql`, one empty forced-RLS cooldown table, six restricted functions, and `achievement.export_personal` for `super_admin`/`master_admin` only. Existing0001–0038 remain unchanged; the38→39 preservation test excludes only the intended architecture version/time and exact added permission/mappings, with new-table security checked separately. Historical37→38 tests stay pinned to38.
+
+The candidate declares API min/max39 and matching minute/realtime `ops.achievement_export_schema_ready()` / `phase-24-achievement-personal-export`. **Production remains a9f6f50/exact38 pending this release.** On2026-10-18 the user separately and explicitly authorized this candidate’s commit/push, exact-SHA CI, rehearsal and coordinated-maintenance exception, including ingress fencing, API/both-worker stop, final encrypted backups and actual restore/preservation verification before migration. The38 binary rejects39, and the candidate rejects38. This is not an expand-compatible rolling release; the previous38 exception was not automatically reused. Do not run the migration online under38 services. Authorization does not include formal personal-data exports, unrelated role grants or operational flag changes.
+
+If39 is later approved and traffic/workers resume, retain39 and fix forward while preserving all new writes, queues, audit and export cooldowns; do not binary-downgrade to38 or restore an old snapshot over new writes. No39-compatible old-functionality emergency build currently exists. See [local personal-export design and verification](../operations/achievement-personal-export.md). Formal personal-data export, legal publication and operational activation are separate decisions.
+
 ## Required Controls
 
 - CI tests the old and new application compatibility ranges against the same expand schema.

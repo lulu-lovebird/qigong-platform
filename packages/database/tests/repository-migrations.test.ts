@@ -55,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0038_admin_achievements.sql'
+      '0039_achievement_personal_export.sql'
     );
 
     expect(first.applied).toEqual([
@@ -96,13 +96,14 @@ describeWithDatabase('repository migrations', () => {
       '0035_simplified_chinese_locale.sql',
       '0036_feeling_tag_simplified_labels.sql',
       '0037_learner_author_names.sql',
-      '0038_admin_achievements.sql'
+      '0038_admin_achievements.sql',
+      '0039_achievement_personal_export.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0038_admin_achievements.sql',
+      currentVersion: '0039_achievement_personal_export.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0038_admin_achievements.sql',
+      maximumVersion: '0039_achievement_personal_export.sql',
       ready: true
     });
   });
