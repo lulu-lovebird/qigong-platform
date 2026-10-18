@@ -1,8 +1,8 @@
-# 成就得獎名單個資 CSV 匯出（本機候選39）
+# 成就得獎名單個資 CSV 匯出（schema39已發布）
 
 ## 狀態與授權邊界
 
-使用者核准本機實作，初版供 `super_admin` 與 `master_admin` 使用；2026-10-18又明確核准本次提交／推送、精確SHA CI、演練與38→39協調維護例外。**目前待發布，正式仍為 `a9f6f50`／schema38；部署結果另記。** 本次只用合成資料測試，未產生正式學員個資檔案、變更其他營運開關或發布政策；既有人工驗收與無關permissions-review不納入提交。
+使用者核准本機實作，初版供 `super_admin` 與 `master_admin` 使用；2026-10-18又明確核准本次提交／推送、精確SHA CI、演練與38→39協調維護例外。**正式已發布 `afd90b57febd03e05a7c59d0c5e1b81ac6c25bc6`／schema39，精確SHA CI39123945084／891 tests與209項公開HTTPS檢查通過。** 實際維護63.232秒，最終加密備份實際還原／保存與恢復界線見[發布紀錄](achievement-personal-export-deployment.md)。 本次功能互動測試僅使用合成資料；正式資料僅作已核准的加密備份／隔離還原與彙總保存檢查，未產生正式學員個資CSV、變更其他營運開關或發布政策；既有人工驗收與無關permissions-review不納入提交。
 
 新增 `achievement.export_personal`，只授予上述兩種角色；不沿用 `stats.export`，不開放一般報表／區域管理角色。下載需有效 global grant，而且同一角色具備匯出、`stats.read`、`learner.read`、`checkin.read` 四項權限。名單再與既有 `_achievement_people` 三項個人範圍檢查相交。權限與 principal 狀態使用 `clock_timestamp()`，等待鎖後再次檢查，不將 transaction 起始時間誤當目前時間。
 
@@ -58,7 +58,7 @@ CSV採UTF-8 BOM、CRLF及完整引號 escaping。ID／電話固定加單引號�
 
 API min/max39；minute與realtime worker同時改為 `ops.achievement_export_schema_ready()`／`phase-24-achievement-personal-export`。**38 binary不接受39，新候選也不接受38；這不是 rolling expand release。** 上次schema38方案A不自動沿用；本次使用者已另行明確核准協調維護／停寫例外。必須先通過精確SHA CI及演練，再封鎖打卡入口、停止API與雙worker，取得最終加密備份並實際還原驗證，檢查全部既有資料／權限保存後，才可正式升級並啟動 matching API／雙worker；不得直接在線 migrate39。
 
-將來若核准39發布，恢復寫入後須保留39並修前進版，不能以38 binary或舊快照丟失新資料、隊列、稽核與冷卻紀錄；目前沒有39相容的舊功能緊急 build。本次提交／推送及上述維護發布已獲明確核准，但不授權正式個資下載、其他個別角色grant／政策調整或營運開關變更；新權限的兩種固定角色映射以本次migration為限。
+本次39已核准並完成發布；恢復寫入後須保留39並修前進版，不能以38 binary或舊快照丟失新資料、隊列、稽核與冷卻紀錄；目前沒有39相容的舊功能緊急 build。本次提交／推送及上述維護發布已獲明確核准，但不授權正式個資下載、其他個別角色grant／政策調整或營運開關變更；新權限的兩種固定角色映射以本次migration為限。
 
 ## 合成驗證
 
