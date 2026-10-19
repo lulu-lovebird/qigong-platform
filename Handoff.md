@@ -1,12 +1,15 @@
 # Qigong Platform — 交接摘要
 
-## 發布候選41：空白新增獨立活動 badge（本次維護已核准，待CI／切換）
+## 最新部署：空白新增獨立活動 badge fafbb68／41
+
+- 正式 **fafbb68cef66c85552183047da96dbd0c32605e7**／exact41／phase26，精確SHA CI **39244722048**首輪成功／**1014 tests**。使用者另核准本次40→41直接維護例外；**2026-10-19 11:39:22–11:40:23 UTC／60.729秒**，API11:39:23停寫後final加密DB／roles／runtime站外decrypt驗hash與fresh PG16 actual restore，**79表／19people／53checkins**保存過才升級，production applied1／repeat0、兩新checks validated與event unique index valid，API私有啟動前後79表exact。**11:39:46 resume marker先於workers**，229 Node HTTPS／health healthy／restart0／queues0；env640／units／flags保留、normal Caddy全檔相同、post-runtime再加密與實際extract。兩個真guest log marker精確redaction過；clone／probe停止，無agent正式draft／個資CSV／真人provider test send。
+- 重新整理管理頁後，空白「新增活動badge」與既有季節設定入口分離。**仍僅草稿試算，rule發布／授獎／重算未開。** 0001–0041現在均immutable；恢復後留41／fix forward，舊40 binary拒41，不能退40或回灌舊snapshot。待人員實際帳號／手機驗收，不預先稱全matrix過。見[41正式部署／實際還原／復原邊界](docs/operations/independent-activity-deployment.md)。
 
 - 使用者指出新增活動誤帶三伏來源，確認修正方案；已分流「新增活動badge空白表單」與「既有三伏／冬至年度設定草稿」。新subject event／server-generated event_32hex、year及definition_code為null，同名同日期不合併，不繫結或改寫49 live definitions／季節／awards。名稱／日期／時區／門檻等全空白，保存前不自動寫入；未存捨棄veto、CSRF／session／reason／revision／post-lock guards不變。活動只模擬區間內任一打卡distinct日期累計與global latest makeup＋86,400秒，非連續／冬至功法限制；publish／awards仍disabled。
-- 新0041只改private metadata constraints／index及四個必要facade bodies，保存原owner／ACL／RLS／search_path／其餘functions與79表rows；0001–0040 immutable不動。API exact41、雙worker ops.achievement_event_drafts_schema_ready／phase26，正式仍以下8a46c07／40發布紀錄；**使用者已另核准本次commit／push／deploy與40→41直接協調維護例外；待精確SHA CI／演練通過，封鎖入口並停API／雙worker、final加密DB／roles／runtime實際還原保存過才升級與matching切換。resume後留41／fix forward、不退40或舊快照；不沿用40例外或在線混40/41。尚未正式切換，rule發布／發獎仍disabled**。兩份既有無關文件不動。
+- 新0041只改private metadata constraints／index及四個必要facade bodies，保存原owner／ACL／RLS／search_path／其餘functions與79表rows；0001–0040 immutable不動。API exact41、雙worker ops.achievement_event_drafts_schema_ready／phase26，正式41部署如上，以下8a46c07／40為前次發布紀錄；**已按本次另核准的40→41直接維護例外完成CI／演練、停寫final actual restore/preservation後matching切換。resume後留41／fix forward、不退40或舊快照；不沿用40例外或在線混40/41。rule發布／發獎仍disabled**。兩份既有無關文件不動。
 - Node24兩strict gates與完整verify **1014 tests**（API762／DB244／config2／identity6），新DB7含actual40→41 apply1／repeat0／來源與cache保存；VM19／model26／HTTP17過。browser13組／24圖、12次seasonal未存捨棄確認、12獨立event drafts＋12preview／24audit，其餘business全相同、provider sends0／正式0。初輪SQL生成／lint fixture／舊TG gate與browser readiness失敗均保留及具體修復，未放寬斷言；不是完整真人手機驗收。見[獨立活動規格與本機證據](docs/operations/independent-activity-drafts.md)。
 
-## 最新部署：活動／成就與功法badge草稿40（phase1 only）
+## 前次部署：活動／成就與功法badge草稿40（phase1 only）
 
 - 正式 **8a46c07c9dfecaec7b86a3dcbdcf1e526e66926e**／schema40／phase25，exact-SHA CI **39229829965**首輪成功／**999 tests**。使用者另明確核准本次39→40協調維護，2026-10-19 **09:41:20–09:42:21 UTC／61.307秒**，停寫後final encrypted DB／roles／runtime實際fresh PG16 restore與77舊表／19people／51checkins保存過才升級；production applied1／repeat0，新79表private啟動前後exact，**09:41:45 resume marker先於workers**。229 Node HTTPS、health healthy／queues0／restart0，normal Caddy全檔相同、env640／flags保留、post-runtime站外加密並實際extract驗證。兩份既有無關文件仍排除。
 - **只有草稿／試算，正式rule發布、授獎與重算仍disabled。** 恢復後保留40／fix forward，禁止退39binary或回灌舊snapshot；0001–0040現在均immutable。新管理clone6 drafts／6 previews／13預期audit及18HTML＋18catalog過，其他business表不變；real-systemd14 mock jobs正常、無provider真人send。新增guest日誌probe初輪harness期待錯schema失敗已保留，依實際incoming URL [REDACTED]＋completed reqId修正後2條精確correlation過，未改產品logger。真人帳號／手機管理驗收尚待。詳見[40部署／實際還原／復原邊界](docs/operations/achievement-management-deployment.md)。

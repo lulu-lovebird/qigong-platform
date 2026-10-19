@@ -1,8 +1,8 @@
-# 獨立活動 badge：空白新增與季節設定分流（本機候選41）
+# 獨立活動 badge：空白新增與季節設定分流（已部署41）
 
 ## 問題與核准
 
-使用者指出「新增活動」卻帶入三伏修練資料。原40按鈕其實建立既有三伏／冬至的年度設定草稿，不是獨立新增；儲存也只改private draft，未直接改正式季節資料，但操作語意不符需求。使用者確認修正方案後完成本機實作與驗證，後續另明確核准本次commit／push／deploy及40→41直接協調維護例外。待精確SHA CI／隔離演練通過，停API／雙worker後取得final加密DB／roles／runtime並實際還原及保存驗證，才可升級切換；目前尚待執行。正式rule發布與授獎仍不在範圍。
+使用者指出「新增活動」卻帶入三伏修練資料。原40按鈕其實建立既有三伏／冬至的年度設定草稿，不是獨立新增；儲存也只改private draft，未直接改正式季節資料，但操作語意不符需求。使用者確認修正方案後完成本機實作與驗證，後續另明確核准本次commit／push／deploy及40→41直接協調維護例外。待精確SHA CI／隔離演練通過，停API／雙worker後取得final加密DB／roles／runtime並實際還原及保存驗證，才可升級切換；現已完成正式fafbb68／41，CI39244722048首輪1014 tests，維護60.729秒／229 Node HTTPS與health過。見[正式部署、實際還原與復原邊界](independent-activity-deployment.md)。0041現亦immutable。正式rule發布與授獎仍不在範圍。
 
 ## 兩個明確入口
 
@@ -17,7 +17,7 @@
 - **0001–0040完全不動**。新增`0041_independent_activity_drafts.sql`，既有forced-RLS private draft表新增subject `event`／identity constraint與partial unique index，`definition_code=NULL`，不新增／改寫49 live definitions或正式季節／awards／jobs。
 - 既有activity／rule／challenge rows、source hashes、previews與audit原樣保留。只替換四個必要函式body：`_achievement_config_source`、`_achievement_config_validate`、`save_achievement_config_draft`、`compute_achievement_config_preview`。原owner／ACL／SECURITY DEFINER／search_path／volatility與其他function definitions保存驗證。
 - 無新增permission／role mapping／raw table grants；有效global master／super條件不變。Origin／CSRF、actual session最後重查、revision／reason、post-lock來源／權限重驗、容量／冷卻／timeout不放寬。
-- candidate API exact41、雙worker改`ops.achievement_event_drafts_schema_ready()`／`phase-26-independent-activity-drafts`。正式40與candidate41不相容，**本次提交推送與41直接維護例外已另明確核准，待CI／演練與final actual restore/preservation通過才執行；resume後保留41／fix forward，不退40或回灌舊快照**；不沿用已完成的40維護例外，不在線migrate41，不能只換前端或修改40 migration。
+- 正式API exact41、雙worker改`ops.achievement_event_drafts_schema_ready()`／`phase-26-independent-activity-drafts`。舊40與正式41不相容，**本次提交推送與41直接維護例外已另明確核准，已在CI／演練與final actual restore/preservation通過後完成；resume後保留41／fix forward，不退40或回灌舊快照**；不沿用已完成的40維護例外，不在線migrate41，不能只換前端或修改40 migration。
 
 ## 驗證
 
@@ -27,4 +27,4 @@
 - 真compiled Fastify＋隔離PG16／合成session，browser **13組／24圖**（master／super × 三語 ×390／1280，加viewer拒絕）。每組從既有三伏草稿輸入未存修改，確認捨棄後空白新增、填寫、實存與試算；12次確認、12 event drafts／12 previews／24預期audit，所有其他business表fingerprint相同。無API／JS error、無overflow，手機44px／16px、publish disabled；非真人OAuth或實體手機驗收。
 - 首次SQL產生器替換字元／partial-read片段錯誤已修復，未改歷史migration。首次verify lint指出測試fixture對unknown做字串相加，改成明確String；下一輪抓出TG worker readiness測試仍呼叫40舊gate，改驗41 gate、保留ready=true斷言。失敗紀錄保留，沒有放寬型別／安全斷言或無原因重跑。browser首次fixture readiness因背景preview未起動而停，改detached程序啟動後完整矩陣過，產品未為測試改碼。
 
-證據：`/tmp/qigong-activity-badge-verify-complete.log`、`/tmp/qigong-activity-badge-browser-{results,preservation}.json`、`/tmp/qigong-activity-badge-{super|master}-{zh_TW|zh_CN|en}-{390|1280}-{blank|preview}.png`；失敗log與私密合成fixture留在本機，不入Git／不貼憑證。測試專用PG55508、preview PG55509與HTTP55510／CDP55511均於驗證後停止。沒有連正式、產生正式個資CSV、真人provider send、Console／flags／政策／同意變更。
+證據：`/tmp/qigong-activity-badge-verify-complete.log`、`/tmp/qigong-activity-badge-browser-{results,preservation}.json`、`/tmp/qigong-activity-badge-{super|master}-{zh_TW|zh_CN|en}-{390|1280}-{blank|preview}.png`；失敗log與私密合成fixture留在本機，不入Git／不貼憑證。測試專用PG55508、preview PG55509與HTTP55510／CDP55511均於驗證後停止。本機實作／合成驗證階段未連正式；正式部署詳見獨立發布紀錄，僅批准的0041與matching切換，不產生正式個資CSV、真人測試send，Console／flags／政策／同意不變。
