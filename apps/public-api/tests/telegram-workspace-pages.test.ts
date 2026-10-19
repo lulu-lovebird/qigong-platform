@@ -847,6 +847,159 @@ describe('Telegram workspace generated scripts and unsaved private drafts', () =
     expect(f.get('note').value).toBe('Today draft');
     expect(f.all('[data-method]').every((input) => input.checked)).toBe(true);
   });
+  it.each(
+    (['telegram', 'line', 'whatsapp'] as const).flatMap((channel) =>
+      (['zh_TW', 'zh_CN', 'en'] as const).map((locale) => ({ channel, locale }))
+    )
+  )(
+    'starts groups collapsed and toggles only visibility for $channel / $locale',
+    async ({ channel, locale }) => {
+      const f = fixture('checkin', { locale, ...(channel === 'telegram' ? {} : { channel }) });
+      await tick();
+      const wrapper = f.get('methodsList').children[0]!,
+        head = wrapper.children[0]!,
+        children = wrapper.children[1]!,
+        toggle = head.children.find((child) => child.className === 'toggle');
+      if (!toggle) throw Error('Missing method toggle fixture');
+      expect(children.hidden).toBe(true);
+      expect(toggle.textContent).toBe('+');
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(toggle.getAttribute('aria-controls')).toBe(children.getAttribute('id'));
+      const calls = f.fetchMock.mock.calls.length;
+      await click(toggle);
+      expect(children.hidden).toBe(false);
+      expect(toggle.textContent).toBe('−');
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      expect(f.all('[data-method]').every((input) => !input.checked)).toBe(true);
+      await click(toggle);
+      expect(children.hidden).toBe(true);
+      expect(toggle.textContent).toBe('+');
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(f.fetchMock).toHaveBeenCalledTimes(calls);
+      await click(f.links[1]!);
+      expect(f.confirm).not.toHaveBeenCalled();
+    }
+  );
+  it('retains hidden selections and parent all/partial states without turning a collapsed parent into a submitted method', async () => {
+    const f = fixture('checkin', { entries: [entry('2026-10-09')] });
+    await tick();
+    const wrapper = f.get('methodsList').children[0]!,
+      children = wrapper.children[1]!,
+      toggle = wrapper.children[0]!.children.find((child) => child.className === 'toggle');
+    if (!toggle) throw Error('Missing method toggle fixture');
+    const parent = f.all('[data-group]')[0]!;
+    expect(children.hidden).toBe(true);
+    expect(parent.checked).toBe(false);
+    expect(parent.indeterminate).toBe(true);
+    expect(f.all('[data-method]')[0]!.checked).toBe(true);
+    parent.checked = true;
+    await parent.onchange?.();
+    expect(children.hidden).toBe(true);
+    expect(f.all('[data-method]').every((input) => input.checked)).toBe(true);
+    expect(parent.indeterminate).toBe(false);
+    await click(toggle);
+    const leaf = f.all('[data-method]')[1]!;
+    leaf.checked = false;
+    await leaf.onchange?.();
+    await click(toggle);
+    expect(parent.indeterminate).toBe(true);
+    expect(f.all('[data-method]')[0]!.checked).toBe(true);
+    expect(leaf.checked).toBe(false);
+    await click(f.get('submit'));
+    const save = f.fetchMock.mock.calls.find(
+      ([input]) => typeof input === 'string' && input.endsWith('/save')
+    );
+    expect(jsonBody(save?.[1]?.body).methods).toEqual(['dayan_chu']);
+  });
+  it('preserves expansion through date redraws together with separate method and note drafts', async () => {
+    const f = fixture();
+    await tick();
+    const initial = f.get('methodsList').children[0]!,
+      toggle = initial.children[0]!.children.find((child) => child.className === 'toggle');
+    if (!toggle) throw Error('Missing method toggle fixture');
+    await click(toggle);
+    f.all('[data-method]')[0]!.checked = true;
+    await f.all('[data-method]')[0]!.onchange?.();
+    f.get('note').value = 'Synthetic today draft';
+    f.get('note').oninput?.();
+    await click(f.get('yesterdayTab'));
+    expect(f.get('methodsList').children[0]!.children[1]!.hidden).toBe(false);
+    expect(f.all('[data-method]').every((input) => !input.checked)).toBe(true);
+    f.get('note').value = 'Synthetic yesterday draft';
+    f.get('note').oninput?.();
+    await click(f.get('todayTab'));
+    expect(f.get('note').value).toBe('Synthetic today draft');
+    expect(f.all('[data-method]')[0]!.checked).toBe(true);
+    expect(f.get('methodsList').children[0]!.children[1]!.hidden).toBe(false);
+    const fresh = fixture();
+    await tick();
+    expect(fresh.get('methodsList').children[0]!.children[1]!.hidden).toBe(true);
+  });
+  it('keeps expansion and failed-save request identity stable when visibility changes between retries', async () => {
+    const f = fixture();
+    await tick();
+    const toggle = () => {
+      const control = f
+        .get('methodsList')
+        .children[0]!.children[0]!.children.find((child) => child.className === 'toggle');
+      if (!control) throw Error('Missing method toggle fixture');
+      return control;
+    };
+    await click(toggle());
+    f.all('[data-method]')[0]!.checked = true;
+    await f.all('[data-method]')[0]!.onchange?.();
+    f.fetchMock.mockResolvedValueOnce(
+      new Response('{"error":"synthetic_failure"}', { status: 503 })
+    );
+    await click(f.get('submit'));
+    const first = jsonBody(f.fetchMock.mock.calls[1]![1]?.body);
+    expect(f.get('methodsList').children[0]!.children[1]!.hidden).toBe(false);
+    await click(toggle());
+    f.fetchMock.mockResolvedValueOnce(
+      new Response('{"error":"synthetic_failure"}', { status: 503 })
+    );
+    await click(f.get('submit'));
+    const second = jsonBody(f.fetchMock.mock.calls[2]![1]?.body);
+    expect(second.requestId).toBe(first.requestId);
+    expect(second.methods).toEqual(first.methods);
+    expect(f.get('methodsList').children[0]!.children[1]!.hidden).toBe(true);
+  });
+  it('does not treat native Mini App disclosure changes as unsaved practice edits', async () => {
+    const f = fixture('checkin', { native: true });
+    await tick();
+    const wrapper = f.get('methodsList').children[0]!,
+      toggle = wrapper.children[0]!.children.find((child) => child.className === 'toggle');
+    if (!toggle) throw Error('Missing method toggle fixture');
+    const before = f.app.enableClosingConfirmation.mock.calls.length;
+    await click(toggle);
+    await click(toggle);
+    expect(f.app.enableClosingConfirmation).toHaveBeenCalledTimes(before);
+    await click(f.links[1]!);
+    expect(f.confirm).not.toHaveBeenCalled();
+  });
+  it('forgets expansion for a group that disappears from the available method profile', async () => {
+    const f = fixture();
+    await tick();
+    const saved = [...f.profile.methods],
+      toggle = f
+        .get('methodsList')
+        .children[0]!.children[0]!.children.find((child) => child.className === 'toggle');
+    if (!toggle) throw Error('Missing method toggle fixture');
+    await click(toggle);
+    f.profile.methods.splice(0, f.profile.methods.length, {
+      code: 'huanghai',
+      name: 'Swaying Sea',
+      groupCode: 'huanghai',
+      group: 'Swaying Sea'
+    });
+    await click(f.get('reload'));
+    await tick();
+    expect(f.all('[data-group]')).toHaveLength(0);
+    f.profile.methods.splice(0, f.profile.methods.length, ...saved);
+    await click(f.get('reload'));
+    await tick();
+    expect(f.get('methodsList').children[0]!.children[1]!.hidden).toBe(true);
+  });
   it('renders a standalone method once without a redundant group selector', async () => {
     const f = fixture();
     await tick();

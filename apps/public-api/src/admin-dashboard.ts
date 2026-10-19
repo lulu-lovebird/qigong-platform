@@ -74,7 +74,7 @@ export const renderAdminShell = (
         .filter((item) => item.page !== 'access' || canManageAdmins);
       if (!items.length) return '';
       const visible = items.some((item) => !deferredNavigation(item.page));
-      return `<section class="nav-group" data-nav-group="${group.id}" aria-labelledby="nav-group-${group.id}"${visible ? '' : ' hidden'}><h2 class="nav-group-title" id="nav-group-${group.id}">${text[group.label]}</h2><div class="nav-group-links">${items.map((item) => `<a href="${item.path + adminLocaleQuery(locale)}"${item.page === 'achievements' ? ' class="journal-nav" data-achievements-nav hidden' : item.page === 'invites' ? ' class="journal-nav" data-line-invites-nav hidden' : ['journal', 'tags', 'learners', 'shared', 'privacy'].includes(item.page) ? ` class="journal-nav" data-journal-nav="${item.page}" hidden` : ''}${item.page === page ? ' aria-current="page"' : ''}>${text[item.label]}</a>`).join('')}</div></section>`;
+      return `<details class="nav-group" name="admin-navigation-groups" data-nav-group="${group.id}"${group.pages.includes(page) ? ' data-current-group="true"' : ''} aria-labelledby="nav-group-${group.id}"${visible ? '' : ' hidden'}><summary class="nav-group-title" id="nav-group-${group.id}">${text[group.label]}</summary><div class="nav-group-links">${items.map((item) => `<a href="${item.path + adminLocaleQuery(locale)}"${item.page === 'achievements' ? ' class="journal-nav" data-achievements-nav hidden' : item.page === 'invites' ? ' class="journal-nav" data-line-invites-nav hidden' : ['journal', 'tags', 'learners', 'shared', 'privacy'].includes(item.page) ? ` class="journal-nav" data-journal-nav="${item.page}" hidden` : ''}${item.page === page ? ' aria-current="page"' : ''}>${text[item.label]}</a>`).join('')}</div></details>`;
     })
     .join('');
   return `<!doctype html>
@@ -89,7 +89,9 @@ ${adminLayoutStyles}
   ${adminLocaleScript(locale)}
   const language=document.getElementById('admin-language');
   language.value=locale;
-  const refreshNavigationGroups=()=>{if(typeof document.querySelectorAll!=='function')return;for(const group of document.querySelectorAll('[data-nav-group]'))group.hidden=!Array.from(group.querySelectorAll('a')).some(link=>!link.hidden);};
+  const navigationGroups=()=>typeof document.querySelectorAll==='function'?Array.from(document.querySelectorAll('[data-nav-group]')):[];
+  const refreshNavigationGroups=()=>{for(const group of navigationGroups()){group.hidden=!Array.from(group.querySelectorAll('a')).some(link=>!link.hidden);if(group.hidden)group.open=false;}};
+  for(const group of navigationGroups())group.addEventListener('toggle',()=>{if(group.hidden){group.open=false;return;}if(!group.open)return;for(const other of navigationGroups())if(other!==group)other.open=false;});
   refreshNavigationGroups();
   const disclosure=document.getElementById('admin-nav-disclosure');
   if(disclosure&&typeof matchMedia==='function'){const mobile=matchMedia('(max-width:760px)');const adaptNavigation=()=>{disclosure.open=!mobile.matches;};adaptNavigation();mobile.addEventListener?.('change',adaptNavigation);}

@@ -47,10 +47,11 @@ const fixture = (
   for (const m of html.matchAll(/\bid="([^"]+)"/g)) nodes.set(m[1]!, make());
   const groups = new Map<string, Node>();
   const links: Node[] = [];
-  for (const section of html.matchAll(/<section class="nav-group"([^>]*)>([\s\S]*?)<\/section>/g)) {
+  for (const section of html.matchAll(/<details class="nav-group"([^>]*)>([\s\S]*?)<\/details>/g)) {
     const id = /data-nav-group="([^"]+)"/.exec(section[1]!)![1]!,
       group = make();
     group.hidden = /\bhidden\b/.test(section[1]!);
+    group.open = /\bopen\b/.test(section[1]!);
     groups.set(id, group);
     for (const anchor of section[2]!.matchAll(/<a ([^>]+)>/g)) {
       const link = make(),
@@ -225,6 +226,69 @@ describe('Compact grouped admin navigation', () => {
       expect(f.html).toContain('<summary>');
     }
   );
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'starts every category closed in %s even after capabilities arrive',
+    async (locale) => {
+      const f = fixture(locale, { allowed: true, admin: true });
+      await settle();
+      expect(f.groups.size).toBe(4);
+      expect([...f.groups.values()].every((group) => !group.open)).toBe(true);
+      expect(f.html.match(/name="admin-navigation-groups"/g)).toHaveLength(4);
+      expect(f.html).toContain('data-current-group="true"');
+      expect(f.html).toContain('.nav-group:not([open]) > .nav-group-links { display:none; }');
+      expect(f.html).toContain(".nav-group-title::after { content:'+';");
+    }
+  );
+  it('opens only the requested category without navigation, fetching or a draft veto', async () => {
+    const f = fixture('en', { allowed: true });
+    await settle();
+    const reports = f.groups.get('reports')!,
+      learners = f.groups.get('learners')!;
+    const event = { target: { closest: () => null }, preventDefault: vi.fn() },
+      calls = f.fetch.mock.calls.length;
+    reports.open = true;
+    reports.listeners.get('toggle')!(event);
+    expect(reports.open).toBe(true);
+    learners.open = true;
+    learners.listeners.get('toggle')!(event);
+    expect(learners.open).toBe(true);
+    expect(reports.open).toBe(false);
+    reports.listeners.get('toggle')!(event);
+    expect(learners.open).toBe(true);
+    learners.open = false;
+    learners.listeners.get('toggle')!(event);
+    expect([...f.groups.values()].every((group) => !group.open)).toBe(true);
+    expect(f.fetch).toHaveBeenCalledTimes(calls);
+    expect(f.mayLeave).not.toHaveBeenCalled();
+    expect(f.location.assign).not.toHaveBeenCalled();
+  });
+  it('closes empty or denied groups when pending capability results settle', async () => {
+    const f = fixture('en', { fail: true }),
+      journal = f.groups.get('journal')!;
+    journal.open = true;
+    journal.hidden = false;
+    await settle();
+    expect(journal.hidden).toBe(true);
+    expect(journal.open).toBe(false);
+    journal.open = true;
+    journal.listeners.get('toggle')!({ target: { closest: () => null }, preventDefault: vi.fn() });
+    expect(journal.open).toBe(false);
+    expect(journal.links.every((link) => link.hidden)).toBe(true);
+  });
+  it('does not expand categories during responsive layout changes and resets them on a new page', async () => {
+    const f = fixture('en', { allowed: true });
+    await settle();
+    const journal = f.groups.get('journal')!;
+    journal.open = true;
+    journal.listeners.get('toggle')!({ target: { closest: () => null }, preventDefault: vi.fn() });
+    f.resize(true);
+    f.resize(false);
+    expect(journal.open).toBe(true);
+    expect([...f.groups.values()].filter((group) => group.open)).toHaveLength(1);
+    const fresh = fixture('en', { allowed: true });
+    await settle();
+    expect([...fresh.groups.values()].every((group) => !group.open)).toBe(true);
+  });
   it('retains the existing unsaved-draft navigation veto through grouped links', () => {
     const f = fixture();
     f.mayLeave.mockReturnValue(false);
