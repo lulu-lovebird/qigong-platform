@@ -112,11 +112,24 @@ const challengeInput = z
     expectedRevision: z.number().int().nonnegative()
   })
   .strict();
+const eventInput = z
+  .object({
+    subject: z.literal('event'),
+    code: z
+      .string()
+      .regex(/^event_[a-f0-9]{32}$/)
+      .nullable(),
+    year: z.null().default(null),
+    config: activityDraftConfigSchema,
+    reason,
+    expectedRevision: z.number().int().nonnegative()
+  })
+  .strict();
 export const achievementDraftInputSchema = z
-  .discriminatedUnion('subject', [ruleInput, activityInput, challengeInput])
+  .discriminatedUnion('subject', [ruleInput, activityInput, challengeInput, eventInput])
   .refine(
     (value) =>
-      value.subject !== 'challenge' ||
+      !['challenge', 'event'].includes(value.subject) ||
       (value.expectedRevision === 0 ? value.code === null : value.code !== null)
   );
 export type AchievementDraftInput = z.infer<typeof achievementDraftInputSchema>;
@@ -184,7 +197,7 @@ export const managementPreviewSchema = z
     previewId: z.uuid().optional(),
     revision: z.number().int().positive(),
     code: achievementCodeSchema,
-    subject: z.enum(['activity', 'rule', 'challenge']),
+    subject: z.enum(['activity', 'rule', 'challenge', 'event']),
     year: z.number().int().nullable(),
     configHash: hash,
     baseHash: hash,
@@ -220,7 +233,7 @@ export type ManagementPreview = z.infer<typeof managementPreviewSchema>;
 export const managementDraftSchema = z
   .object({
     id: z.uuid(),
-    subject: z.enum(['activity', 'rule', 'challenge']),
+    subject: z.enum(['activity', 'rule', 'challenge', 'event']),
     code: achievementCodeSchema,
     year: z.number().int().nullable(),
     config: draftConfigSchema,
@@ -250,7 +263,7 @@ export const managementDraftListSchema = z
         z
           .object({
             id: z.uuid(),
-            subject: z.enum(['activity', 'rule', 'challenge']),
+            subject: z.enum(['activity', 'rule', 'challenge', 'event']),
             code: achievementCodeSchema,
             year: z.number().int().nullable(),
             name: z.string(),

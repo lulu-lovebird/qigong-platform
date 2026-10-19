@@ -1,5 +1,11 @@
 # Qigong Platform — 交接摘要
 
+## 發布候選41：空白新增獨立活動 badge（本次維護已核准，待CI／切換）
+
+- 使用者指出新增活動誤帶三伏來源，確認修正方案；已分流「新增活動badge空白表單」與「既有三伏／冬至年度設定草稿」。新subject event／server-generated event_32hex、year及definition_code為null，同名同日期不合併，不繫結或改寫49 live definitions／季節／awards。名稱／日期／時區／門檻等全空白，保存前不自動寫入；未存捨棄veto、CSRF／session／reason／revision／post-lock guards不變。活動只模擬區間內任一打卡distinct日期累計與global latest makeup＋86,400秒，非連續／冬至功法限制；publish／awards仍disabled。
+- 新0041只改private metadata constraints／index及四個必要facade bodies，保存原owner／ACL／RLS／search_path／其餘functions與79表rows；0001–0040 immutable不動。API exact41、雙worker ops.achievement_event_drafts_schema_ready／phase26，正式仍以下8a46c07／40發布紀錄；**使用者已另核准本次commit／push／deploy與40→41直接協調維護例外；待精確SHA CI／演練通過，封鎖入口並停API／雙worker、final加密DB／roles／runtime實際還原保存過才升級與matching切換。resume後留41／fix forward、不退40或舊快照；不沿用40例外或在線混40/41。尚未正式切換，rule發布／發獎仍disabled**。兩份既有無關文件不動。
+- Node24兩strict gates與完整verify **1014 tests**（API762／DB244／config2／identity6），新DB7含actual40→41 apply1／repeat0／來源與cache保存；VM19／model26／HTTP17過。browser13組／24圖、12次seasonal未存捨棄確認、12獨立event drafts＋12preview／24audit，其餘business全相同、provider sends0／正式0。初輪SQL生成／lint fixture／舊TG gate與browser readiness失敗均保留及具體修復，未放寬斷言；不是完整真人手機驗收。見[獨立活動規格與本機證據](docs/operations/independent-activity-drafts.md)。
+
 ## 最新部署：活動／成就與功法badge草稿40（phase1 only）
 
 - 正式 **8a46c07c9dfecaec7b86a3dcbdcf1e526e66926e**／schema40／phase25，exact-SHA CI **39229829965**首輪成功／**999 tests**。使用者另明確核准本次39→40協調維護，2026-10-19 **09:41:20–09:42:21 UTC／61.307秒**，停寫後final encrypted DB／roles／runtime實際fresh PG16 restore與77舊表／19people／51checkins保存過才升級；production applied1／repeat0，新79表private啟動前後exact，**09:41:45 resume marker先於workers**。229 Node HTTPS、health healthy／queues0／restart0，normal Caddy全檔相同、env640／flags保留、post-runtime站外加密並實際extract驗證。兩份既有無關文件仍排除。

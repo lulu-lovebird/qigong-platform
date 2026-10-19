@@ -15,6 +15,39 @@ const common = {
   effectiveDate: '2027-12-01'
 };
 describe('Strict draft-only achievement management contracts', () => {
+  it('creates independent activity identities only on the server and never accepts seasonal identity overrides', () => {
+    const input = {
+      subject: 'event',
+      code: null,
+      year: null,
+      expectedRevision: 0,
+      reason: 'Synthetic event',
+      config: {
+        ...common,
+        startDate: common.effectiveDate,
+        endDate: '2028-01-05',
+        timezone: 'UTC',
+        requiredDays: 7
+      }
+    };
+    expect(achievementDraftInputSchema.safeParse(input).success).toBe(true);
+    expect(
+      achievementDraftInputSchema.safeParse({
+        ...input,
+        code: 'event_' + 'a'.repeat(32),
+        expectedRevision: 1
+      }).success
+    ).toBe(true);
+    for (const bad of [
+      { ...input, code: 'seasonal_summer' },
+      { ...input, code: 'event_' + 'a'.repeat(32) },
+      { ...input, expectedRevision: 1 },
+      { ...input, year: 2027 },
+      { ...input, config: { ...input.config, nameZhTw: '' } },
+      { ...input, config: { ...input.config, requiredDays: 0 } }
+    ])
+      expect(achievementDraftInputSchema.safeParse(bad).success).toBe(false);
+  });
   it('normalizes leaf code order without mutating the caller or translating source text', () => {
     const input = { ...common, threshold: 7, methodCodes: ['dayan_gao', 'dayan_chu'] },
       before = JSON.stringify(input),

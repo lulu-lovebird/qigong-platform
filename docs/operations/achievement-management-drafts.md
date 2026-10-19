@@ -6,6 +6,10 @@
 
 本輪按已提出的第一階段落地：**草稿編輯、與來源差異、彙總試算；正式發布／生效／授獎不啟用**。介面明示master與super第二階段皆可發布，現在 `canPublish=false`、按鈕disabled、沒有publish／activate／recalculate endpoint。功能本機階段未修改正式服務／資料、Cloudflare、provider、政策或旗標。使用者後續另核准本次commit／push／deploy與39→40直接協調維護例外，須精確SHA CI與演練通過、停API／雙worker後取得final加密備份並實際還原驗保存，才可升級切換；現已依該例外完成，正式8a46c07／40、CI39229829965首輪999 tests，2026-10-19維護61.307秒、229 Node HTTPS與健康驗過。詳見[實際備份還原／部署與復原](achievement-management-deployment.md)。0040現亦immutable；resume後留40／fix forward，不能退39或舊snapshot。既有人工驗收文件增補與無關permissions-review保留。
 
+## 後續空白新增活動修正（本機候選41，尚未部署）
+
+使用者指出40的「新增活動草稿」實際帶入三伏／冬至來源，語意不符合獨立新增，已另核准本機修正。41候選分開空白新增獨立活動badge與既有季節設定草稿；新event身份不覆蓋正式季節／49種定義，保留原drafts／previews。正式切換前仍40；使用者後續已另明確核准本次提交推送與41直接維護例外，待精確SHA CI／演練及停寫final actual restore/preservation過才切換。rule正式發布／授獎仍不開放；resume後留41／fix forward，不退40或舊快照。詳見[獨立活動規格、1014測試與13組瀏覽器證據](independent-activity-drafts.md)。下列原40範圍為已部署歷史基線。
+
 ## 介面與資料流
 
 - 既有「系統與個人設定」分類增加單一「活動與成就管理」入口，不新增一長串sidebar子項；capability獨立查詢、失敗隱藏，分類仍初始收合。

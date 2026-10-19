@@ -82,6 +82,12 @@ Published8a46c07c9dfecaec7b86a3dcbdcf1e526e66926e API min/max40 and both workers
 
 The first phase cannot apply draft rules; future publication requires immutable effective versions, preserved historical readers/CSV, progress-from-effective-date and every evaluator enforcing the global latest makeup cutoff UTC plus exactly24hours. See [phase1 scope and evidence](../operations/achievement-management-drafts.md).
 
+## Independent activity badges exact41 local candidate (not published)
+
+After the user reported that “new activity” loaded summer-practice settings, they approved a local fix separating blank independent event creation from existing seasonal configuration drafts. Candidate0041 adds private `event` identities/index/constraints and replaces four management facade bodies without changing0001–0040, live49definitions, seasons, awards, jobs or permissions. All79old-table rows (apart from expected platform metadata version/time), existing source hashes/previews and original RLS/ACL/function attributes were preserved by actual40→41 upgrade/repeat tests; historical39→40 remains pinned to40.
+
+Candidate API min/max41 and both worker gates use `ops.achievement_event_drafts_schema_ready()` / `phase-26-independent-activity-drafts`; production remains the preceding8a46c07/exact40 release record. Local Node24 strict gates/full verify1014tests and synthetic13browser layouts passed. **After local verification the user separately approved this feature’s commit/push/deploy and explicitly approved this40→41 coordinated-maintenance exception.** Existing40 rejects41 and candidate41 rejects40. Exact-SHA CI and isolation rehearsal must pass before fencing ingress, stopping/draining API/both workers, taking final encrypted DB/roles/runtime backups and actually restoring/verifying preservation before41 migration and matching artifact switching. After resume retain41/fix forward, without40 downgrade or old-snapshot restore. This is not rolling expand or reuse of the40 exception; do not migrate under running40 services or edit deployed0040. Publication/activation/awarding/recalculation remain unavailable. See [independent activity scope/evidence](../operations/independent-activity-drafts.md).
+
 ## Required Controls
 
 - CI tests the old and new application compatibility ranges against the same expand schema.

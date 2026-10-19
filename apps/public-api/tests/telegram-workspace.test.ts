@@ -527,7 +527,7 @@ suite('Telegram workspace HTTP, bot menu and durable delivery integration', () =
       'qigong_worker_runtime',
       { requestId: randomUUID() },
       (client) =>
-        client.query<{ ready: boolean }>('SELECT ops.achievement_management_schema_ready() ready')
+        client.query<{ ready: boolean }>('SELECT ops.achievement_event_drafts_schema_ready() ready')
     );
     expect(ready.rows[0]!.ready).toBe(true);
     await expect(

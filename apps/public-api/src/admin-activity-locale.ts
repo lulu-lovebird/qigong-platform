@@ -30,7 +30,11 @@ const en = {
   autoNameHelp:
     'Suggested Traditional Chinese name follows the selected methods and consecutive option until you edit it manually. Other translations remain explicit.',
   drafts: 'Drafts / preview records',
-  newActivity: 'New activity draft',
+  newActivity: 'New independent activity badge draft',
+  seasonalDraft: 'Create seasonal configuration draft',
+  genericActivity: 'Independent activity badge',
+  newEventHelp:
+    'Start blank with a new badge identity. Count distinct practice dates within the activity dates, regardless of method. No published seasonal configuration is changed; drafts and previews only.',
   newRule: 'Create rule revision',
   live: 'Published configuration (read-only)',
   empty: 'No records.',
@@ -149,7 +153,11 @@ const tw: Record<keyof typeof en, string> = {
   autoNameHelp:
     '繁中名稱會依勾選功法與連續選項提供建議，手動修改後不再覆蓋；其他譯名仍由管理員明確輸入。',
   drafts: '草稿／預覽紀錄',
-  newActivity: '新增活動草稿',
+  newActivity: '新增活動 badge 草稿',
+  seasonalDraft: '建立既有季節活動設定草稿',
+  genericActivity: '獨立活動 badge',
+  newEventHelp:
+    '從空白建立全新活動 badge，不帶入三伏／冬至資料。依活動期間內任一功法的有效打卡日期累計，每日最多一天；不變更既有季節活動，目前僅草稿與試算。',
   newRule: '建立規則修訂',
   live: '已發布設定（唯讀）',
   empty: '目前沒有紀錄。',

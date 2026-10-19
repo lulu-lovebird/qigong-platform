@@ -12,10 +12,14 @@ suite('Achievement draft workspace schema39 to40 without live rule activation', 
   it('preserves all tables, stored award versions, private history, jobs and security metadata', async () => {
     const database = await createIsolatedTestDatabase(base!);
     const old = await mkdtemp(path.join(tmpdir(), 'management39-'));
+    const target40 = await mkdtemp(path.join(tmpdir(), 'management40-'));
     try {
-      for (const file of await readdir(directory))
+      for (const file of await readdir(directory)) {
         if (file.endsWith('.sql') && file < '0040_')
           await copyFile(path.join(directory, file), path.join(old, file));
+        if (file.endsWith('.sql') && file < '0041_')
+          await copyFile(path.join(directory, file), path.join(target40, file));
+      }
       await runMigrations(database.pool, old, 'achievements-before');
       expect(
         (
@@ -93,12 +97,12 @@ suite('Achievement draft workspace schema39 to40 without live rule activation', 
           [record.checkin]
         )
       ).rows[0]!.source;
-      expect((await runMigrations(database.pool, directory, 'achievements-after')).applied).toEqual(
-        ['0040_achievement_management_drafts.sql']
+      expect((await runMigrations(database.pool, target40, 'achievements-after')).applied).toEqual([
+        '0040_achievement_management_drafts.sql'
+      ]);
+      expect((await runMigrations(database.pool, target40, 'achievements-repeat')).applied).toEqual(
+        []
       );
-      expect(
-        (await runMigrations(database.pool, directory, 'achievements-repeat')).applied
-      ).toEqual([]);
       expect(await fingerprint()).toEqual(before);
       expect(await security()).toEqual(beforeSecurity);
       expect(
@@ -160,6 +164,7 @@ suite('Achievement draft workspace schema39 to40 without live rule activation', 
     } finally {
       await database.dispose();
       await rm(old, { recursive: true, force: true });
+      await rm(target40, { recursive: true, force: true });
     }
   });
 });

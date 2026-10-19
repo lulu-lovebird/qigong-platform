@@ -227,14 +227,14 @@ const fixture = (locale: AdminLocale = 'en', custom?: typeof fetch) => {
           return Response.json({
             ...draft(),
             subject: body.subject,
-            code:
-              body.subject === 'challenge' ? body.code || 'challenge_' + 'a'.repeat(32) : body.code,
+            code: ['challenge', 'event'].includes(String(body.subject))
+              ? body.code || String(body.subject) + '_' + 'a'.repeat(32)
+              : body.code,
             year: body.year,
             config: body.config,
-            baseConfig:
-              body.subject === 'challenge'
-                ? { definition: null, season: null }
-                : draft().baseConfig,
+            baseConfig: ['challenge', 'event'].includes(String(body.subject))
+              ? { definition: null, season: null }
+              : draft().baseConfig,
             revision: typeof body.expectedRevision === 'number' ? body.expectedRevision + 1 : 1
           });
         }
@@ -359,6 +359,82 @@ describe('Draft management genuine inline controller', () => {
     });
     expect(f.get('management-identity').textContent).toContain('challenge_');
   });
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'opens a completely blank independent activity after a seasonal editor in %s without changing that source',
+    async (locale) => {
+      const f = fixture(locale);
+      await settle();
+      f.get('management-activity-code').value = 'seasonal_winter';
+      f.get('management-year').value = '2199';
+      await click(f.get('management-new-seasonal'));
+      expect(f.get('management-nameZhTw').value).toBe(definition.name_zh_tw);
+      f.get('management-startDate').value = '2199-12-01';
+      f.get('management-reason').value = 'Unsaved seasonal reason';
+      const calls = f.fetch.mock.calls.length;
+      await click(f.get('management-new-activity'));
+      for (const key of [
+        'nameZhTw',
+        'nameZhCn',
+        'nameEn',
+        'description',
+        'startDate',
+        'endDate',
+        'timezone',
+        'requiredDays',
+        'reason'
+      ])
+        expect(f.get('management-' + key).value).toBe('');
+      expect(f.get('management-start-row').hidden).toBe(false);
+      expect(f.get('management-method-row').hidden).toBe(true);
+      expect(f.get('management-identity').textContent).not.toMatch(/seasonal_|2199/);
+      expect(f.fetch).toHaveBeenCalledTimes(calls);
+      expect(f.get('management-publish').disabled).toBe(true);
+      await click(f.get('management-new-seasonal'));
+      expect(f.get('management-nameZhTw').value).toBe(definition.name_zh_tw);
+    }
+  );
+  it('saves a new independent activity with no seasonal identity and retains its server identity for edits', async () => {
+    const f = fixture();
+    await settle();
+    await click(f.get('management-new-activity'));
+    for (const [key, value] of Object.entries({
+      nameZhTw: 'Independent event',
+      startDate: '2199-02-01',
+      endDate: '2199-02-28',
+      timezone: 'UTC',
+      requiredDays: '7',
+      reason: 'Synthetic new activity'
+    }))
+      f.get('management-' + key).value = value;
+    await submit(f);
+    const create = f.fetch.mock.calls.find(([, init]) => init?.method === 'POST');
+    if (typeof create?.[1]?.body !== 'string') throw Error('Missing event create');
+    expect(JSON.parse(create[1].body)).toMatchObject({
+      subject: 'event',
+      code: null,
+      year: null,
+      expectedRevision: 0,
+      config: {
+        nameZhTw: 'Independent event',
+        effectiveDate: '2199-02-01',
+        startDate: '2199-02-01',
+        endDate: '2199-02-28',
+        timezone: 'UTC',
+        requiredDays: 7
+      }
+    });
+    f.get('management-nameZhTw').value = 'Edited independent event';
+    f.get('management-reason').value = 'Synthetic edit';
+    await submit(f);
+    const update = f.fetch.mock.calls.find(([, init]) => init?.method === 'PATCH');
+    if (typeof update?.[1]?.body !== 'string') throw Error('Missing event update');
+    expect(JSON.parse(update[1].body)).toMatchObject({
+      subject: 'event',
+      code: 'event_' + 'a'.repeat(32),
+      year: null,
+      expectedRevision: 1
+    });
+  });
   it('makes explicit starts independent from the rule effective day and clears the explicit date when switching back to rule-effective mode', async () => {
     const f = fixture();
     await settle();
@@ -436,7 +512,7 @@ describe('Draft management genuine inline controller', () => {
     const f = fixture();
     await settle();
     f.get('management-year').value = '2199';
-    await click(f.get('management-new-activity'));
+    await click(f.get('management-new-seasonal'));
     await open(f);
     f.get('management-reason').value = 'Synthetic rule edit';
     await submit(f);

@@ -108,6 +108,117 @@ suite('Authenticated management drafts HTTP, no publication surface', () => {
     }
     await dispose?.();
   });
+  it.each(['super', 'master'])(
+    'creates an independent activity for %s without seasonal defaults or live mutations',
+    async (actor) => {
+      const app = factory(),
+        before = await business();
+      try {
+        const body = {
+          ...input(),
+          subject: 'event',
+          code: null,
+          config: {
+            nameZhTw: '全新活動',
+            nameZhCn: '',
+            nameEn: 'Independent event',
+            description: 'No seasonal inheritance',
+            effectiveDate: '2199-02-01',
+            startDate: '2199-02-01',
+            endDate: '2199-02-28',
+            timezone: 'UTC',
+            requiredDays: 7
+          }
+        };
+        const response = await app.inject({
+          method: 'POST',
+          url: api + '/drafts',
+          headers: headers(actor),
+          payload: body
+        });
+        expect(response.statusCode).toBe(200);
+        const draft = response.json();
+        expect(draft.code).toMatch(/^event_[a-f0-9]{32}$/);
+        expect(draft.subject).toBe('event');
+        expect(draft.baseConfig).toEqual({ definition: null, season: null });
+        expect(draft.config).toEqual(body.config);
+        const preview = await app.inject({
+          method: 'POST',
+          url: api + '/drafts/' + draft.id + '/preview',
+          headers: headers(actor),
+          payload: { expectedRevision: 1 }
+        });
+        expect(preview.statusCode).toBe(200);
+        expect(preview.json()).toMatchObject({
+          subject: 'event',
+          publicationEnabled: false,
+          counts: { qualifyingAsOf: 0, wouldRevoke: 0 }
+        });
+        const update = await app.inject({
+          method: 'PATCH',
+          url: api + '/drafts/' + draft.id,
+          headers: headers(actor),
+          payload: {
+            ...body,
+            code: draft.code,
+            expectedRevision: 1,
+            config: { ...body.config, nameZhTw: 'Updated independent event' }
+          }
+        });
+        expect(update.statusCode).toBe(200);
+        expect(update.json()).toMatchObject({ code: draft.code, revision: 2 });
+        expect(await business()).toBe(before);
+      } finally {
+        await app.close();
+      }
+    }
+  );
+  it('rejects forged seasonal identities and missing activity fields before any draft is saved', async () => {
+    const app = factory();
+    try {
+      const config = {
+        nameZhTw: 'Independent',
+        nameZhCn: '',
+        nameEn: '',
+        description: '',
+        effectiveDate: '2199-02-01',
+        startDate: '2199-02-01',
+        endDate: '2199-02-28',
+        timezone: 'UTC',
+        requiredDays: 7
+      };
+      for (const extra of [
+        { code: 'seasonal_summer' },
+        { code: 'event_' + 'a'.repeat(32) },
+        { year: 2199 },
+        { config: { ...config, nameZhTw: '' } },
+        { config: { ...config, startDate: '' } }
+      ])
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: api + '/drafts',
+              headers: headers(),
+              payload: {
+                subject: 'event',
+                code: null,
+                year: null,
+                config,
+                expectedRevision: 0,
+                reason: 'Synthetic invalid',
+                ...extra
+              }
+            })
+          ).statusCode
+        ).toBe(400);
+      expect(
+        (await root.query('SELECT count(*)::int n FROM admin.achievement_config_drafts')).rows[0].n
+      ).toBe(0);
+    } finally {
+      await app.close();
+    }
+  });
   it('requires an actual session and independent management permission, with no publish, activate or recalculate endpoint', async () => {
     const app = factory();
     try {

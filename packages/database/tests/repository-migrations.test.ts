@@ -55,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0040_achievement_management_drafts.sql'
+      '0041_independent_activity_drafts.sql'
     );
 
     expect(first.applied).toEqual([
@@ -98,13 +98,14 @@ describeWithDatabase('repository migrations', () => {
       '0037_learner_author_names.sql',
       '0038_admin_achievements.sql',
       '0039_achievement_personal_export.sql',
-      '0040_achievement_management_drafts.sql'
+      '0040_achievement_management_drafts.sql',
+      '0041_independent_activity_drafts.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0040_achievement_management_drafts.sql',
+      currentVersion: '0041_independent_activity_drafts.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0040_achievement_management_drafts.sql',
+      maximumVersion: '0041_independent_activity_drafts.sql',
       ready: true
     });
   });
