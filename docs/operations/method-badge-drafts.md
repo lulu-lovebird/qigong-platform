@@ -1,10 +1,10 @@
-# 獨立功法 badge 草稿：累計／連續與全新 rule 起算（本機擴充）
+# 獨立功法 badge 草稿：累計／連續與全新 rule 起算（已部署40）
 
 ## 核准與狀態
 
 使用者要求可勾選單一功法／組合，回春功30天預設累計，勾「連續」才是回春功連續30天；起始可指定或不定，並明確確認不含舊歷史、**從全新rule生效日起算**，再核准開始本機實作。
 
-本輪擴充既有未發布40的草稿／試算工作區，**功能本機階段沒有提交、推送、部署、正式發布或發獎；使用者後續已另核准本次commit／push及直接維護發布，尚待精確SHA CI、演練與final actual restore/preservation通過後才切換，rule發布與授獎仍不開放**。保留既有本機修改；0001–0039、dependencies／lockfiles與兩份無關文件不動。正式設定／DB／Console／flags未連線或變更。發布按鈕仍disabled，publisher／activate／recalculate接口不存在。
+本輪擴充40的草稿／試算工作區；使用者後續另明確核准commit／push與本次直接維護發布，已完成精確SHA CI首輪999、clone演練、停寫final加密備份actual restore/preservation後切換正式**8a46c07／40**。**rule發布與授獎仍不開放**，publisher／activate／recalculate接口不存在。0001–0039、dependencies／lockfiles、Console／flags與兩份無關文件不動；正式DB僅本次0040允許的private tables／permission／metadata與ledger變更，不更新49 live definitions／awards。0040現亦immutable。見[61.307秒維護與復原證據](achievement-management-deployment.md)，resume後保留40／fix forward，不退39或覆蓋新寫入。
 
 ## 規格
 
@@ -44,4 +44,4 @@
 
 本機證據：`/tmp/qigong-method-badge-verify-final.log`、`...-browser-results.json`、`...-browser-preservation.json`、`...-cdp.log`及 `/tmp/qigong-method-badge-{role}-{locale}-{width}-{draft|preview}.png`。純合成登入／Origin adapter，應用請求轉loopback、logo離線供應，不代表正式OAuth或實體手機；provider sends0／production touched=false。preview／Chrome及專用containers完成後停止。原clock/history403與Python-UA edge差異仍未結案。
 
-使用者已明確核准本次39→40直接維護例外；必須封鎖打卡入口、停API／雙worker、final加密備份實際還原與保存通過才升級，不能在39服務運作時直接migrate40。恢復後保留40並fix forward，不退39或覆蓋新資料；其他flags、正式個資CSV與rule發布／發獎不在本次啟用範圍。第二階段需完成immutable rule versions、正式activation、獎章／歷史／CSV版本讀取及所有評估入口，才可讓兩角色正式發布新badge。第一階段不產生任何正式新獎章。
+使用者已明確核准本次39→40直接維護例外；本次已封鎖打卡入口、停API／雙worker、final加密備份實際還原與保存通過才升級，未在39服務運作時直接migrate40。恢復後保留40並fix forward，不退39或覆蓋新資料；其他flags、正式個資CSV與rule發布／發獎不在本次啟用範圍。第二階段需完成immutable rule versions、正式activation、獎章／歷史／CSV版本讀取及所有評估入口，才可讓兩角色正式發布新badge。第一階段不產生任何正式新獎章。

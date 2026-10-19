@@ -1,10 +1,10 @@
-# 活動／成就管理第一階段：草稿與彙總預覽（本機候選40）
+# 活動／成就管理第一階段：草稿與彙總預覽（已部署40）
 
 ## 狀態與核准界線
 
 使用者review後確認：先限三伏／冬至與現有49種成就；master、super均可編輯及發布；已開始活動鎖定條件；新版本進度從生效日開始；結算在最晚補登截止後**完整24小時**，考慮時區。接著核准開始實作。
 
-本輪按已提出的第一階段落地：**草稿編輯、與來源差異、彙總試算；正式發布／生效／授獎不啟用**。介面明示master與super第二階段皆可發布，現在 `canPublish=false`、按鈕disabled、沒有publish／activate／recalculate endpoint。功能本機階段未修改正式服務／資料、Cloudflare、provider、政策或旗標。使用者後續另核准本次commit／push／deploy與39→40直接協調維護例外，須精確SHA CI與演練通過、停API／雙worker後取得final加密備份並實際還原驗保存，才可升級切換；目前尚待執行。既有人工驗收文件增補與無關permissions-review保留。
+本輪按已提出的第一階段落地：**草稿編輯、與來源差異、彙總試算；正式發布／生效／授獎不啟用**。介面明示master與super第二階段皆可發布，現在 `canPublish=false`、按鈕disabled、沒有publish／activate／recalculate endpoint。功能本機階段未修改正式服務／資料、Cloudflare、provider、政策或旗標。使用者後續另核准本次commit／push／deploy與39→40直接協調維護例外，須精確SHA CI與演練通過、停API／雙worker後取得final加密備份並實際還原驗保存，才可升級切換；現已依該例外完成，正式8a46c07／40、CI39229829965首輪999 tests，2026-10-19維護61.307秒、229 Node HTTPS與健康驗過。詳見[實際備份還原／部署與復原](achievement-management-deployment.md)。0040現亦immutable；resume後留40／fix forward，不能退39或舊snapshot。既有人工驗收文件增補與無關permissions-review保留。
 
 ## 介面與資料流
 
@@ -73,6 +73,6 @@ settlementAt = latestMakeupCutoff + interval '24 hours'
 
 全套最終結果以 `/tmp/qigong-achievement-management-verify-final.log` 為準；其他證據為 `...-browser-results.json`、`...-browser-preservation.json` 及 `/tmp/qigong-management-{role}-{locale}-{width}-{draft|preview}.png`，均為合成內容、不入Git。獨立preview／Chrome與測試containers完成後停止。
 
-新增候選 `0040_achievement_management_drafts.sql`／phase25，API及雙worker本機candidate exact40；**已部署0001–0039不改**。正式39 binary不接受40，本candidate不接受39；使用者已另行明確核准本次39→40協調維護例外，不是沿用先前CSV39例外或rolling expand。須先關閉打卡入口並停止API／雙worker，final加密備份實際還原與保存驗證後才升級40並啟matching artifacts；不在線migrate40。恢復寫入後保留40／fix forward，不退39或回灌舊快照；正式rule發布、授獎及重算仍停用。
+新增候選 `0040_achievement_management_drafts.sql`／phase25，API及雙worker本機candidate exact40；**已部署0001–0039不改**。正式39 binary不接受40，本candidate不接受39；使用者已另行明確核准本次39→40協調維護例外，不是沿用先前CSV39例外或rolling expand。本次已先關閉打卡入口並停止API／雙worker，final加密備份實際還原與保存驗證後才升級40並啟matching artifacts；未在線migrate40。恢復寫入後保留40／fix forward，不退39或回灌舊快照；正式rule發布、授獎及重算仍停用。
 
 第二階段另核准：不可變published rule/activity versions、未来生效及全部評估入口的結算gate、舊版獎章／名稱／條件讀取、版本選擇與一CSV一版本、正式發布與排程。不得因發布新版讓歷史獎章消失，也不因preview／一般管理GET發獎或撤獎。
