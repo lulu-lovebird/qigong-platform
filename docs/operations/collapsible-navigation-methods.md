@@ -1,10 +1,10 @@
-# 後台分類與打卡功法收合（僅本機候選）
+# 後台分類與打卡功法收合（same39已發布）
 
 ## 核准與範圍
 
 使用者核准本機實作：後台分類預設收合、一次只展開一類；打卡父功法預設收合，以＋／−切換子項，不變更勾選、全選、草稿或打卡規則。
 
-使用者在本機驗證後另核准本次commit／push／deploy；目前待精確SHA CI與受控發布，結果另記。前述本機階段未操作正式服務、資料庫、Cloudflare、provider Console、權限、政策或營運開關。API與雙worker仍保留既有exact39／phase24；沒有migration、dependency或lockfile變更。既有人工驗收文件增補與無關permissions-review保留，不納入本功能。
+使用者在本機驗證後另核准本次commit／push／deploy；正式已發布 **71b2a8b52b563f3ec28ece56cc68e04318280a59／schema39**，精確SHA CI39184093510／911 tests與215項公開HTTPS通過，維護65.163秒。詳見[發布／actual restore與恢復紀錄](collapsible-navigation-deployment.md)。前述本機階段未操作正式服務、資料庫、Cloudflare、provider Console、權限、政策或營運開關。API與雙worker仍保留既有exact39／phase24；沒有migration、dependency或lockfile變更。既有人工驗收文件增補與無關permissions-review保留，不納入本功能。
 
 ## 後台分類
 
@@ -37,7 +37,7 @@
 
 ## 本機驗證
 
-- Node24 fresh build、兩道CI同款strict type gate、完整 `pnpm verify` **911 tests**通過（API698／DB205／config2／identity6），format／lint／typecheck／build均過；沒有推送或觸發本次GitHub CI。
+- Node24 fresh build、兩道CI同款strict type gate、完整 `pnpm verify` **911 tests**通過（API698／DB205／config2／identity6），format／lint／typecheck／build均過；此為提交前本機結果，正式精確SHA CI與發布另見上方紀錄。
 - 新增20項測試：導覽6（含三語參數）、workspace14（含3渠道×3語參數）。涵蓋預設收合、accordion與延遲事件、capability失敗／空分類、resize／新文件、無額外fetch／草稿veto、隱藏勾選與父全選／partial、日期草稿、failed-save requestId、native離頁確認及profile群組移除。
 - compiled共用shell／workspace的Chrome檢查 **25組版面／49張截圖**：後台3語×390／1280px，加手機拒絕capability1組；LINE／TG／WA模板3渠道×3語×390／1280px。原生Enter／Space、同時只開一類、手機44px、literal惡意標記文字、standalone不重複、勾選／日期／心得草稿保存及無額外API呼叫通過，無全頁overflow、前端JS錯誤或API失敗。
 - 瀏覽器使用純合成API與登入SDK、假example.invalid域名；應用請求攔截至loopback，logo離線供應，其餘外部頁面請求封鎖。沿用實際admin CSP及渠道CSP，未放寬。preview沒有DB連線、沒有正式OAuth／provider登入或訊息，也沒有啟用WA。

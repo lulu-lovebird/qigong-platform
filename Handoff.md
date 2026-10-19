@@ -1,6 +1,15 @@
 # Qigong Platform — 交接摘要
 
-## 最新部署：成就個資CSV afd90b5／schema39（本次維護例外，已恢復正常）
+## 最新部署：分類／功法預設收合71b2a8b（同schema39）
+
+- 正式 **71b2a8b52b563f3ec28ece56cc68e04318280a59**，exact-SHA CI **39184093510**首輪成功／**911 tests**（API698／DB205／config2／identity6），兩strict gates、format／lint／typecheck／build過。使用者另核准commit／push／deploy；功能commit只6檔。原人工驗收增補與無關permissions-review仍保留、不納入提交。
+- 後台原生details／summary分類初始全部收合、一次只開一類、＋／−與目前分類標示；capability／空群組隱藏與草稿veto不變。共用LINE／TG打卡parent初始收合，RAM保留展開跨render/date/retry，父全選／partial／leaf-only payload、勾選／草稿／requestId不變；WA只模板同步、不啟用。三個前端模組＋其maps為255dist檔中僅6個差異，**249 byte-identical，backend／workers相同**。
+- **同exact39／phase24，沒有migration applier／DDL／grant／回填。** 2026-10-19 **01:24:43–01:25:48 UTC／monotonic65.163秒**維護，API01:24:44停；final DB／roles／runtime站外AESGCM解密hash＋實際fresh PG16 restore，舊afd39與新71都ready。**77表／19people／49checkins**全部data／metadata／source／privacy／grants／audit／jobs／RLS／ACL／function definitions＋attrs與PGrole aggregate exact，沒有排除metadata。只切matching API／雙worker與版本override，不restore正式DB；**01:25:12先寫resume marker再啟workers**，正常處理後寫入另計。
+- clone舊scope／grant／Authgear／private／external／community／review／invite／三語tags／names／成就與CSV回歸過；CSV只排除合成actors的2筆prepared／limits，既有export history與cooldown其餘也驗保存。新compiled模板12組，local25layouts／49screenshots／native Enter-Space／手機44px／草稿選取過；RT14mock jobs、fresh heartbeat/error0／idlelog0／SIGTERM正常，無provider真人測試send。不是實體手機或真IdP驗收。舊helper錯期待afd39不ready在維護前被拒，改成old/new都39ready才續跑；CI不重跑、產品guard未放寬。
+- 正式 **215 Node HTTPS**與2個actual req.url／CSRF log probe過；無正式合成學員／checkin／note／award／binding、authorized admin session／個資CSV或provider test sends，public OAuth smoke僅短暫login challenge。API／RTactive/restart0/exit0、minute success／timeractive，health healthy／alerts0；checkpoint兩lane pending/sending/failed/expired0、epoch samples0/p95null，非手機延遲驗收。env與baseunit6檔byte hash／owner/mode、3enabled links保持／env640；整份normal Caddyfile byte-identical且其他站台不變，舊flags／個別選擇／WA未設／policy draft維持，無告警／Console／Cloudflare／clock改動。既有Python-UA edge403與clock/history403不因此結案。
+- same39 UI必要時可stop/drain後切回已驗證matching afd90b5 API／雙worker與saved override，**保留current DB/env及全部新writes/queues/audit，不退38、不回灌舊snapshot**；不匹配或無法ready時保持維護查明。/root/qigong-deploy-71b2a8b、deployment-tools/71b2a8b與分離offhost backup/key保留；rehearsal71/socket55494與probe55495停、credential fixtures刪。post-runtime／normal-ingress／current／manifest另encrypt-decrypt-hash並實際extract。見[發布／實際還原／恢復](docs/operations/collapsible-navigation-deployment.md)與[設計驗證](docs/operations/collapsible-navigation-methods.md)。下一步是真人重新開頁驗收收合／勾選／草稿；舊CSV確認不等於本輪UI驗收。
+
+## 歷史部署：成就個資CSV afd90b5／schema39（本次維護例外，已恢復正常）
 
 - 正式 **afd90b57febd03e05a7c59d0c5e1b81ac6c25bc6**，exact-SHA CI **39123945084**首輪成功／**891 tests**（API678／DB205／config2／identity6），兩道strict gates、format／lint／typecheck／build過。使用者明確另核准本次commit／push／38→39協調維護例外，不沿用38舊例外。功能commit23檔；原唯讀人工驗收文件增補與無關permissions-review仍保留、未納入提交。
 - 專用achievement.export_personal只供有效global super_admin／master_admin，同一角色需stats／learner／checkin read並套既有person scopes。三語CSV匯出全部已套用篩選者，非當頁；明確綁定未撤銷IDs、基本姓名與目前approved application聯絡資料，缺值留白，不依姓名／Email／電話連結。Origin＋CSRF＋用途／確認、wall-clock grant及session重查、5,000人／size上限拒絕截斷、UTF8BOM／公式與長ID保護、最小prepared audit與30秒私有冷卻。普通GET名單不加聯絡個資、不evaluate／發獎／動audit或jobs。
