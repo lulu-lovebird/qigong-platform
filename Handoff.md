@@ -1,5 +1,14 @@
 # Qigong Platform — 交接摘要
 
+## 發布候選：活動／成就管理草稿與預覽40（本次維護已核准，待CI與切換）
+
+- 使用者確認先三伏／冬至與49種成就、master/super均可編輯發布、開始後鎖定、新版進度從生效日起算、結算為允許時區最晚補登截止UTC＋完整24h，再核准本機實作。**本輪僅第一階段草稿／來源差異／aggregate preview，發布按鈕disabled，publish/activate/recalculate endpoint不存在；不發獎、不撤獎、不重算。** 兩角色未來均可發布，但phase2尚未串接，勿宣稱整套發布完成。
+- 新admin/achievement-management單一sidebar入口、三分頁與三語手機／桌面表單；47非季節規則草稿與兩類季節活動，code/kind immutable、reason/revision/baseHash、started activity鎖定，parent leaf集合按kind驗證。preview用獨立READ ONLY可執行函式，僅讀結構化打卡／method欄位，不讀心得感受；from-effective進度不清總統計與既有award，所有時區D+1noon cutoff取UTC最大＋24hours，DST兩向驗86,400秒；phase1所有數值僅模擬。
+- 新0040兩空forced-RLS私有draft/preview表，permission achievement.manage_drafts只映射有效global master/super；preview另需同一有效global角色具備三項read及person scopes。Origin/CSRF/session最後重查／post-lock source與started-state重驗、5s SQL timeout、strict DTO；cache10min不延長observation、新preview5s冷卻、5000人／1000active drafts／10000preview上限拒截斷。無raw grants／PUBLICexecute，worker僅ops40。
+- 後續另獲核准的功法badge擴充已本機實作：新private subject challenge、server-generated code與definition_code FK分離；不覆蓋49 live definitions。預設累計30，勾continuous才取生效後最長連續曆日；不定＝新rule預計生效日起算，指定日不得更早、每日最多1天，不承接生效前歷史／舊rule進度。canonical leaf勾選／群組快照、ANY或同日全部、名稱建議不覆蓋手動文字，正式publish仍disabled。新增測試抓出並修正候選SQL中未限定code的子查詢欄位歧義，現在確實拒parent/unknown leaf；未改已部署migration。最終Node24兩strict gates＋完整verify **999 tests**（API754／DB237／config2／identity6），新browser13組／24圖、12份合成challenge草稿＋12preview／24audit、全部business表不變。見[功法badge規格與最終證據](docs/operations/method-badge-drafts.md)，本機階段無commit/push/deploy／正式變更；使用者後續已明確核准本次提交推送與直接維護發布。
+- 本機API exact40、雙worker ops.achievement_management_schema_ready／phase25；**正式切換前仍為以下71b2a8b／39紀錄；使用者已另核准本次39→40維護例外：精確SHA CI／演練過，封鎖打卡入口並停API與雙worker、final encrypted actual restore/preservation後才升級40及matching切換。不是rolling expand，不在線混39/40、不沿用舊39例外；resume後保留40／fix forward，不退39或回灌舊snapshot。rule發布／發獎／重算仍disabled，其他flags不變。** 0001–0039、dependencies/lockfile、正式config/roles/flags/Console/clock與兩份既有無關文件不動。39→40全77舊table/source/function definition/security指紋保留，舊38→39測試pin39。
+- 原第一階段（後續功法badge擴充前）Node24 build／兩strict gates／完整verify **974 tests**（API737／DB229／config2／identity6）過，見/tmp/qigong-achievement-management-verify-final.log；DB23包含全部rule families、DST與capacity-lock後source／started重驗，模型15／HTTP11／VM11／upgrade1及nav-brand覆蓋。最終13組browser／24圖實存12drafts＋12preview與預期24audit，所有business表指紋不變；browser是真compiled Fastify＋獨立PG16／合成session與Origin adapter，非正式OAuth或實體手機驗收。所有business表指紋不變，僅private drafts/previews與預期audit變；無provider sends／正式個資。詳見[候選範圍／證據／phase2待辦](docs/operations/achievement-management-drafts.md)。原clock/history403及Python-UA edge差異不因此結案。
+
 ## 最新部署：分類／功法預設收合71b2a8b（同schema39）
 
 - 正式 **71b2a8b52b563f3ec28ece56cc68e04318280a59**，exact-SHA CI **39184093510**首輪成功／**911 tests**（API698／DB205／config2／identity6），兩strict gates、format／lint／typecheck／build過。使用者另核准commit／push／deploy；功能commit只6檔。原人工驗收增補與無關permissions-review仍保留、不納入提交。

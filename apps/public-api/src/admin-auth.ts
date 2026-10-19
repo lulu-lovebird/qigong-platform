@@ -8,6 +8,7 @@ import { accessCookie, registerAdminAccessRoutes } from './admin-access.js';
 import { renderReviewPage } from './admin-pages.js';
 import { registerAdminJournalRoutes } from './admin-journal-routes.js';
 import { registerAdminAchievementRoutes } from './admin-achievement-routes.js';
+import { registerAdminActivityRoutes } from './admin-activity-routes.js';
 import { registerAdminLearnerRoutes } from './admin-learner-routes.js';
 import { registerAdminLineInvites } from './admin-line-invite-routes.js';
 import { registerReviewNotificationRoutes } from './admin-review-notification-routes.js';
@@ -416,6 +417,23 @@ export const registerAdminRoutes = (
   });
 
   registerAdminAchievementRoutes(
+    app,
+    pool,
+    principalFor,
+    (request) => {
+      const value = request.headers['x-csrf-token'],
+        saved = cookies(request)[csrfCookie];
+      return (
+        typeof value === 'string' &&
+        typeof saved === 'string' &&
+        saved.length > 0 &&
+        timingSafeEqual(sha256(value), sha256(saved))
+      );
+    },
+    (request) => cookies(request)[sessionCookie]
+  );
+
+  registerAdminActivityRoutes(
     app,
     pool,
     principalFor,

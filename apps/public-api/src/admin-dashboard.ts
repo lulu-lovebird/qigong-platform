@@ -22,7 +22,8 @@ export type AdminPage =
   | 'shared'
   | 'privacy'
   | 'invites'
-  | 'notifications';
+  | 'notifications'
+  | 'achievementManagement';
 const navigation: ReadonlyArray<{ page: AdminPage; path: string; label: AdminTextKey }> = [
   { page: 'overview', path: '/admin/', label: 'navOverview' },
   { page: 'leaderboard', path: '/admin/leaderboard', label: 'navLeaderboard' },
@@ -36,7 +37,12 @@ const navigation: ReadonlyArray<{ page: AdminPage; path: string; label: AdminTex
   { page: 'shared', path: '/admin/shared-journal', label: 'navShared' },
   { page: 'privacy', path: '/admin/privacy-policy', label: 'navPrivacy' },
   { page: 'invites', path: '/admin/line-invites', label: 'navInvites' },
-  { page: 'notifications', path: '/admin/notifications', label: 'navNotifications' }
+  { page: 'notifications', path: '/admin/notifications', label: 'navNotifications' },
+  {
+    page: 'achievementManagement',
+    path: '/admin/achievement-management',
+    label: 'navAchievementManagement'
+  }
 ];
 
 const navigationGroups: ReadonlyArray<{
@@ -51,10 +57,23 @@ const navigationGroups: ReadonlyArray<{
   },
   { id: 'learners', label: 'navGroupLearners', pages: ['review', 'learners', 'invites'] },
   { id: 'journal', label: 'navGroupJournal', pages: ['journal', 'shared', 'tags'] },
-  { id: 'settings', label: 'navGroupSettings', pages: ['access', 'privacy', 'notifications'] }
+  {
+    id: 'settings',
+    label: 'navGroupSettings',
+    pages: ['access', 'privacy', 'notifications', 'achievementManagement']
+  }
 ];
 const deferredNavigation = (page: AdminPage) =>
-  ['journal', 'tags', 'learners', 'shared', 'privacy', 'invites', 'achievements'].includes(page);
+  [
+    'journal',
+    'tags',
+    'learners',
+    'shared',
+    'privacy',
+    'invites',
+    'achievements',
+    'achievementManagement'
+  ].includes(page);
 // All shell inputs come from source-controlled page definitions, never user data.
 export const renderAdminShell = (
   page: AdminPage,
@@ -74,7 +93,7 @@ export const renderAdminShell = (
         .filter((item) => item.page !== 'access' || canManageAdmins);
       if (!items.length) return '';
       const visible = items.some((item) => !deferredNavigation(item.page));
-      return `<details class="nav-group" name="admin-navigation-groups" data-nav-group="${group.id}"${group.pages.includes(page) ? ' data-current-group="true"' : ''} aria-labelledby="nav-group-${group.id}"${visible ? '' : ' hidden'}><summary class="nav-group-title" id="nav-group-${group.id}">${text[group.label]}</summary><div class="nav-group-links">${items.map((item) => `<a href="${item.path + adminLocaleQuery(locale)}"${item.page === 'achievements' ? ' class="journal-nav" data-achievements-nav hidden' : item.page === 'invites' ? ' class="journal-nav" data-line-invites-nav hidden' : ['journal', 'tags', 'learners', 'shared', 'privacy'].includes(item.page) ? ` class="journal-nav" data-journal-nav="${item.page}" hidden` : ''}${item.page === page ? ' aria-current="page"' : ''}>${text[item.label]}</a>`).join('')}</div></details>`;
+      return `<details class="nav-group" name="admin-navigation-groups" data-nav-group="${group.id}"${group.pages.includes(page) ? ' data-current-group="true"' : ''} aria-labelledby="nav-group-${group.id}"${visible ? '' : ' hidden'}><summary class="nav-group-title" id="nav-group-${group.id}">${text[group.label]}</summary><div class="nav-group-links">${items.map((item) => `<a href="${item.path + adminLocaleQuery(locale)}"${item.page === 'achievementManagement' ? ' class="journal-nav" data-achievement-management-nav hidden' : item.page === 'achievements' ? ' class="journal-nav" data-achievements-nav hidden' : item.page === 'invites' ? ' class="journal-nav" data-line-invites-nav hidden' : ['journal', 'tags', 'learners', 'shared', 'privacy'].includes(item.page) ? ` class="journal-nav" data-journal-nav="${item.page}" hidden` : ''}${item.page === page ? ' aria-current="page"' : ''}>${text[item.label]}</a>`).join('')}</div></details>`;
     })
     .join('');
   return `<!doctype html>
@@ -98,6 +117,7 @@ ${adminLayoutStyles}
   if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-journal-nav]').length)fetch('/admin/api/journal/capabilities?lang='+locale,{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-journal-nav]'))a.hidden=!(c&&c[({journal:'canReadJournal',tags:'canManageTags',learners:'canManageLearners',shared:'canReadShared',privacy:'canPublishPrivacy'})[a.dataset.journalNav]]===true);refreshNavigationGroups();}).catch(refreshNavigationGroups);
   if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-line-invites-nav]').length)fetch('/admin/api/line-invites/capabilities',{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-line-invites-nav]'))a.hidden=c?.canManage!==true;refreshNavigationGroups();}).catch(refreshNavigationGroups);
   if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-achievements-nav]').length)fetch('/admin/api/achievements/capabilities',{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-achievements-nav]'))a.hidden=c?.canReadAchievements!==true;refreshNavigationGroups();}).catch(refreshNavigationGroups);
+  if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-achievement-management-nav]').length)fetch('/admin/api/achievement-management/capabilities',{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-achievement-management-nav]'))a.hidden=c?.canManage!==true;refreshNavigationGroups();}).catch(refreshNavigationGroups);
   const mayLeave=()=>typeof window==='undefined'||!window.qigongJournalMayLeave||window.qigongJournalMayLeave();
   language.addEventListener('change',() => {
     const next=language.value;

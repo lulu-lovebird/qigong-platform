@@ -37,6 +37,7 @@ const fixture = (
   options: {
     allowed?: boolean;
     achievements?: boolean;
+    management?: boolean;
     admin?: boolean;
     mobile?: boolean;
     fail?: boolean;
@@ -62,6 +63,7 @@ const fixture = (
       if (page) link.dataset.journalNav = page;
       if (attrs.includes('data-line-invites-nav')) link.dataset.invites = 'true';
       if (attrs.includes('data-achievements-nav')) link.dataset.achievements = 'true';
+      if (attrs.includes('data-achievement-management-nav')) link.dataset.management = 'true';
       group.links.push(link);
       links.push(link);
     }
@@ -82,17 +84,19 @@ const fixture = (
     if (options.fail) throw Error('Synthetic transport failure');
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     return Response.json(
-      url.includes('line-invites')
-        ? { canManage: options.allowed ?? false }
-        : url.includes('achievements')
-          ? { canReadAchievements: options.achievements ?? options.allowed ?? false }
-          : {
-              canReadJournal: options.allowed ?? false,
-              canManageTags: options.allowed ?? false,
-              canManageLearners: options.allowed ?? false,
-              canReadShared: options.allowed ?? false,
-              canPublishPrivacy: options.allowed ?? false
-            }
+      url.includes('achievement-management')
+        ? { canManage: options.management ?? false }
+        : url.includes('line-invites')
+          ? { canManage: options.allowed ?? false }
+          : url.includes('achievements')
+            ? { canReadAchievements: options.achievements ?? options.allowed ?? false }
+            : {
+                canReadJournal: options.allowed ?? false,
+                canManageTags: options.allowed ?? false,
+                canManageLearners: options.allowed ?? false,
+                canReadShared: options.allowed ?? false,
+                canPublishPrivacy: options.allowed ?? false
+              }
     );
   });
   const document = {
@@ -107,7 +111,9 @@ const fixture = (
             ? links.filter((link) => link.dataset.invites)
             : selector === '[data-achievements-nav]'
               ? links.filter((link) => link.dataset.achievements)
-              : []
+              : selector === '[data-achievement-management-nav]'
+                ? links.filter((link) => link.dataset.management)
+                : []
   };
   const context = vm.createContext({
     document,
@@ -160,7 +166,12 @@ describe('Compact grouped admin navigation', () => {
         reports: ['/admin/', '/admin/leaderboard', '/admin/achievements', '/admin/method-analysis'],
         learners: ['/admin/applications', '/admin/learners', '/admin/line-invites'],
         journal: ['/admin/journal', '/admin/shared-journal', '/admin/practice-feeling-tags'],
-        settings: ['/admin/administrators', '/admin/privacy-policy', '/admin/notifications']
+        settings: [
+          '/admin/administrators',
+          '/admin/privacy-policy',
+          '/admin/notifications',
+          '/admin/achievement-management'
+        ]
       };
       for (const [key, paths] of Object.entries(expected))
         expect(f.groups.get(key)?.links.map((link) => link.href)).toEqual(
@@ -202,6 +213,16 @@ describe('Compact grouped admin navigation', () => {
     expect(denied.links.find((link) => link.dataset.achievements)?.hidden).toBe(true);
     expect(failed.links.find((link) => link.dataset.achievements)?.hidden).toBe(true);
     expect(granted.groups.get('journal')?.hidden).toBe(true);
+  });
+  it('requires a separate management capability rather than inferring it from ordinary reports', async () => {
+    const ordinary = fixture('en', { allowed: true }),
+      manager = fixture('en', { management: true }),
+      failed = fixture('en', { management: true, fail: true });
+    await settle();
+    expect(ordinary.links.find((link) => link.dataset.management)?.hidden).toBe(true);
+    expect(manager.links.find((link) => link.dataset.management)?.hidden).toBe(false);
+    expect(failed.links.find((link) => link.dataset.management)?.hidden).toBe(true);
+    expect([...manager.groups.values()].every((group) => !group.open)).toBe(true);
   });
   it('keeps capability links and empty headings hidden on failed permission requests', async () => {
     const f = fixture('en', { fail: true });

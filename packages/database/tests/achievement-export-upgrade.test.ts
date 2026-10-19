@@ -12,10 +12,14 @@ suite('Achievement personal export schema38 to39 permission separation', () => {
   it('preserves all tables, stored award versions, private history, jobs and security metadata', async () => {
     const database = await createIsolatedTestDatabase(base!);
     const old = await mkdtemp(path.join(tmpdir(), 'export38-'));
+    const current = await mkdtemp(path.join(tmpdir(), 'export39-pinned-'));
     try {
-      for (const file of await readdir(directory))
+      for (const file of await readdir(directory)) {
         if (file.endsWith('.sql') && file < '0039_')
           await copyFile(path.join(directory, file), path.join(old, file));
+        if (file.endsWith('.sql') && file < '0040_')
+          await copyFile(path.join(directory, file), path.join(current, file));
+      }
       await runMigrations(database.pool, old, 'achievements-before');
       expect(
         (
@@ -93,12 +97,12 @@ suite('Achievement personal export schema38 to39 permission separation', () => {
           [record.checkin]
         )
       ).rows[0]!.source;
-      expect((await runMigrations(database.pool, directory, 'achievements-after')).applied).toEqual(
-        ['0039_achievement_personal_export.sql']
+      expect((await runMigrations(database.pool, current, 'achievements-after')).applied).toEqual([
+        '0039_achievement_personal_export.sql'
+      ]);
+      expect((await runMigrations(database.pool, current, 'achievements-repeat')).applied).toEqual(
+        []
       );
-      expect(
-        (await runMigrations(database.pool, directory, 'achievements-repeat')).applied
-      ).toEqual([]);
       expect(await fingerprint()).toEqual(before);
       expect(await security()).toEqual(beforeSecurity);
       expect(
@@ -157,6 +161,7 @@ suite('Achievement personal export schema38 to39 permission separation', () => {
     } finally {
       await database.dispose();
       await rm(old, { recursive: true, force: true });
+      await rm(current, { recursive: true, force: true });
     }
   });
 });

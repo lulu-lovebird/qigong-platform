@@ -74,6 +74,14 @@ Release `71b2a8b52b563f3ec28ece56cc68e04318280a59` keeps exact39/phase24 and bot
 
 A controlled UI rollback may switch matching same39 afd90b5 artifacts and saved release override only after stop/drain and readiness checks, while preserving current DB/env and every new queue/audit/write. It must not restore a DB snapshot or use38 binaries. See [actual restore, preservation and acceptance evidence](../operations/collapsible-navigation-deployment.md).
 
+## Activity/achievement draft workspace exact40 local candidate (not published)
+
+The locally authorized first phase adds only `0040_achievement_management_drafts.sql`: two empty forced-RLS private metadata tables, restricted configuration/aggregate-preview facades, one new permission/two role mappings, and phase25. Existing0001–0039 remain immutable. It does not update live definitions, seasons, awards, checkins, jobs, privacy or identity data, and has no publication/activation/recalculation endpoint. Both global master/super manage drafts; both are intended publishers only in a separately reviewed phase2.
+
+Candidate API min/max40 and both workers use `ops.achievement_management_schema_ready()` / `phase-25-achievement-management-drafts`. **The user separately authorized this feature’s commit/push/deploy and explicitly approved this39→40 coordinated-maintenance exception, pending exact-SHA CI and rehearsal.** Published39 rejects40 and this candidate rejects39. Close the checkin-only fence, stop/drain API and both workers, take final encrypted DB/roles/runtime backups and actually restore/verify preservation before applying40 and switching matching artifacts. This is not rolling expand and does not reuse the CSV39 exception; do not migrate under running39 services. After resuming writes/workers retain40 and fix forward, without39 binary downgrade or old-snapshot restore. Publication/awarding/recalculation and unrelated operational flags remain disabled/unchanged. The39→40 upgrade test preserves all77 old tables/source/security/function definitions except the intended permission/mapping and metadata version/time additions; the historical38→39 test remains pinned to39.
+
+The first phase cannot apply draft rules; future publication requires immutable effective versions, preserved historical readers/CSV, progress-from-effective-date and every evaluator enforcing the global latest makeup cutoff UTC plus exactly24hours. See [local scope and evidence](../operations/achievement-management-drafts.md).
+
 ## Required Controls
 
 - CI tests the old and new application compatibility ranges against the same expand schema.

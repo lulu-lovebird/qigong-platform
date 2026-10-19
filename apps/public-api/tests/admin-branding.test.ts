@@ -13,12 +13,14 @@ import { renderAdminLearnerPage } from '../src/admin-learner-pages.js';
 import { renderReviewNotificationPage } from '../src/admin-review-notification-page.js';
 import { renderAdminLineInvites } from '../src/admin-line-invite-pages.js';
 import { renderAdminAchievementsPage } from '../src/admin-achievement-page.js';
+import { renderAdminActivityPage } from '../src/admin-activity-page.js';
 import type { AdminLocale } from '../src/admin-locale.js';
 
 const renderers: Readonly<Record<AdminPage, (locale: AdminLocale) => string>> = {
   overview: (locale) => renderAdminDashboard('overview', locale, true),
   leaderboard: (locale) => renderAdminDashboard('leaderboard', locale, true),
   achievements: (locale) => renderAdminAchievementsPage(locale, true),
+  achievementManagement: (locale) => renderAdminActivityPage(locale, true),
   methods: (locale) => renderAdminDashboard('methods', locale, true),
   review: (locale) => renderReviewPage(locale, true),
   access: renderAdminAccessPage,
