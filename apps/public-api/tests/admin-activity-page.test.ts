@@ -289,6 +289,121 @@ const open = async (f: ReturnType<typeof fixture>) => {
 };
 describe('Draft management genuine inline controller', () => {
   it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'shows an unchecked event streak option in %s without saving toggles or sending it on seasonal forms',
+    async (locale) => {
+      const f = fixture(locale);
+      await settle();
+      await click(f.get('management-new-activity'));
+      expect(f.get('management-continuous-row').hidden).toBe(false);
+      expect(f.get('management-continuous').checked).toBe(false);
+      expect(f.get('management-start-mode-row').hidden).toBe(true);
+      expect(f.get('management-method-match-row').hidden).toBe(true);
+      const calls = f.fetch.mock.calls.length;
+      f.get('management-continuous').checked = true;
+      await f.get('management-continuous').onchange?.({ preventDefault: vi.fn() });
+      expect(f.fetch).toHaveBeenCalledTimes(calls);
+      expect(f.get('management-challenge-summary').textContent).toMatch(/連續|连续|Consecutive/);
+      f.get('management-activity-code').value = 'seasonal_winter';
+      await click(f.get('management-new-seasonal'));
+      expect(f.get('management-continuous-row').hidden).toBe(true);
+      for (const [key, value] of Object.entries({
+        startDate: '2199-01-01',
+        endDate: '2199-01-31',
+        timezone: 'UTC',
+        requiredDays: '7',
+        reason: 'Synthetic seasonal draft'
+      }))
+        f.get('management-' + key).value = value;
+      await submit(f);
+      const call = f.fetch.mock.calls.find(([, init]) => init?.method === 'POST');
+      if (typeof call?.[1]?.body !== 'string') throw Error('Missing seasonal save');
+      const body = z
+        .object({ subject: z.literal('activity'), config: z.record(z.string(), z.unknown()) })
+        .parse(JSON.parse(call[1].body));
+      expect(Object.hasOwn(body.config, 'continuous')).toBe(false);
+    }
+  );
+  it('reads a legacy event without changing its config, defaults unchecked and clears the old preview immediately on a mode change', async () => {
+    const f = fixture();
+    await settle();
+    const event = {
+      ...draft(),
+      subject: 'event',
+      code: 'event_' + 'a'.repeat(32),
+      baseConfig: { definition: null, season: null },
+      config: {
+        nameZhTw: 'Legacy activity',
+        nameZhCn: '',
+        nameEn: '',
+        description: '',
+        effectiveDate: '2199-01-01',
+        startDate: '2199-01-01',
+        endDate: '2199-01-31',
+        timezone: 'UTC',
+        requiredDays: 3
+      },
+      latestPreview: { ...preview(), subject: 'event' }
+    };
+    const bytes = JSON.stringify(event);
+    f.fetch.mockResolvedValueOnce(Response.json(event));
+    await open(f);
+    expect(f.get('management-continuous').checked).toBe(false);
+    expect(f.window.qigongJournalMayLeave?.()).toBe(true);
+    expect(f.get('management-preview-result').textContent).toContain('Cumulative');
+    const calls = f.fetch.mock.calls.length;
+    f.get('management-continuous').checked = true;
+    await f.get('management-continuous').onchange?.({ preventDefault: vi.fn() });
+    expect(f.fetch).toHaveBeenCalledTimes(calls);
+    expect(f.get('management-preview').disabled).toBe(true);
+    expect(f.get('management-preview-result').textContent).not.toContain(
+      'Existing awards preserved: 1'
+    );
+    f.confirm.mockReturnValue(false);
+    expect(f.window.qigongJournalMayLeave?.()).toBe(false);
+    expect(JSON.stringify(event)).toBe(bytes);
+  });
+  it('restores a saved consecutive event, saves an explicit false toggle with the expected revision and never changes its name automatically', async () => {
+    const f = fixture();
+    await settle();
+    f.fetch.mockResolvedValueOnce(
+      Response.json({
+        ...draft(),
+        subject: 'event',
+        code: 'event_' + 'a'.repeat(32),
+        baseConfig: { definition: null, season: null },
+        config: {
+          nameZhTw: 'Manual event name',
+          nameZhCn: '',
+          nameEn: '',
+          description: '',
+          effectiveDate: '2199-01-01',
+          startDate: '2199-01-01',
+          endDate: '2199-01-31',
+          timezone: 'UTC',
+          requiredDays: 3,
+          continuous: true
+        },
+        latestPreview: { ...preview(), subject: 'event', continuous: true }
+      })
+    );
+    await open(f);
+    expect(f.get('management-continuous').checked).toBe(true);
+    expect(f.get('management-preview-result').textContent).toContain('Consecutive');
+    f.get('management-continuous').checked = false;
+    await f.get('management-continuous').onchange?.({ preventDefault: vi.fn() });
+    f.get('management-reason').value = 'Synthetic switch to cumulative';
+    await submit(f);
+    const call = f.fetch.mock.calls.find(([, init]) => init?.method === 'PATCH');
+    if (typeof call?.[1]?.body !== 'string') throw Error('Missing event update');
+    expect(JSON.parse(call[1].body)).toMatchObject({
+      subject: 'event',
+      code: 'event_' + 'a'.repeat(32),
+      expectedRevision: 1,
+      config: { nameZhTw: 'Manual event name', continuous: false }
+    });
+    expect(f.get('management-publish').disabled).toBe(true);
+  });
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
     'renders literal metadata and disabled publication in %s',
     async (locale) => {
       const f = fixture(locale);

@@ -28,8 +28,8 @@ export const apiLogRedaction = Object.freeze({
   censor: '[REDACTED]'
 });
 
-export const minimumMigrationVersion = '0041_independent_activity_drafts.sql';
-export const maximumMigrationVersion = '0041_independent_activity_drafts.sql';
+export const minimumMigrationVersion = '0042_activity_consecutive_drafts.sql';
+export const maximumMigrationVersion = '0042_activity_consecutive_drafts.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

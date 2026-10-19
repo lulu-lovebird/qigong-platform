@@ -43,6 +43,7 @@ suite('Independent activity badges and lossless40→41 upgrade', () => {
     dispose: () => Promise<void>,
     login: string,
     oldDir: string,
+    target41: string,
     start: string,
     end: string,
     oldDraft: Draft,
@@ -115,9 +116,13 @@ suite('Independent activity badges and lossless40→41 upgrade', () => {
     root = db.pool;
     dispose = () => db.dispose();
     oldDir = await mkdtemp(path.join(tmpdir(), 'activity40-'));
-    for (const name of await readdir(dir))
+    target41 = await mkdtemp(path.join(tmpdir(), 'activity41-'));
+    for (const name of await readdir(dir)) {
       if (name.endsWith('.sql') && name < '0041_')
         await copyFile(path.join(dir, name), path.join(oldDir, name));
+      if (name.endsWith('.sql') && name < '0042_')
+        await copyFile(path.join(dir, name), path.join(target41, name));
+    }
     await runMigrations(root, oldDir, 'event-before40');
     login = 'event_' + randomUUID().replaceAll('-', '');
     const password = randomBytes(24).toString('hex');
@@ -208,10 +213,10 @@ suite('Independent activity badges and lossless40→41 upgrade', () => {
     const before = await tableHashes(),
       beforeSecurity = await security();
     expect(Object.keys(before)).toHaveLength(79);
-    expect((await runMigrations(root, dir, 'event-upgrade41')).applied).toEqual([
+    expect((await runMigrations(root, target41, 'event-upgrade41')).applied).toEqual([
       '0041_independent_activity_drafts.sql'
     ]);
-    expect((await runMigrations(root, dir, 'event-repeat41')).applied).toEqual([]);
+    expect((await runMigrations(root, target41, 'event-repeat41')).applied).toEqual([]);
     expect(await tableHashes()).toEqual(before);
     expect(await security()).toEqual(beforeSecurity);
   });
@@ -223,6 +228,7 @@ suite('Independent activity badges and lossless40→41 upgrade', () => {
     }
     await dispose?.();
     if (oldDir) await rm(oldDir, { recursive: true, force: true });
+    if (target41) await rm(target41, { recursive: true, force: true });
   });
   it('preserves every old row including seasonal drafts, cached previews and source hashes through41', async () => {
     const detail = (

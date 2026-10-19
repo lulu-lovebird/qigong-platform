@@ -9,6 +9,9 @@ const en = {
   challenges: 'Method badges',
   newChallenge: 'New independent method badge draft',
   continuous: 'Consecutive calendar days',
+  eventContinuous: 'Require consecutive practice days',
+  eventStreakHelp:
+    'Unchecked: cumulative credited dates. Checked: a run of consecutive calendar dates; gaps restart the run. Only dates inside this activity count, at most once per date. Earlier history is not inherited.',
   cumulative: 'Cumulative valid practice days',
   startMode: 'Badge progress start',
   fromEffective: 'No separate date — start at this new rule effective day',
@@ -34,7 +37,7 @@ const en = {
   seasonalDraft: 'Create seasonal configuration draft',
   genericActivity: 'Independent activity badge',
   newEventHelp:
-    'Start blank with a new badge identity. Count distinct practice dates within the activity dates, regardless of method. No published seasonal configuration is changed; drafts and previews only.',
+    'Start blank with a new badge identity. Count distinct practice dates within the activity dates, regardless of method; optionally require consecutive days. No published seasonal configuration is changed; drafts and previews only.',
   newRule: 'Create rule revision',
   live: 'Published configuration (read-only)',
   empty: 'No records.',
@@ -132,6 +135,9 @@ const tw: Record<keyof typeof en, string> = {
   challenges: '功法 badge',
   newChallenge: '新增獨立功法 badge 草稿',
   continuous: '連續曆日',
+  eventContinuous: '需連續打卡',
+  eventStreakHelp:
+    '未勾選為累計有效天數；勾選須連續曆日達標，中斷後重新計算連續天數。只計活動期間，每日最多一天，不承接活動前紀錄。',
   cumulative: '累計有效練功日',
   startMode: 'badge 進度起算方式',
   fromEffective: '不定（從本全新 rule 生效日起算）',
@@ -157,7 +163,7 @@ const tw: Record<keyof typeof en, string> = {
   seasonalDraft: '建立既有季節活動設定草稿',
   genericActivity: '獨立活動 badge',
   newEventHelp:
-    '從空白建立全新活動 badge，不帶入三伏／冬至資料。依活動期間內任一功法的有效打卡日期累計，每日最多一天；不變更既有季節活動，目前僅草稿與試算。',
+    '從空白建立全新活動 badge，不帶入三伏／冬至資料。依活動期間內任一功法的有效打卡日期計數，可選累計或連續，每日最多一天；不變更既有季節活動，目前僅草稿與試算。',
   newRule: '建立規則修訂',
   live: '已發布設定（唯讀）',
   empty: '目前沒有紀錄。',

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   achievementDraftInputSchema,
   activityDraftConfigSchema,
+  eventDraftConfigSchema,
   ruleDraftConfigSchema,
   challengeDraftConfigSchema,
   managementPreviewSchema,
@@ -15,6 +16,46 @@ const common = {
   effectiveDate: '2027-12-01'
 };
 describe('Strict draft-only achievement management contracts', () => {
+  it('keeps legacy event config bytes/keys intact and accepts only explicit boolean event streaks', () => {
+    const old = {
+      ...common,
+      startDate: common.effectiveDate,
+      endDate: '2028-01-05',
+      timezone: 'UTC',
+      requiredDays: 7
+    };
+    expect(eventDraftConfigSchema.parse(old)).toEqual(old);
+    expect(Object.hasOwn(eventDraftConfigSchema.parse(old), 'continuous')).toBe(false);
+    for (const continuous of [false, true]) {
+      const config = { ...old, continuous };
+      expect(eventDraftConfigSchema.parse(config)).toEqual(config);
+      expect(
+        achievementDraftInputSchema.safeParse({
+          subject: 'event',
+          code: null,
+          year: null,
+          expectedRevision: 0,
+          reason: 'Synthetic streak',
+          config
+        }).success
+      ).toBe(true);
+      expect(
+        achievementDraftInputSchema.safeParse({
+          subject: 'activity',
+          code: 'seasonal_summer',
+          year: 2027,
+          expectedRevision: 0,
+          reason: 'No seasonal override',
+          config
+        }).success
+      ).toBe(false);
+    }
+    for (const continuous of ['true', 1, null])
+      expect(eventDraftConfigSchema.safeParse({ ...old, continuous }).success).toBe(false);
+    expect(
+      eventDraftConfigSchema.safeParse({ ...old, continuous: true, requiredDays: 100 }).success
+    ).toBe(false);
+  });
   it('creates independent activity identities only on the server and never accepts seasonal identity overrides', () => {
     const input = {
       subject: 'event',

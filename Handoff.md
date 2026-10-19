@@ -1,5 +1,11 @@
 # Qigong Platform — 交接摘要
 
+## 發布候選42：獨立活動可選連續打卡（本次維護已核准，待CI／切換）
+
+- 使用者確認41空白新增正常，再核准補event「需連續打卡」本機實作。預設累計，勾選取活動起訖內任一完整N曆日連續段，gap後新段重計；每日最多一天，不承接活動前／後日期／舊進度。三伏／冬至不加旗標、不改條件，名稱不自動改。toggle不autosave，條件改動立即清畫面舊preview，重開保存true／false、三語摘要與preview示mode。仍僅草稿／試算，publish／awards／recalculate不開。
+- 新0042只替換validate／compute兩body及新增ops gate／phase27；0001–0041不動。舊event缺continuous＝累計，DTO optional不注入false、不改JSON／revision／hash／cached observation／expiry，只有明確save才寫flag；strict bool、role／Origin／CSRF／session／post-lock／limits不放寬。API exact42／雙worker ops.achievement_event_streak_schema_ready，**使用者已另核准本次commit／push／deploy與41→42直接維護例外：待精確SHA CI／隔離演練過，封鎖入口並停API／雙worker、final加密DB／roles／runtime實際還原與保存過才matching切換；resume後留42／fix forward，不退41或舊snapshot。不沿用41例外或在線混41/42；尚未正式切換，仍以上一fafbb68／41為基線，rule發布／發獎仍disabled**。兩份既有無關文件保留。
+- Node24兩strict gates＋完整verify首輪 **1031 tests**（API771／DB252／config2／identity6），新DB8含actual41→42 apply1／repeat0／79表與security attrs保存、legacy config／cached bytes不改、累計2／連續1、window／gap／閏日／跨年／same-day methods／readonly／cache revision。Model27／VM24／HTTP20過，歷史40→41固定target41。browser13組／24圖、12 event saves＋12 previews／24audit，390累計2／1280連續1、重開mode與清除舊preview過、其他business全不變，無provider sends／正式資料。專用測試／browser驗證後停止，不是完整真人手機驗收。見[連續活動規格與證據](docs/operations/activity-consecutive-drafts.md)。
+
 ## 最新部署：空白新增獨立活動 badge fafbb68／41
 
 - 正式 **fafbb68cef66c85552183047da96dbd0c32605e7**／exact41／phase26，精確SHA CI **39244722048**首輪成功／**1014 tests**。使用者另核准本次40→41直接維護例外；**2026-10-19 11:39:22–11:40:23 UTC／60.729秒**，API11:39:23停寫後final加密DB／roles／runtime站外decrypt驗hash與fresh PG16 actual restore，**79表／19people／53checkins**保存過才升級，production applied1／repeat0、兩新checks validated與event unique index valid，API私有啟動前後79表exact。**11:39:46 resume marker先於workers**，229 Node HTTPS／health healthy／restart0／queues0；env640／units／flags保留、normal Caddy全檔相同、post-runtime再加密與實際extract。兩個真guest log marker精確redaction過；clone／probe停止，無agent正式draft／個資CSV／真人provider test send。

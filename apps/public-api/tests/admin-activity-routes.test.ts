@@ -109,6 +109,129 @@ suite('Authenticated management drafts HTTP, no publication surface', () => {
     await dispose?.();
   });
   it.each(['super', 'master'])(
+    'persists and previews the explicit event streak flag for %s without publishing',
+    async (actor) => {
+      const app = factory(),
+        before = await business();
+      try {
+        const body = {
+          ...input(),
+          subject: 'event',
+          code: null,
+          config: {
+            nameZhTw: 'Consecutive event',
+            nameZhCn: '',
+            nameEn: '',
+            description: '',
+            effectiveDate: '2199-01-01',
+            startDate: '2199-01-01',
+            endDate: '2199-01-31',
+            timezone: 'UTC',
+            requiredDays: 3,
+            continuous: true
+          }
+        };
+        const created = await app.inject({
+          method: 'POST',
+          url: api + '/drafts',
+          headers: headers(actor),
+          payload: body
+        });
+        expect(created.statusCode).toBe(200);
+        const d = created.json();
+        expect(d.config.continuous).toBe(true);
+        const detail = await app.inject({ url: api + '/drafts/' + d.id, headers: headers(actor) });
+        expect(detail.json().config.continuous).toBe(true);
+        const p = await app.inject({
+          method: 'POST',
+          url: api + '/drafts/' + d.id + '/preview',
+          headers: headers(actor),
+          payload: { expectedRevision: 1 }
+        });
+        expect(p.statusCode).toBe(200);
+        expect(p.json()).toMatchObject({
+          continuous: true,
+          publicationEnabled: false,
+          counts: { qualifyingAsOf: 0, wouldRevoke: 0 }
+        });
+        const updated = await app.inject({
+          method: 'PATCH',
+          url: api + '/drafts/' + d.id,
+          headers: headers(actor),
+          payload: {
+            ...body,
+            code: d.code,
+            expectedRevision: 1,
+            config: { ...body.config, continuous: false }
+          }
+        });
+        expect(updated.statusCode).toBe(200);
+        expect(updated.json()).toMatchObject({
+          code: d.code,
+          revision: 2,
+          config: { continuous: false },
+          latestPreview: null
+        });
+        expect(await business()).toBe(before);
+      } finally {
+        await app.close();
+      }
+    }
+  );
+  it('rejects non-boolean event flags and any seasonal flag without writing drafts', async () => {
+    const app = factory();
+    try {
+      const config = {
+        nameZhTw: 'Invalid streak',
+        nameZhCn: '',
+        nameEn: '',
+        description: '',
+        effectiveDate: '2199-01-01',
+        startDate: '2199-01-01',
+        endDate: '2199-01-31',
+        timezone: 'UTC',
+        requiredDays: 3
+      };
+      for (const continuous of ['true', 1, null])
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: api + '/drafts',
+              headers: headers(),
+              payload: {
+                ...input(),
+                subject: 'event',
+                code: null,
+                config: { ...config, continuous }
+              }
+            })
+          ).statusCode
+        ).toBe(400);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: api + '/drafts',
+            headers: headers(),
+            payload: {
+              ...input(),
+              subject: 'activity',
+              code: 'seasonal_summer',
+              year: 2199,
+              config: { ...config, continuous: false }
+            }
+          })
+        ).statusCode
+      ).toBe(400);
+      expect(
+        (await root.query('SELECT count(*)::int n FROM admin.achievement_config_drafts')).rows[0].n
+      ).toBe(0);
+    } finally {
+      await app.close();
+    }
+  });
+  it.each(['super', 'master'])(
     'creates an independent activity for %s without seasonal defaults or live mutations',
     async (actor) => {
       const app = factory(),

@@ -193,7 +193,7 @@ suite('Authenticated administrator metadata refresh without authorization change
           { requestId: randomUUID() },
           (c) =>
             c.query(
-              'SELECT ops.achievement_event_drafts_schema_ready() current,ops.achievement_management_schema_ready() previous'
+              'SELECT ops.achievement_event_streak_schema_ready() current,ops.achievement_event_drafts_schema_ready() previous'
             )
         )
       ).rows[0]

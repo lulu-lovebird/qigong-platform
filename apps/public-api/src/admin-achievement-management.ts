@@ -51,6 +51,11 @@ export const activityDraftConfigSchema = z
         (Date.parse(value.endDate) - Date.parse(value.startDate)) / 86400000 + 1 &&
       (Date.parse(value.endDate) - Date.parse(value.startDate)) / 86400000 <= 366
   );
+// Keep absent flags absent when reading41 drafts: no default injection or hash change.
+export const eventDraftConfigSchema = activityDraftConfigSchema.safeExtend({
+  continuous: z.boolean().optional()
+});
+export type EventDraftConfig = z.infer<typeof eventDraftConfigSchema>;
 export const challengeDraftConfigSchema = z
   .object({
     ...common,
@@ -76,6 +81,7 @@ export type ChallengeDraftConfig = z.infer<typeof challengeDraftConfigSchema>;
 export const draftConfigSchema = z.union([
   ruleDraftConfigSchema,
   activityDraftConfigSchema,
+  eventDraftConfigSchema,
   challengeDraftConfigSchema
 ]);
 const reason = text(1000).refine((value) => value.trim().length > 0);
@@ -120,7 +126,7 @@ const eventInput = z
       .regex(/^event_[a-f0-9]{32}$/)
       .nullable(),
     year: z.null().default(null),
-    config: activityDraftConfigSchema,
+    config: eventDraftConfigSchema,
     reason,
     expectedRevision: z.number().int().nonnegative()
   })
@@ -226,6 +232,7 @@ export const managementPreviewSchema = z
       .strict()
       .nullable(),
     awardableNow: count,
+    continuous: z.boolean().optional(),
     publicationEnabled: z.literal(false)
   })
   .strict();
