@@ -1,8 +1,8 @@
-# 獨立活動 badge：可選連續打卡（本機候選42）
+# 獨立活動 badge：可選連續打卡（已部署42）
 
 ## 核准與範圍
 
-使用者確認41可空白新增，回報缺少「需連續打卡」選項，再核准開始本機修改。本機階段未提交／推送／部署／連正式；使用者後續另明確核准本次commit／push／deploy與41→42直接協調維護例外。待精確SHA CI及隔離演練過，封鎖入口並停API／雙worker後取得final加密DB／roles／runtime、實際還原及保存驗證通過才升級與matching切換；目前尚待執行，正式切換前仍fafbb68／41。既有人工readonly驗收增補與permissions-review兩份無關文件保留，不納入本次變更。
+使用者確認41可空白新增，回報缺少「需連續打卡」選項，再核准開始本機修改。本機階段未提交／推送／部署／連正式；使用者後續另明確核准本次commit／push／deploy與41→42直接協調維護例外。待精確SHA CI及隔離演練過，封鎖入口並停API／雙worker後取得final加密DB／roles／runtime、實際還原及保存驗證通過才升級與matching切換；已完成正式be126a5／42切換，CI39281636756首輪1031 tests、維護62.146秒／229 Node HTTPS及health過；見[正式部署／實際還原與復原邊界](activity-consecutive-deployment.md)。0042現亦immutable。既有人工readonly驗收增補與permissions-review兩份無關文件保留，不納入本次變更。
 
 - 僅獨立活動 `subject=event`新增「需連續打卡」，預設未勾。三伏／冬至既有`activity`條件、rule及功法badge既有challenge語意不變。
 - 未勾：活動起訖日期內不同有效打卡日期累計達N天。勾選：期間內任一段連續N個曆日達標，中斷後新段從頭計；曾達標不因後續中斷而撤回該段達標事實。每日最多一天，任一功法，不計活動開始前或結束後的日期，不承接舊活動進度。
@@ -16,7 +16,7 @@
 - 既有event JSON缺`continuous`＝累計。**讀取不補寫false、不回填、不增加revision、不改configHash／baseHash或舊preview觀測／到期時間**；DTO使用optional boolean而非default注入，舊cached result沒有該欄位仍合法。只有明確保存才把checkbox布林值寫入新revision。
 - SQL允許event省略flag或提供真正boolean，拒字串／number／null；季節activity仍拒該額外key。預覽選event_streak時只對accepted distinct dates分island取完整段，未勾／省略走原累計。新event preview回傳明確mode；既有cached preview不改寫，缺mode在UI按原累計解讀。
 - 原Origin／CSRF、actual session最後重查、global master／super與preview三read/person scopes、reason／revision、post-lock source／grant／started checks、容量／timeout／cache／cooldown均保留。舊cached revision在保存後不會冒充新revision。無個資roster或心得感受讀取。
-- candidate API exact42、兩worker `ops.achievement_event_streak_schema_ready()`／`phase-27-activity-consecutive-drafts`；41與42不相容，**本次commit／push／deploy及42直接維護例外已另核准；待CI／演練與final actual restore/preservation過才切換，resume後保留42／fix forward，不退41或回灌舊快照**，不沿用41例外、不在線migrate42或binary-only切換，不改正式flags／provider／政策。
+- 正式API exact42、兩worker `ops.achievement_event_streak_schema_ready()`／`phase-27-activity-consecutive-drafts`；41與42不相容，**本次commit／push／deploy及42直接維護例外已另核准；已在CI／演練與final actual restore/preservation過後完成切換，resume後保留42／fix forward，不退41或回灌舊快照**，不沿用41例外、不在線migrate42或binary-only切換，不改正式flags／provider／政策。
 
 ## 驗證
 
@@ -26,6 +26,6 @@
 - 真compiled Fastify＋獨立PG16、合成session及本機origin adapter，browser **13組／24圖**（super／master × zh_TW／zh_CN／en ×390／1280，加viewer拒絕）。390未勾累計2、1280勾連續1；12份實存event／12preview／24預期audit，重開模式保存、toggle清舊preview且不發request，checkbox label手機44px／輸入16px、無overflow／API或JS errors；所有其他business表fingerprint相同，沒有真人provider send或正式資料。非真人OAuth／實體手機完整驗收。
 - 本輪完整suite／browser均首輪過，沒有放寬斷言或為求綠重跑。專用測試PG55512／preview PG55513、HTTP55514／CDP55515於驗證後停止。
 
-證據：`/tmp/qigong-event-streak-verify.log`、`/tmp/qigong-event-streak-browser-{results,preservation}.json`、`/tmp/qigong-event-streak-{super|master}-{zh_TW|zh_CN|en}-{390|1280}-{blank|preview}.png`。私密合成fixture不入Git、不貼cookie／連線憑證。沒有產生正式個資CSV、改clock／Console／flags／政策／同意，原clock／TG history403及Python-UA edge差異不因此結案。
+證據：`/tmp/qigong-event-streak-verify.log`、`/tmp/qigong-event-streak-browser-{results,preservation}.json`、`/tmp/qigong-event-streak-{super|master}-{zh_TW|zh_CN|en}-{390|1280}-{blank|preview}.png`。私密合成fixture不入Git、不貼cookie／連線憑證。本機階段未連正式；正式僅本次另核准的0042與matching切換，沒有產生正式個資CSV、改clock／Console／flags／政策／同意，原clock／TG history403及Python-UA edge差異不因此結案。
 
 參考：[獨立活動41規格](independent-activity-drafts.md)、[41部署與復原](independent-activity-deployment.md)、[schema協調規則](../architecture/schema-compatibility.md)。

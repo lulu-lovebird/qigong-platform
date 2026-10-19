@@ -4,9 +4,9 @@
 
 使用者指出「新增活動」卻帶入三伏修練資料。原40按鈕其實建立既有三伏／冬至的年度設定草稿，不是獨立新增；儲存也只改private draft，未直接改正式季節資料，但操作語意不符需求。使用者確認修正方案後完成本機實作與驗證，後續另明確核准本次commit／push／deploy及40→41直接協調維護例外。待精確SHA CI／隔離演練通過，停API／雙worker後取得final加密DB／roles／runtime並實際還原及保存驗證，才可升級切換；現已完成正式fafbb68／41，CI39244722048首輪1014 tests，維護60.729秒／229 Node HTTPS與health過。見[正式部署、實際還原與復原邊界](independent-activity-deployment.md)。0041現亦immutable。正式rule發布與授獎仍不在範圍。
 
-## 後續連續打卡選項（本機候選42，未部署）
+## 後續連續打卡選項（已部署42）
 
-使用者確認41空白新增正常，但希望活動也可選連續打卡，已核准本機補上event-only checkbox；預設累計、勾選取期間內任一完整N曆日連續段。舊event省略flag仍累計，不回填JSON／revision／hash／cache；三伏／冬至不改。新0042與exact42／phase27的本機實作已過；使用者後續另核准本次提交推送與41→42直接維護例外，待精確SHA CI／演練與停寫final actual restore/preservation過才切換。正式切換前仍41；resume後留42／fix forward，不退41或舊snapshot，rule發布與授獎仍不啟用。詳見[連續選項、1031測試與13組瀏覽器證據](activity-consecutive-drafts.md)。以下為原41已部署基線。
+使用者確認41空白新增正常，但希望活動也可選連續打卡，已核准本機補上event-only checkbox；預設累計、勾選取期間內任一完整N曆日連續段。舊event省略flag仍累計，不回填JSON／revision／hash／cache；三伏／冬至不改。使用者後續另核准本次提交推送與41→42直接維護例外，已在精確SHA CI／演練與停寫final actual restore/preservation過後完成正式be126a5／42切換。0042現亦immutable；見[62.146秒維護／229 Node HTTPS及復原證據](activity-consecutive-deployment.md)；resume後留42／fix forward，不退41或舊snapshot，rule發布與授獎仍不啟用。詳見[連續選項、1031測試與13組瀏覽器證據](activity-consecutive-drafts.md)。以下為原41已部署基線。
 
 ## 兩個明確入口
 
