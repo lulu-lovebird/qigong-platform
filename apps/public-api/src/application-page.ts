@@ -67,6 +67,43 @@ export const languageSwitchScript = (
     });
 `;
 
+const whatsappApplicationLanguageScript = (locale: LearnerLocale) => `
+    const applicationInterfaces = ${JSON.stringify(
+      Object.fromEntries(
+        (['zh_TW', 'zh_CN', 'en'] as const).map((language) => [
+          language,
+          {
+            ...pageTexts({ platform: 'whatsapp', locale: language }),
+            languageLabel: language === 'en' ? 'Language' : uiText(language, '介面語言'),
+            notificationConsentLabel:
+              language === 'en'
+                ? 'I agree to receive WhatsApp messages about my application decision. Reply STOP to opt out.'
+                : uiText(language, '我同意透過 WhatsApp 接收申請審核結果通知；可回覆 STOP 取消。')
+          }
+        ])
+      )
+    ).replaceAll('<', '\\u003c')};
+    let applicationLocale = ${JSON.stringify(locale)};
+    const renderApplicationLanguage = next => {
+      const statusKey=Object.keys(ui).find(key=>ui[key]===status.textContent);
+      applicationLocale=next;ui=applicationInterfaces[next];
+      document.documentElement.lang=next==='en'?'en':next==='zh_CN'?'zh-Hans':'zh-Hant';
+      document.title=ui.applicationTitle;
+      for(const [id,key]of Object.entries({applicationTitleText:'applicationTitle',applicationLanguageText:'languageLabel',applicationNameText:'name',applicationEmailText:'email',applicationPhoneText:'phone',applicationRegionText:'region',applicationRegionPlaceholder:'selectRegion',applicationRegionTw:'taiwan',applicationRegionMy:'malaysia',applicationRegionSg:'singapore',applicationRegionHk:'hongKong',applicationRegionOther:'other',applicationConsentText:'notificationConsentLabel',applicationSubmitButton:'applyButton'}))document.getElementById(id).textContent=ui[key];
+      document.getElementById('applicationIntroText').textContent=ui.applicationIntro+' '+ui.privateLink;
+      document.getElementById('languageSwitch').value=next;
+      if(statusKey)status.textContent=ui[statusKey];
+      document.cookie='__Host-qigong-learner-locale='+next+'; Path=/; Max-Age=31536000; Secure; SameSite=Lax';
+      history.replaceState(null,'',location.pathname+'?lang='+next);
+    };
+    renderApplicationLanguage(applicationLocale);
+    document.getElementById('languageSwitch').addEventListener('change',()=>{
+      const selector=document.getElementById('languageSwitch'),next=selector.value;
+      if(!Object.hasOwn(applicationInterfaces,next)||next===applicationLocale||form.querySelector('button')?.disabled){selector.value=applicationLocale;return;}
+      renderApplicationLanguage(next);
+    });
+`;
+
 export const lineLoginScript = (liffId: string, locale: LearnerLocale = 'zh_TW') => {
   const messages = {
     primary: lineUiText(
@@ -132,27 +169,27 @@ ${channel.platform === 'line' ? '<script src="https://static.line-scdn.net/liff/
 </head>
 <body>
   <main>
-    <h1>${t('applicationTitle')}</h1>
-    <p>${t('applicationIntro')} ${t(channel.platform === 'line' ? 'lineLink' : 'privateLink')}</p>
-    <nav><label>${locale === 'en' ? 'Language' : uiText(locale, '介面語言')} <select id="languageSwitch">${languageOptions(locale)}</select></label></nav>
+    <h1 id="applicationTitleText">${t('applicationTitle')}</h1>
+    <p id="applicationIntroText">${t('applicationIntro')} ${t(channel.platform === 'line' ? 'lineLink' : 'privateLink')}</p>
+    <nav><label><span id="applicationLanguageText">${locale === 'en' ? 'Language' : uiText(locale, '介面語言')}</span> <select id="languageSwitch">${languageOptions(locale)}</select></label></nav>
     <form id="application">
-      <label>${t('name')}<input name="name" autocomplete="name" maxlength="150" required></label>
-      <label>${t('email')}<input name="email" type="email" autocomplete="email" maxlength="254" required></label>
-      <label>${t('phone')}<input name="phone" type="tel" autocomplete="tel" pattern="\\+[1-9][0-9]{6,14}" required></label>
-      <label>${t('region')}<select name="region" required>
-        <option value="">${t('selectRegion')}</option><option value="tw-general">${t('taiwan')}</option>
-        <option value="my-general">${t('malaysia')}</option><option value="sg-general">${t('singapore')}</option>
-        <option value="hk-general">${t('hongKong')}</option><option value="other-general">${t('other')}</option>
+      <label><span id="applicationNameText">${t('name')}</span><input name="name" id="applicationNameInput" autocomplete="name" maxlength="150" required></label>
+      <label><span id="applicationEmailText">${t('email')}</span><input name="email" id="applicationEmailInput" type="email" autocomplete="email" maxlength="254" required></label>
+      <label><span id="applicationPhoneText">${t('phone')}</span><input name="phone" id="applicationPhoneInput" type="tel" autocomplete="tel" pattern="\\+[1-9][0-9]{6,14}" required></label>
+      <label><span id="applicationRegionText">${t('region')}</span><select name="region" id="applicationRegionInput" required>
+        <option value="" id="applicationRegionPlaceholder">${t('selectRegion')}</option><option value="tw-general" id="applicationRegionTw">${t('taiwan')}</option>
+        <option value="my-general" id="applicationRegionMy">${t('malaysia')}</option><option value="sg-general" id="applicationRegionSg">${t('singapore')}</option>
+        <option value="hk-general" id="applicationRegionHk">${t('hongKong')}</option><option value="other-general" id="applicationRegionOther">${t('other')}</option>
       </select></label>
-      ${channel.platform === 'whatsapp' ? `<label><input name="notificationConsent" type="checkbox" required>${channel.locale === 'en' ? 'I agree to receive WhatsApp messages about my application decision. Reply STOP to opt out.' : uiText(locale, '我同意透過 WhatsApp 接收申請審核結果通知；可回覆 STOP 取消。')}</label>` : ''}
-      <button type="submit">${t('applyButton')}</button>
+      ${channel.platform === 'whatsapp' ? `<label><input name="notificationConsent" type="checkbox" required id="applicationConsentInput"><span id="applicationConsentText">${channel.locale === 'en' ? 'I agree to receive WhatsApp messages about my application decision. Reply STOP to opt out.' : uiText(locale, '我同意透過 WhatsApp 接收申請審核結果通知；可回覆 STOP 取消。')}</span></label>` : ''}
+      <button type="submit" id="applicationSubmitButton">${t('applyButton')}</button>
     </form>
     <p id="status" role="status" aria-live="polite"></p>
   </main>
   <footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer>
   <script>
     const token = location.hash.slice(1);
-    const ui = ${JSON.stringify(texts).replaceAll('<', '\\u003c')};
+    ${channel.platform === 'whatsapp' ? 'let' : 'const'} ui = ${JSON.stringify(texts).replaceAll('<', '\\u003c')};
     ${channel.platform === 'line' ? lineLoginScript(channel.liffId, channel.locale ?? 'zh_TW') : "history.replaceState(null, '', location.pathname);"}
     const form = document.getElementById('application');
     const status = document.getElementById('status');
@@ -166,7 +203,7 @@ ${channel.platform === 'line' ? '<script src="https://static.line-scdn.net/liff/
     lineReady.then(() => { form.querySelector('button').disabled = false; }).catch(error => { form.hidden = true; status.textContent = error.message; });`
         : ''
     }
-    ${languageSwitchScript(channel.platform, locale)}
+    ${channel.platform === 'whatsapp' ? whatsappApplicationLanguageScript(locale) : languageSwitchScript(channel.platform, locale)}
     form.addEventListener('submit', async event => {
       event.preventDefault();
       const button = form.querySelector('button');
@@ -177,7 +214,7 @@ ${channel.platform === 'line' ? '<script src="https://static.line-scdn.net/liff/
         ${channel.platform === 'line' ? 'await lineReady;' : ''}
         const response = await fetch('/${channel.platform}/onboarding/apply', {
           method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ token, ${channel.platform === 'line' ? 'idToken,' : ''} ...data ${channel.platform === 'whatsapp' ? `,locale: ${JSON.stringify(channel.locale ?? 'zh_TW')}, notificationConsent: data.notificationConsent === 'on'` : ''} })
+          body: JSON.stringify({ token, ${channel.platform === 'line' ? 'idToken,' : ''} ...data ${channel.platform === 'whatsapp' ? `,locale: applicationLocale, notificationConsent: data.notificationConsent === 'on'` : ''} })
         });
         if (!response.ok) {
           ${

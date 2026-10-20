@@ -5,7 +5,7 @@ import { lineApplicationPage } from '../src/line-application-page.js';
 import { lineCheckinPage } from '../src/line-checkin-page.js';
 import { telegramApplicationPage } from '../src/telegram-application-page.js';
 import { telegramCheckinPage } from '../src/telegram-checkin-page.js';
-import { renderApplicationPage } from '../src/application-page.js';
+import { pageTexts, renderApplicationPage } from '../src/application-page.js';
 import { renderCheckinPage } from '../src/checkin-page.js';
 
 type Handler = (event: { preventDefault: () => void }) => void | Promise<void>;
@@ -119,6 +119,25 @@ const fixture = (
     pathname: entryUrl.pathname,
     replace: vi.fn()
   };
+  const document = {
+    getElementById: get,
+    createElement: element,
+    createTextNode: (text: string) => ({ ...element(), textContent: text }),
+    documentElement: { lang: '' },
+    title: '',
+    cookie: ''
+  };
+  const applicationFields = {
+    name: get('applicationNameInput'),
+    email: get('applicationEmailInput'),
+    phone: get('applicationPhoneInput'),
+    region: get('applicationRegionInput')
+  };
+  applicationFields.name.value = 'Learner';
+  applicationFields.email.value = 'learner@example.com';
+  applicationFields.phone.value = '+886912345600';
+  applicationFields.region.value = 'tw-general';
+  get('applicationConsentInput').checked = options.notificationConsent ?? false;
   const history = { replaceState: vi.fn() };
   const liff = {
     init: vi.fn(options.init ?? (async () => {})),
@@ -168,23 +187,26 @@ const fixture = (
     fetch: fetchMock,
     confirm: vi.fn(() => true),
     window: { Telegram: { WebApp: telegram } },
-    document: {
-      getElementById: get,
-      createElement: element,
-      createTextNode: (text: string) => ({ ...element(), textContent: text })
-    },
+    document,
     FormData: function () {
-      const fields = new Map([
-        ['name', 'Learner'],
-        ['email', 'learner@example.com'],
-        ['phone', '+886912345600'],
-        ['region', 'tw-general']
-      ]);
-      if (options.notificationConsent) fields.set('notificationConsent', 'on');
+      const fields = new Map(
+        Object.entries(applicationFields).map(([key, node]) => [key, node.value])
+      );
+      if (get('applicationConsentInput').checked) fields.set('notificationConsent', 'on');
       return fields;
     }
   });
-  return { get, location, history, liff, fetchMock, applicationButton, telegram };
+  return {
+    get,
+    location,
+    history,
+    liff,
+    fetchMock,
+    applicationButton,
+    telegram,
+    document,
+    applicationFields
+  };
 };
 const submit = async (form: ElementStub) => {
   const handler = form.listeners.get('submit');
@@ -471,6 +493,118 @@ describe('shared learner pages without database or real LIFF SDK', () => {
     });
     expect(page.telegram.ready).not.toHaveBeenCalled();
     expect(page.liff.init).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['zh_TW', false],
+    ['zh_TW', true],
+    ['zh_CN', false],
+    ['zh_CN', true],
+    ['en', false],
+    ['en', true]
+  ] as const)(
+    'switches a %s WhatsApp application in place without losing details or consent=%s',
+    async (locale, consent) => {
+      const page = fixture(renderApplicationPage({ platform: 'whatsapp', locale }), {
+        url: 'https://checkin.baiyinqigong.org/whatsapp/apply?lang=' + locale + '#' + token,
+        notificationConsent: consent
+      });
+      const values = {
+        name: '合成測試 <script>literal</script>',
+        email: 'synthetic@example.invalid',
+        phone: '+65910000001',
+        region: 'sg-general'
+      };
+      for (const [key, node] of Object.entries(page.applicationFields))
+        node.value = values[key as keyof typeof values];
+      const handler = page.get('languageSwitch').listeners.get('change');
+      if (!handler) throw Error('Missing language switch');
+      for (const next of ['zh_CN', 'en', 'zh_TW', 'en'] as const) {
+        page.get('languageSwitch').value = next;
+        await handler({ preventDefault: vi.fn() });
+        expect(page.fetchMock).not.toHaveBeenCalled();
+        expect(page.location.replace).not.toHaveBeenCalled();
+        for (const [key, node] of Object.entries(page.applicationFields))
+          expect(node.value).toBe(values[key as keyof typeof values]);
+        expect(page.get('applicationConsentInput').checked).toBe(consent);
+        expect(page.document.documentElement.lang).toBe(
+          next === 'en' ? 'en' : next === 'zh_CN' ? 'zh-Hans' : 'zh-Hant'
+        );
+        expect(page.document.title).toBe(
+          pageTexts({ platform: 'whatsapp', locale: next }).applicationTitle
+        );
+        expect(page.history.replaceState).toHaveBeenLastCalledWith(
+          null,
+          '',
+          '/whatsapp/apply?lang=' + next
+        );
+        expect(page.document.cookie).not.toContain(values.email);
+        expect(page.document.cookie).not.toContain(token);
+      }
+      await submit(page.get('application'));
+      expect(page.fetchMock).toHaveBeenCalledTimes(1);
+      expect(page.fetchMock.mock.calls[0]?.[0]).toBe('/whatsapp/onboarding/apply');
+      expect(requestPayload(page.fetchMock.mock.calls[0]?.[1]?.body)).toEqual({
+        token,
+        ...values,
+        locale: 'en',
+        notificationConsent: consent
+      });
+    }
+  );
+
+  it('keeps invalid WhatsApp application links hidden after presentation-only language changes', async () => {
+    const page = fixture(renderApplicationPage({ platform: 'whatsapp' }), { hash: '#invalid' });
+    page.get('languageSwitch').value = 'en';
+    const handler = page.get('languageSwitch').listeners.get('change');
+    if (!handler) throw Error('Missing language switch');
+    await handler({ preventDefault: vi.fn() });
+    expect(page.get('application').hidden).toBe(true);
+    expect(page.get('status').textContent).toBe(
+      pageTexts({ platform: 'whatsapp', locale: 'en' }).invalidApplication
+    );
+    expect(page.fetchMock).not.toHaveBeenCalled();
+    expect(page.location.replace).not.toHaveBeenCalled();
+  });
+
+  it('does not change application language while a WhatsApp submission is pending', async () => {
+    const page = fixture(renderApplicationPage({ platform: 'whatsapp' }));
+    let complete: ((response: Response) => void) | undefined;
+    page.fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          complete = resolve;
+        })
+    );
+    const pending = submit(page.get('application'));
+    page.get('languageSwitch').value = 'en';
+    const handler = page.get('languageSwitch').listeners.get('change');
+    if (!handler) throw Error('Missing language switch');
+    await handler({ preventDefault: vi.fn() });
+    expect(page.get('languageSwitch').value).toBe('zh_TW');
+    expect(requestPayload(page.fetchMock.mock.calls[0]?.[1]?.body)).toMatchObject({
+      locale: 'zh_TW'
+    });
+    if (!complete) throw Error('Missing response callback');
+    complete(new Response('{}'));
+    await pending;
+    expect(page.fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('relocalizes a failed WhatsApp application without erasing the draft', async () => {
+    const page = fixture(renderApplicationPage({ platform: 'whatsapp' }), { responseStatus: 503 });
+    await submit(page.get('application'));
+    page.applicationFields.name.value = '保留原文';
+    page.get('languageSwitch').value = 'en';
+    const handler = page.get('languageSwitch').listeners.get('change');
+    if (!handler) throw Error('Missing language switch');
+    await handler({ preventDefault: vi.fn() });
+    expect(page.applicationFields.name.value).toBe('保留原文');
+    expect(page.get('status').textContent).toBe(
+      pageTexts({ platform: 'whatsapp', locale: 'en' }).applicationFailed
+    );
+    expect(page.fetchMock).toHaveBeenCalledTimes(1);
+    expect(page.location.replace).not.toHaveBeenCalled();
   });
 
   it('renders WhatsApp English practice using the shared catalog without Telegram initialization', async () => {

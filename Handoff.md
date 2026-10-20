@@ -1,5 +1,11 @@
 # Qigong Platform — 交接摘要
 
+## WhatsApp申請語言修正發布候選（commit/push/deploy已另核准，待CI／還原保存）
+
+- 使用者另核准**僅本機修正**：WhatsApp join申請頁切語言跳回繁中並清空資料。根因為原language switch走checkin-only credential API／成功後整頁重載丟棄form；現在僅WA申請頁原頁以source-owned三語textContent換UI，input/select/checkbox節點和值／同意原樣保留，送出帶目前locale。切換無fetch／無導向／不提交，個資只留DOM/RAM，不寫URL/cookie/localStorage/sessionStorage；query/cookie僅locale、private proof不回URL。身份／Origin／CSRF與打卡／LINE／TG流程不放寬，無migration／dependency變更。
+- 先紅測8失敗／31過留證，再VM39／HTTP新增3 locale（apply proof仍不能呼叫checkin或workspace language，false同意／非法locale／Origin／偽proof拒絕，pending資料與目前locale精確、duplicate409）；初期HTTP fixture忽略既有Email lowercase失敗保留，僅改test期望精確lowercase，SQL未改。Node24兩strict gates／靜態map／完整verify **1117 tests**（API824／DB285／config2／identity6）；真本機Chrome12組／12圖，三初始語言×consent true/false×390/1280，來回4次無reload/資料損失/API自動提交/Storage呼叫/overflow/JS errors，12次只送本機mock endpoint，不是真人送出或Meta驗收。
+- **本輪不commit/push/deploy、不連正式寫入／發訊息、不改DB／通知／授獎開關；兩份既有無關文件保留。** 本機完成後使用者已另明確核准本次commit/push及同schema46 UI部署；待精確SHA CI、fresh46 clone／保存及停寫final加密DB／roles／runtime actual restore/preservation過才切換，不執行migration或改Meta訂閱，保持WA環境／通知／operator FALSE。尚未切換，正式仍以下951／46。依先前另核准的WA API-only配置與WABA修正，使用者已確認Meta測試號碼join收到申請回覆，故目前不是完全未配置WA；核准／拒絕通知及正式號碼／登入／打卡驗收仍未完成。未來部署須保留這些新WA env，不能回灌舊未配置snapshot。見[本機修正／1117測試／Chrome證據與發布界線](docs/operations/whatsapp-application-language.md)。
+
 ## 最新部署：成就第二階段A/B/C 951d1c8／46，營運gate仍FALSE
 
 - 正式 **951d1c8856aaba15dd8f6dcaaabb91feef489f04**／schema46／API min42/max46／原phase27，精確SHA CI **39371539528**原run成功／**1105 tests**。使用者另明確核准本次42→43–46協調維護；2026-10-20 **05:05:07–05:06:16 UTC（台北13:05–13:06）／69.035秒**。停寫final加密DB／roles／runtime站外解密hash、fresh PG16 actual restore與**79表／19people／56checkins／原1draft／0previews** exact保存過，才先切951相容API在正式42私有ready／資料exact（05:05:33），再次停API後clone及正式apply4／repeat0；正式46比對clone完整normalized/security與private API startup前後86表exact。準備snapshot55筆之後新增的一筆正常寫入保留，未回灌舊資料。

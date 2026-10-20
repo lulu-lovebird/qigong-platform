@@ -213,6 +213,106 @@ describeWithDatabase('WhatsApp restricted-role onboarding and practice', () => {
       }
     );
 
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'accepts the current %s application language without weakening checkin authentication',
+    async (locale) => {
+      const subject = { zh_TW: '659900100001', zh_CN: '659900100002', en: '659900100003' }[locale];
+      const sender = vi.fn<(recipient: string, text: string) => Promise<void>>(async () => {});
+      const app = appFactory(sender);
+      try {
+        const awardsBefore = (await pool.query('SELECT count(*) FROM core.person_practice_badges'))
+          .rows;
+        expect(
+          (await app.inject(signed(body('application-locale-' + locale, 'join', subject))))
+            .statusCode
+        ).toBe(200);
+        expect(sender).toHaveBeenCalledTimes(1);
+        const token = /\/apply(?:\?lang=(?:zh_TW|zh_CN|en))?#([A-Za-z0-9_-]{43})/.exec(
+          sender.mock.calls[0]?.[1] ?? ''
+        )?.[1];
+        if (!token) throw Error('Missing synthetic application token');
+        const preference = () =>
+          pool.query(
+            "SELECT locale FROM platform.identity_preferences WHERE platform='whatsapp' AND external_subject_id=$1",
+            [subject]
+          );
+        const preferenceBefore = (await preference()).rows;
+        for (const language of ['en', 'zh_CN', 'zh_TW'] as const) {
+          const page = await app.inject('/whatsapp/apply?lang=' + language);
+          expect(page.statusCode).toBe(200);
+          expect(page.headers['cache-control']).toBe('no-store');
+          expect(page.body).toContain(
+            '<html lang="' +
+              (language === 'en' ? 'en' : language === 'zh_CN' ? 'zh-Hans' : 'zh-Hant') +
+              '">'
+          );
+          expect(page.body).toContain('renderApplicationLanguage');
+          expect(page.body).not.toContain("fetch('/whatsapp/preferences/language'");
+          expect(page.body).not.toMatch(/localStorage|sessionStorage/);
+        }
+        expect((await preference()).rows).toEqual(preferenceBefore);
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: '/whatsapp/preferences/language',
+              headers: origin,
+              payload: { token, locale }
+            })
+          ).statusCode
+        ).toBe(401);
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: '/whatsapp/checkin/history',
+              headers: origin,
+              payload: { token, locale }
+            })
+          ).statusCode
+        ).toBe(401);
+        const details = {
+          token,
+          locale,
+          name: 'Synthetic language applicant',
+          email: 'application-' + locale + '@example.invalid',
+          phone: '+' + subject,
+          region: 'tw-general',
+          notificationConsent: true
+        };
+        const apply = (payload: Record<string, unknown>, headers = origin) =>
+          app.inject({ method: 'POST', url: '/whatsapp/onboarding/apply', headers, payload });
+        expect((await apply(details, { origin: 'https://other.example.invalid' })).statusCode).toBe(
+          403
+        );
+        expect((await apply({ ...details, locale: 'fr' })).statusCode).toBe(400);
+        expect((await apply({ ...details, notificationConsent: false })).statusCode).toBe(400);
+        expect((await apply({ ...details, token: 'Z'.repeat(43) })).statusCode).toBe(409);
+        expect((await apply(details)).statusCode).toBe(200);
+        expect((await apply(details)).statusCode).toBe(409);
+        expect((await preference()).rows).toEqual([{ locale }]);
+        const applications = await pool.query(
+          "SELECT status,learner_name,website_email,phone_e164 FROM identity.onboarding_applications WHERE platform='whatsapp' AND external_subject_id=$1",
+          [subject]
+        );
+        expect(applications.rows).toEqual([
+          {
+            status: 'pending',
+            learner_name: details.name,
+            website_email: details.email.toLowerCase(),
+            phone_e164: details.phone
+          }
+        ]);
+        expect((await pool.query('SELECT count(*) FROM core.person_practice_badges')).rows).toEqual(
+          awardsBefore
+        );
+        expect(sender).toHaveBeenCalledTimes(1);
+      } finally {
+        await app.close();
+      }
+    }
+  );
+
   it('persists English, deduplicates concurrent deliveries, applies with consent and creates an independent approved learner', async () => {
     const app = appFactory();
     try {
