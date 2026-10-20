@@ -254,6 +254,7 @@ suite('Telegram workspace HTTP, bot menu and durable delivery integration', () =
   });
   afterEach(async () => {
     await app?.close();
+    if (root) await root.query('UPDATE ops.versioned_achievement_control SET enabled=FALSE');
     vi.unstubAllGlobals();
   });
   afterAll(async () => {
@@ -263,6 +264,50 @@ suite('Telegram workspace HTTP, bot menu and durable delivery integration', () =
       await root.query(`DROP ROLE ${role}`);
     }
     await dispose?.();
+  });
+  it('keeps owned historical/withdrawn versions visible without guessing conditions or exposing another learner', async () => {
+    await root.query(
+      "INSERT INTO core.person_practice_badges(person_id,badge_code,period,rule_version) VALUES($1,'streak_3','lifetime',7)",
+      [person]
+    );
+    await root.query(
+      "INSERT INTO core.person_practice_badges(person_id,badge_code,period,rule_version,revoked_at) VALUES($1,'streak_3','lifetime',8,clock_timestamp())",
+      [person]
+    );
+    const foreign = (
+      await root.query<{ id: string }>(
+        "INSERT INTO identity.people(preferred_name) VALUES('Private foreign learner') RETURNING id"
+      )
+    ).rows[0]!.id;
+    await root.query(
+      "INSERT INTO core.person_practice_badges(person_id,badge_code,period,rule_version) VALUES($1,'streak_3','lifetime',9)",
+      [foreign]
+    );
+    const response = await post('/telegram/workspace/report', { view: 'achievements' });
+    expect(response.statusCode).toBe(200);
+    const data = response.json<{
+      versioned: boolean;
+      badges: Array<{
+        code: string;
+        ruleVersion: number;
+        configurationKnown: boolean;
+        threshold: number | null;
+        awards: Array<{ revoked: boolean }>;
+      }>;
+    }>();
+    expect(data.versioned).toBe(true);
+    expect(data.badges.find((b) => b.code === 'streak_3' && b.ruleVersion === 7)).toMatchObject({
+      configurationKnown: false,
+      threshold: null,
+      awards: [{ revoked: false }]
+    });
+    expect(data.badges.find((b) => b.code === 'streak_3' && b.ruleVersion === 8)).toMatchObject({
+      configurationKnown: false,
+      awards: [{ revoked: true }]
+    });
+    expect(data.badges.some((b) => b.ruleVersion === 9)).toBe(false);
+    expect(response.body).not.toContain('Private foreign learner');
+    expect(sendMessage).not.toHaveBeenCalled();
   });
   it('serves all four private-link pages in both languages with privacy headers', async () => {
     for (const path of ['checkin', 'leaderboard', 'method-analysis', 'achievements'])
@@ -355,6 +400,8 @@ suite('Telegram workspace HTTP, bot menu and durable delivery integration', () =
   });
   it('performs versioned corrections, keeps a stale request from overwriting, and reconciles combo badges', async () => {
     await confirm();
+    // Enable only this isolated synthetic C fixture; reads must not perform reconciliation.
+    await root.query('UPDATE ops.versioned_achievement_control SET enabled=TRUE');
     const first = await save({ methods: ['dayan_chu', 'dayan_gao'] });
     expect(first.statusCode).toBe(200);
     const { version } = first.json<{ version: number }>();
@@ -387,6 +434,24 @@ suite('Telegram workspace HTTP, bot menu and durable delivery integration', () =
         .json<{ badges: { code: string; awards: { revoked: boolean }[] }[] }>()
         .badges.find((b) => b.code === 'combo_dayan_7')?.awards[0]?.revoked
     ).toBe(true);
+    const restored = await save({
+      version: second.json<{ version: number }>().version,
+      methods: ['dayan_chu', 'dayan_gao']
+    });
+    expect(restored.statusCode).toBe(200);
+    expect(
+      (await post('/telegram/workspace/report', { view: 'achievements' }))
+        .json<{ badges: { code: string; awards: { revoked: boolean }[] }[] }>()
+        .badges.find((b) => b.code === 'combo_dayan_7')?.awards[0]?.revoked
+    ).toBe(false);
+    expect(
+      (
+        await root.query(
+          "SELECT action FROM audit.achievement_transitions WHERE person_id=$1 AND badge_code='combo_dayan_7' ORDER BY created_at,id",
+          [person]
+        )
+      ).rows.map((r) => r.action)
+    ).toEqual(['earned', 'revoked', 'restored']);
   });
   it('exposes reports only through the bound token and returns own history with literal private text', async () => {
     await confirm();

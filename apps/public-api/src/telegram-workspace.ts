@@ -4,6 +4,10 @@ import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
 import { practiceNoteSchema } from './practice-notes.js';
 import { communityNoticeSchema } from './community-notes.js';
+import {
+  readVersionedLearnerAchievements,
+  type VersionedLearnerRequest
+} from './achievement-version-compat.js';
 import { isLearnerPrivacyError } from './learner-privacy-routes.js';
 import {
   renderTelegramWorkspacePage,
@@ -65,11 +69,25 @@ export const registerTelegramWorkspace = (app: FastifyInstance, pool: Pool) => {
         );
     });
   }
-  const execute = async (requestId: string, sql: string, values: unknown[]) => {
-    const result = await withRequestContext(pool, 'qigong_api_runtime', { requestId }, (client) =>
-      client.query<{ data: unknown }>(sql, values)
+  const execute = async (
+    requestId: string,
+    sql: string,
+    values: unknown[],
+    versioned?: VersionedLearnerRequest
+  ) => {
+    const result = await withRequestContext(
+      pool,
+      'qigong_api_runtime',
+      { requestId },
+      async (client) => {
+        if (versioned) {
+          const data = await readVersionedLearnerAchievements(client, versioned);
+          if (data !== null) return data;
+        }
+        return (await client.query<{ data: unknown }>(sql, values)).rows[0]?.data;
+      }
     );
-    return responseObject.parse(result.rows[0]?.data);
+    return responseObject.parse(result);
   };
   const failure = (error: unknown): { status: 403 | 409 | 503; code: string } => {
     if (isLearnerPrivacyError(error))
@@ -135,7 +153,10 @@ export const registerTelegramWorkspace = (app: FastifyInstance, pool: Pool) => {
           value.period,
           value.days,
           value.month ? value.month + '-01' : null
-        ]
+        ],
+        value.view === 'achievements'
+          ? { platform: 'telegram', credential: value.token, locale: value.locale }
+          : undefined
       );
     } catch (error) {
       const outcome = failure(error);

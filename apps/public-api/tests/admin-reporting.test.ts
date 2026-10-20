@@ -526,7 +526,10 @@ describeDatabase('restricted administrator reports', () => {
         expect(data.trend).toHaveLength(days);
         expect(data.trend.at(-1)?.date).toBe(data.range.today);
         expect(data.trend.reduce((sum, row) => sum + row.count, 0)).toBe(data.kpis.total_checkins);
-        expect(data.kpis.average_daily).toBe(Number((data.kpis.total_checkins / days).toFixed(1)));
+        // Match PostgreSQL numeric round, not binary-float toFixed (3/20 differs).
+        const roundedTenths =
+          (BigInt(data.kpis.total_checkins) * 20n + BigInt(days)) / (2n * BigInt(days));
+        expect(data.kpis.average_daily).toBe(Number(roundedTenths) / 10);
       } finally {
         await app.close();
       }

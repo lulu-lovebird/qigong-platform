@@ -60,6 +60,40 @@ const en = {
   save: 'Save draft',
   preview: 'Aggregate preview',
   archive: 'Archive draft',
+  preparePublication: 'Prepare release version',
+  publicationTitle: 'Prepared versions awaiting activation',
+  publicationHelp:
+    'This seals a saved draft only. Activation and awarding are disabled, even when its effective date arrives. The C evaluator and separate operational approval are still required.',
+  publicationConfirm:
+    'Seal draft revision {revision} for {code}, effective date {date}? This only prepares an immutable waiting version; it does not activate or award.',
+  publicationPrepared:
+    'Immutable waiting version prepared. No rule was activated and no award was changed.',
+  publicationWaiting: 'Awaiting activation — awarding disabled',
+  publicationVersion: 'Candidate version',
+  publicationStale:
+    'Draft/source changed. This historical snapshot must be reviewed again; it is not active.',
+  publicationFuture:
+    'Use a date strictly after today in every supported practice timezone. Past simulation dates cannot be prepared.',
+  publicationYear: 'The seasonal activity year must match its start year.',
+  publicationBlocked: 'This draft cannot be prepared. Check its state, source and effective date.',
+  publicationReason: 'Enter a preparation reason (no learner personal data).',
+  publicationView: 'View sealed snapshot',
+  activateVersion: 'Publish / schedule this version',
+  cancelActivation: 'Cancel before activation',
+  activationReason: 'Publication / cancellation reason (no learner personal data)',
+  activationReadyHelp:
+    'The operator runtime gate is enabled. Publishing registers this immutable version for its effective practice date; no external award notification is sent.',
+  activationPublishedHelp:
+    'Published metadata is immutable. Awards follow each learner’s practice date and the settlement gate. Only a not-yet-started version can be cancelled.',
+  activationConfirm:
+    'Publish/schedule {code} v{version} for {date}? Progress uses this version only; awards/withdrawals/restorations will follow its saved conditions. No notification is sent.',
+  cancellationConfirm:
+    'Cancel {code} v{version} before activation? The snapshot/history remain; it cannot be reactivated by retry.',
+  activationScheduled: 'Published / scheduled rule version',
+  activationCancelled: 'Cancelled before activation',
+  activationBlocked:
+    'Publication/cancellation is blocked. Refresh the snapshot and check source, dates and runtime readiness.',
+  publishFromSnapshot: 'Publish from a sealed snapshot below',
   publish: 'Publish (phase 2, unavailable)',
   open: 'Open',
   loading: 'Loading…',
@@ -186,6 +220,35 @@ const tw: Record<keyof typeof en, string> = {
   save: '儲存草稿',
   preview: '彙總預覽',
   archive: '封存草稿',
+  preparePublication: '準備發布版本',
+  publicationTitle: '待啟用發布版本',
+  publicationHelp:
+    '只凍結已儲存草稿；不啟用、不發獎，即使生效日期到達也不會自動啟用。仍須完成C授獎引擎並另核准正式啟用。',
+  publicationConfirm:
+    '將「{code}」草稿修訂 {revision} 凍結為待啟用版本，生效日期 {date}？本次只準備不可變快照，不會啟用或發獎。',
+  publicationPrepared: '已準備不可變待啟用版本；沒有啟用規則或變更獎章。',
+  publicationWaiting: '待啟用，發獎關閉',
+  publicationVersion: '候選版本',
+  publicationStale: '草稿或來源已變；這是歷史快照，須重新檢查，並非已啟用版本。',
+  publicationFuture: '請填寫在所有支援練習時區都晚於今天的日期；過去日期的模擬草稿不能準備發布。',
+  publicationYear: '季節活動年度必須與開始日期年份一致。',
+  publicationBlocked: '草稿目前不可準備發布，請檢查狀態、來源與生效日期。',
+  publicationReason: '請填準備發布理由，勿填學員個資。',
+  publicationView: '檢視凍結快照',
+  activateVersion: '發布／排程此版本',
+  cancelActivation: '啟用前取消',
+  activationReason: '發布／取消理由，勿填學員個資',
+  activationReadyHelp:
+    '營運者授獎開關已開啟；發布會依此版本生效練習日起算。此操作不發送外部得獎通知。',
+  activationPublishedHelp:
+    '已發布條件不可改寫；依學員練習日期與結算門檻發獎、撤回或恢復。只有尚未開始的版本可以取消。',
+  activationConfirm:
+    '將「{code}」版本 {version} 於 {date} 發布／排程？依此版本保存條件計算進度、發獎、撤回及恢復，不發送外部通知。',
+  cancellationConfirm: '於啟用前取消「{code}」版本 {version}？快照及歷史保留，重試不能重新啟用。',
+  activationScheduled: '已發布／排程規則版本',
+  activationCancelled: '已於啟用前取消',
+  activationBlocked: '目前不可發布或取消，請重新讀取快照並檢查來源、日期與授獎引擎狀態。',
+  publishFromSnapshot: '請由下方凍結快照發布',
   publish: '發布（第二階段，尚未開放）',
   open: '開啟',
   loading: '載入中…',

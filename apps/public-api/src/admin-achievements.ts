@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { localeSchema } from './ui-localization.js';
 import { localizeSystemLabels } from './system-label-localization.js';
 import type { AdminLocale } from './admin-locale.js';
+import { hasAchievementVersions } from './achievement-version-compat.js';
 export const achievementQuerySchema = z
   .object({
     lang: localeSchema.optional(),
@@ -14,6 +15,13 @@ export const achievementQuerySchema = z
       .refine((value) => [...value].length <= 100 && !value.includes('\0'))
       .default(''),
     year: z.coerce.number().int().min(2000).max(2200).optional(),
+    version: z
+      .preprocess(
+        (value) =>
+          typeof value === 'string' && /^[1-9][0-9]{0,9}$/.test(value) ? Number(value) : value,
+        z.number().int().min(1).max(2147483647)
+      )
+      .optional(),
     page: z.coerce.number().int().min(1).max(10000).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(20)
   })
@@ -34,13 +42,77 @@ export const achievementCatalogSchema = z.object({
   badges: z.array(
     z.object({
       code: achievementCodeSchema,
-      kind: z.enum(['streak', 'total', 'morning', 'night', 'method', 'combo', 'summer', 'winter']),
+      kind: z.enum([
+        'streak',
+        'total',
+        'morning',
+        'night',
+        'method',
+        'combo',
+        'summer',
+        'winter',
+        'event',
+        'challenge'
+      ]),
+      provenance: z.string().nullable().optional(),
+      continuous: z.boolean().optional(),
+      methodMatch: z.enum(['any', 'all']).optional(),
+      effectiveDate: z.iso.date().optional(),
+      startDate: z.iso.date().nullable().optional(),
+      endDate: z.iso.date().nullable().optional(),
+      activationState: z.enum(['scheduled', 'published', 'cancelled']).optional(),
       name: z.string(),
       threshold: z.number().int().positive(),
       methodCodes: z.array(z.string()),
       ruleVersion: z.number().int().positive(),
       configured: z.boolean(),
       recipientCount: count,
+      progressStartDate: z.iso.date().optional(),
+      versions: z
+        .array(
+          z.object({
+            code: achievementCodeSchema,
+            ruleVersion: z.number().int().positive(),
+            name: z.string(),
+            kind: z.enum([
+              'streak',
+              'total',
+              'morning',
+              'night',
+              'method',
+              'combo',
+              'summer',
+              'winter',
+              'unknown',
+              'event',
+              'challenge'
+            ]),
+            threshold: z.number().int().positive().nullable(),
+            methodCodes: z.array(z.string()),
+            seasons: z.array(
+              z.object({
+                year: z.number().int(),
+                startDate: z.iso.date(),
+                endDate: z.iso.date(),
+                timezone: z.string(),
+                requiredDays: z.number().int().positive()
+              })
+            ),
+            provenance: z.string().nullable().optional(),
+            continuous: z.boolean().optional(),
+            methodMatch: z.enum(['any', 'all']).optional(),
+            effectiveDate: z.iso.date().optional(),
+            startDate: z.iso.date().nullable().optional(),
+            endDate: z.iso.date().nullable().optional(),
+            activationState: z.enum(['scheduled', 'published', 'cancelled']).optional(),
+            configurationKnown: z.boolean(),
+            configured: z.boolean(),
+            progressStartDate: z.iso.date().optional(),
+            isCurrent: z.boolean(),
+            recipientCount: count
+          })
+        )
+        .optional(),
       periods: z.array(z.object({ period: z.string(), recipientCount: count })),
       seasons: z.array(
         z.object({
@@ -57,6 +129,8 @@ export const achievementCatalogSchema = z.object({
 export const achievementRecipientsSchema = z.object({
   code: achievementCodeSchema,
   ruleVersion: z.number().int().positive(),
+  name: z.string().optional(),
+  configurationKnown: z.boolean().optional(),
   page: z.number().int().positive(),
   limit: z.number().int().positive(),
   total: count,
@@ -86,8 +160,11 @@ export const getAchievementCatalog = async (
   query: AchievementQuery,
   locale: AdminLocale
 ) => {
+  const versioned = await hasAchievementVersions(client);
   const result = await client.query<{ data: unknown }>(
-    'SELECT admin.achievement_catalog($1,$2,$3,$4,$5) data',
+    versioned
+      ? 'SELECT admin.achievement_version_catalog($1,$2,$3,$4,$5) data'
+      : 'SELECT admin.achievement_catalog($1,$2,$3,$4,$5) data',
     parameters(query, locale)
   );
   return achievementCatalogSchema.parse(
@@ -100,9 +177,20 @@ export const getAchievementRecipients = async (
   query: AchievementQuery,
   locale: AdminLocale
 ) => {
+  const versioned = query.version !== undefined;
+  if (versioned && !(await hasAchievementVersions(client)))
+    throw Error('invalid achievement query');
   const result = await client.query<{ data: unknown }>(
-    'SELECT admin.achievement_recipients($1,$2,$3,$4,$5,$6,$7,$8) data',
-    [code, ...parameters(query, locale), query.page, query.limit]
+    versioned
+      ? 'SELECT admin.achievement_version_recipients($1,$2,$3,$4,$5,$6,$7,$8,$9) data'
+      : 'SELECT admin.achievement_recipients($1,$2,$3,$4,$5,$6,$7,$8) data',
+    [
+      code,
+      ...parameters(query, locale),
+      query.page,
+      query.limit,
+      ...(versioned ? [query.version] : [])
+    ]
   );
   return achievementRecipientsSchema.parse(
     localizeSystemLabels(locale, achievementRecipientsSchema.parse(result.rows[0]?.data))

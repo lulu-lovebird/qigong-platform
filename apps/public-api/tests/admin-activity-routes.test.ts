@@ -355,6 +355,7 @@ suite('Authenticated management drafts HTTP, no publication surface', () => {
       expect(c.json()).toEqual({
         canManage: false,
         canPreview: false,
+        canPreparePublication: false,
         canPublish: false,
         phase: 'draft_preview_only'
       });

@@ -159,6 +159,8 @@ export const managementDefinitionSchema = z
     kind: z.enum(achievementKinds),
     name_zh_tw: z.string(),
     name_en: z.string(),
+    name_zh_cn: z.string().optional(),
+    provenance: z.string().optional(),
     threshold: z.number().int().positive(),
     method_codes: z.array(z.string()),
     rule_version: z.number().int().positive(),
@@ -178,7 +180,7 @@ const seasonSchema = z
 export const managementCatalogSchema = z
   .object({
     phase: z.literal('draft_preview_only'),
-    canPublish: z.literal(false),
+    canPublish: z.boolean(),
     definitions: z.array(managementDefinitionSchema).max(1000),
     seasons: z.array(seasonSchema),
     methods: z.array(
@@ -294,7 +296,16 @@ export const getManagementCatalog = async (client: PoolClient, locale: AdminLoca
     ...data,
     definitions: data.definitions.map((d) => ({
       ...d,
-      displayName: locale === 'en' ? d.name_en : uiText(locale, d.name_zh_tw)
+      displayName:
+        d.provenance === 'published_snapshot'
+          ? locale === 'en'
+            ? d.name_en
+            : locale === 'zh_CN'
+              ? d.name_zh_cn || d.name_zh_tw
+              : d.name_zh_tw
+          : locale === 'en'
+            ? d.name_en
+            : uiText(locale, d.name_zh_tw)
     })),
     methods: data.methods.map((m) => ({
       ...m,

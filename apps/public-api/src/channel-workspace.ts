@@ -5,6 +5,10 @@ import { z } from 'zod';
 import { whatsappWorkspaceCredentialSchema } from './whatsapp-browser-session.js';
 import { practiceNoteSchema } from './practice-notes.js';
 import { communityNoticeSchema } from './community-notes.js';
+import {
+  readVersionedLearnerAchievements,
+  type VersionedLearnerRequest
+} from './achievement-version-compat.js';
 import { journalPublishInput } from './journal-routes.js';
 import { isLearnerPrivacyError } from './learner-privacy-routes.js';
 import {
@@ -62,16 +66,21 @@ export const registerChannelWorkspace = (
     .omit({ token: true, locale: true })
     .extend(credential.shape)
     .strict();
-  const execute = async (requestId: string, sql: string, values: unknown[]) =>
-    z
-      .record(z.string(), z.unknown())
-      .parse(
-        (
-          await withRequestContext(pool, 'qigong_api_runtime', { requestId }, (c) =>
-            c.query<{ data: unknown }>(sql, values)
-          )
-        ).rows[0]?.data
-      );
+  const execute = async (
+    requestId: string,
+    sql: string,
+    values: unknown[],
+    versioned?: VersionedLearnerRequest
+  ) =>
+    z.record(z.string(), z.unknown()).parse(
+      await withRequestContext(pool, 'qigong_api_runtime', { requestId }, async (c) => {
+        if (versioned) {
+          const data = await readVersionedLearnerAchievements(c, versioned);
+          if (data !== null) return data;
+        }
+        return (await c.query<{ data: unknown }>(sql, values)).rows[0]?.data;
+      })
+    );
   const fail = (e: unknown) => {
     const msg = e instanceof Error ? e.message : '';
     if (
@@ -165,7 +174,10 @@ export const registerChannelWorkspace = (
               v?.period ?? 'month',
               v?.days ?? 30,
               v?.month ? v.month + '-01' : null
-            ]
+            ],
+            v?.view === 'achievements'
+              ? { platform: provider, credential: cred, locale: data.locale }
+              : undefined
           );
         }
         if (mode === 'timezone') {

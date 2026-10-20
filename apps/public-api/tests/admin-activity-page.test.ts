@@ -287,7 +287,250 @@ const open = async (f: ReturnType<typeof fixture>) => {
   if (!button) throw Error('Missing synthetic draft');
   await click(button);
 };
+const preparedCandidate = () => ({
+  id: second,
+  draftId: id,
+  draftRevision: 1,
+  code: 'streak_3',
+  candidateVersion: 2,
+  effectiveDate: '2199-01-01',
+  preparedAt: '2026-10-20T00:00:00Z',
+  snapshotHash: 'd'.repeat(64),
+  state: 'awaiting_activation',
+  activationEnabled: false,
+  awardingEnabled: false,
+  stale: false,
+  snapshot: { config: { ...config }, deadline: null }
+});
+const preparationReview = () => ({
+  draftId: id,
+  revision: 1,
+  code: 'streak_3',
+  configHash: 'a'.repeat(64),
+  baseHash: 'b'.repeat(64),
+  sourceHash: 'b'.repeat(64),
+  effectiveDate: '2199-01-01',
+  eligible: true,
+  blockedReason: null
+});
+const enablePreparation = async (
+  f: ReturnType<typeof fixture>,
+  options: { blocked?: boolean; stale?: boolean; denied?: boolean } = {}
+) => {
+  const original = f.fetch.getMockImplementation();
+  if (!original) throw Error('Missing mock');
+  f.fetch.mockImplementation(async (input, init) => {
+    const path = url(input);
+    if (path.endsWith('/capabilities'))
+      return Response.json({
+        canManage: true,
+        canPreview: true,
+        canPreparePublication: true,
+        canPublish: false
+      });
+    if (path.endsWith('/publication-review'))
+      return Response.json({
+        ...preparationReview(),
+        ...(options.blocked ? { eligible: false, blockedReason: 'effective_date_not_future' } : {}),
+        ...(options.stale ? { revision: 2 } : {})
+      });
+    if (path.endsWith('/prepare-publication'))
+      return options.denied
+        ? Response.json({ error: 'denied' }, { status: 403 })
+        : Response.json(preparedCandidate());
+    if (path.includes('/publication-candidates?page='))
+      return Response.json({ page: 1, limit: 20, total: 0, rows: [] });
+    return original(input, init);
+  });
+  await click(f.get('management-reload'));
+};
+const enableRuntime = async (f: ReturnType<typeof fixture>, denied = false) => {
+  await enablePreparation(f);
+  const original = f.fetch.getMockImplementation();
+  if (!original) throw Error('Missing fetch');
+  let activation:
+    { registered: true; cancelled: boolean; state: 'scheduled' | 'cancelled' } | undefined;
+  f.fetch.mockImplementation(async (input, init) => {
+    const path = url(input);
+    if (path.endsWith('/capabilities'))
+      return Response.json({
+        canManage: true,
+        canPreview: true,
+        canPreparePublication: true,
+        canPublish: true
+      });
+    if (path.endsWith('/activation-review'))
+      return Response.json({
+        id: second,
+        code: 'streak_3',
+        ruleVersion: 2,
+        snapshotHash: 'd'.repeat(64),
+        draftRevision: 1,
+        effectiveDate: '2199-01-01',
+        eligible: true,
+        blockedReason: null,
+        registered: !!activation,
+        cancelled: activation?.cancelled || false,
+        runtimeEnabled: true
+      });
+    if (path.endsWith('/activate') || path.endsWith('/cancel')) {
+      if (denied) return Response.json({ error: 'achievement_activation_denied' }, { status: 403 });
+      activation = {
+        registered: true,
+        cancelled: path.endsWith('/cancel'),
+        state: path.endsWith('/cancel') ? 'cancelled' : 'scheduled'
+      };
+      return Response.json({ id: second, registered: true, cancelled: activation.cancelled });
+    }
+    if (path.endsWith('/publication-candidates/' + second))
+      return Response.json({ ...preparedCandidate(), activation });
+    return original(input, init);
+  });
+  await click(f.get('management-reload'));
+};
 describe('Draft management genuine inline controller', () => {
+  it('publishes only the selected sealed hash after confirmation and can cancel only a scheduled snapshot', async () => {
+    const f = fixture();
+    await settle();
+    await enableRuntime(f);
+    expect(f.get('management-phase').textContent).toContain('operator runtime gate is enabled');
+    await open(f);
+    f.get('management-reason').value = 'Synthetic prepare';
+    await click(f.get('management-prepare-publication'));
+    expect(f.get('management-runtime-actions').hidden).toBe(false);
+    expect(f.get('management-activate-publication').hidden).toBe(false);
+    f.get('management-activation-reason').value = 'Synthetic publish';
+    await click(f.get('management-activate-publication'));
+    const call = f.fetch.mock.calls.find(([input]) => url(input).endsWith('/activate'));
+    if (typeof call?.[1]?.body !== 'string') throw Error('Missing activation');
+    expect(JSON.parse(call[1].body)).toEqual({
+      expectedSnapshotHash: 'd'.repeat(64),
+      reason: 'Synthetic publish',
+      confirmed: true
+    });
+    expect(f.get('management-publication-result').textContent).toContain('Published / scheduled');
+    expect(f.get('management-activate-publication').hidden).toBe(true);
+    expect(f.get('management-cancel-activation').hidden).toBe(false);
+    f.get('management-activation-reason').value = 'Synthetic cancel';
+    await click(f.get('management-cancel-activation'));
+    expect(f.get('management-publication-result').textContent).toContain(
+      'Cancelled before activation'
+    );
+    expect(f.get('management-cancel-activation').hidden).toBe(true);
+    expect(f.get('management-activation-reason').value).toBe('');
+  });
+  it('clears active-operation controls and sealed content after actual authorization failure', async () => {
+    const f = fixture();
+    await settle();
+    await enableRuntime(f, true);
+    await open(f);
+    f.get('management-reason').value = 'Synthetic';
+    await click(f.get('management-prepare-publication'));
+    f.get('management-activation-reason').value = 'Synthetic publication';
+    await click(f.get('management-activate-publication'));
+    expect(f.get('management-runtime-actions').hidden).toBe(true);
+    expect(f.get('management-publication-result').hidden).toBe(true);
+    expect(f.get('management-activation-reason').value).toBe('');
+    expect(f.fetch.mock.calls.filter(([input]) => url(input).endsWith('/activate'))).toHaveLength(
+      1
+    );
+  });
+  it('does not offer publication while the runtime capability is false and vetoes leaving a typed activation reason', async () => {
+    const f = fixture();
+    await settle();
+    await enablePreparation(f);
+    await open(f);
+    f.get('management-reason').value = 'Synthetic';
+    await click(f.get('management-prepare-publication'));
+    expect(f.get('management-runtime-actions').hidden).toBe(true);
+    const before = f.fetch.mock.calls.length;
+    await click(f.get('management-activate-publication'));
+    expect(f.fetch).toHaveBeenCalledTimes(before);
+    f.get('management-activation-reason').value = 'Unsent operation reason';
+    f.confirm.mockReturnValue(false);
+    expect(f.window.qigongJournalMayLeave?.()).toBe(false);
+  });
+  it('prepares a saved reason-only draft using reviewed hashes, shows waiting-only state and never calls activation', async () => {
+    const f = fixture();
+    await settle();
+    await enablePreparation(f);
+    await open(f);
+    f.get('management-reason').value = 'Synthetic preparation reason';
+    f.get('management-form').listeners.get('input')?.({ preventDefault: vi.fn() });
+    expect(f.get('management-prepare-publication').hidden).toBe(false);
+    expect(f.get('management-prepare-publication').disabled).toBe(false);
+    await click(f.get('management-prepare-publication'));
+    const post = f.fetch.mock.calls.find(
+      ([input, init]) => url(input).endsWith('/prepare-publication') && init?.method === 'POST'
+    );
+    if (typeof post?.[1]?.body !== 'string') throw Error('Missing preparation');
+    expect(JSON.parse(post[1].body)).toEqual({
+      expectedRevision: 1,
+      expectedConfigHash: 'a'.repeat(64),
+      expectedBaseHash: 'b'.repeat(64),
+      expectedSourceHash: 'b'.repeat(64),
+      reason: 'Synthetic preparation reason',
+      confirmed: true
+    });
+    expect(f.get('management-publication-result').textContent).toContain('Awaiting activation');
+    expect(f.get('management-publication-result').textContent).toContain('disabled');
+    expect(f.get('management-publish').disabled).toBe(true);
+    expect(f.get('management-reason').value).toBe('');
+    expect(
+      f.fetch.mock.calls.some(([input]) => /\/(publish|activate|recalculate)$/.test(url(input)))
+    ).toBe(false);
+  });
+  it.each([{ blocked: true }, { stale: true }])(
+    'does not post an ineligible or stale review %j',
+    async (options) => {
+      const f = fixture();
+      await settle();
+      await enablePreparation(f, options);
+      await open(f);
+      f.get('management-reason').value = 'Keep reason';
+      await click(f.get('management-prepare-publication'));
+      expect(
+        f.fetch.mock.calls.some(([input]) => url(input).endsWith('/prepare-publication'))
+      ).toBe(false);
+      expect(f.get('management-reason').value).toBe('Keep reason');
+      expect(f.get('management-publication-result').hidden).toBe(true);
+    }
+  );
+  it('does not prepare unsaved condition edits or a cancelled confirmation', async () => {
+    const f = fixture();
+    await settle();
+    await enablePreparation(f);
+    await open(f);
+    f.get('management-reason').value = 'Synthetic';
+    f.get('management-nameZhTw').value = 'Unsaved edit';
+    f.get('management-form').listeners.get('input')?.({ preventDefault: vi.fn() });
+    expect(f.get('management-prepare-publication').disabled).toBe(true);
+    const before = f.fetch.mock.calls.length;
+    await click(f.get('management-prepare-publication'));
+    expect(f.fetch).toHaveBeenCalledTimes(before);
+    f.get('management-nameZhTw').value = config.nameZhTw;
+    f.confirm.mockReturnValue(false);
+    await click(f.get('management-prepare-publication'));
+    expect(f.fetch.mock.calls.some(([input]) => url(input).endsWith('/prepare-publication'))).toBe(
+      false
+    );
+    expect(f.get('management-reason').value).toBe('Synthetic');
+  });
+  it('clears pending preparation information after authorization loss without retrying', async () => {
+    const f = fixture();
+    await settle();
+    await enablePreparation(f, { denied: true });
+    await open(f);
+    f.get('management-reason').value = 'Synthetic';
+    await click(f.get('management-prepare-publication'));
+    expect(f.get('management-editor').hidden).toBe(true);
+    expect(f.get('management-publications').hidden).toBe(true);
+    expect(f.get('management-publication-result').hidden).toBe(true);
+    expect(f.get('management-nameZhTw').value).toBe('');
+    expect(
+      f.fetch.mock.calls.filter(([input]) => url(input).endsWith('/prepare-publication'))
+    ).toHaveLength(1);
+  });
   it.each(['zh_TW', 'zh_CN', 'en'] as const)(
     'shows an unchecked event streak option in %s without saving toggles or sending it on seasonal forms',
     async (locale) => {

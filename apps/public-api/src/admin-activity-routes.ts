@@ -18,6 +18,20 @@ import {
   prepareManagementPreview,
   achievementManagementFailure
 } from './admin-achievement-management.js';
+import {
+  canActivatePublication,
+  getActivationReview,
+  activatePublication,
+  cancelPublicationActivation,
+  achievementActivationInputSchema,
+  canPreparePublication,
+  getPublicationReview,
+  getPublicationCandidate,
+  getPublicationCandidates,
+  preparePublication,
+  publicationPreparationInputSchema,
+  publicationPreparationFailure
+} from './admin-achievement-publication.js';
 export const registerAdminActivityRoutes = (
   app: FastifyInstance,
   pool: Pool,
@@ -40,7 +54,9 @@ export const registerAdminActivityRoutes = (
     principal: string,
     request: FastifyRequest,
     callback: (client: PoolClient) => Promise<T>,
-    preview = false
+    preview = false,
+    publication = false,
+    activation = false
   ) =>
     withRequestContext(
       pool,
@@ -56,10 +72,23 @@ export const registerAdminActivityRoutes = (
             'latestPreview' in result &&
             result.latestPreview !== null);
         const allowed = await client.query<{ allowed: boolean }>(
-          'SELECT admin.achievement_management_session_current($1) AND(NOT $2::boolean OR admin.can_preview_achievement_drafts_now()) allowed',
-          [sessionFor(request) ?? '', needsPreview]
+          activation
+            ? 'SELECT admin.achievement_activation_session_current($1) allowed'
+            : publication
+              ? 'SELECT admin.achievement_publication_session_current($1) allowed'
+              : 'SELECT admin.achievement_management_session_current($1) AND(NOT $2::boolean OR admin.can_preview_achievement_drafts_now()) allowed',
+          publication || activation
+            ? [sessionFor(request) ?? '']
+            : [sessionFor(request) ?? '', needsPreview]
         );
-        if (allowed.rows[0]?.allowed !== true) throw Error('achievement management denied');
+        if (allowed.rows[0]?.allowed !== true)
+          throw Error(
+            activation
+              ? 'achievement activation denied'
+              : publication
+                ? 'publication preparation denied'
+                : 'achievement management denied'
+          );
         return result;
       }
     );
@@ -87,7 +116,8 @@ export const registerAdminActivityRoutes = (
           canManage: row?.canManage === true,
           canPreview: row?.canPreview === true,
           canManageAdmins: row?.canManageAdmins === true,
-          canPublish: false as const,
+          canPreparePublication: await canPreparePublication(client),
+          canPublish: await canActivatePublication(client),
           phase: 'draft_preview_only' as const
         };
       }
@@ -119,13 +149,181 @@ export const registerAdminActivityRoutes = (
       return {
         canManage: result.canManage,
         canPreview: result.canPreview,
-        canPublish: false,
+        canPreparePublication: result.canPreparePublication,
+        canPublish: result.canPublish,
         phase: result.phase
       };
     } catch (error) {
       return fail(reply, error);
     }
   });
+  const publicationAllowed = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    write = false
+  ) => {
+    const principal = await boundary(request, reply, write);
+    if (!principal) return null;
+    const allowed = await withRequestContext(
+      pool,
+      'qigong_api_runtime',
+      { principalId: principal, requestId: request.id },
+      (client) => canPreparePublication(client)
+    );
+    if (!allowed) {
+      void reply.code(403).send({ error: 'publication_preparation_denied' });
+      return null;
+    }
+    return principal;
+  };
+  const publicationFail = (reply: FastifyReply, error: unknown) => {
+    const f = publicationPreparationFailure(error);
+    return reply.code(f.status).send({ error: f.code });
+  };
+  app.get(
+    '/admin/api/achievement-management/drafts/:id/publication-review',
+    async (request, reply) => {
+      try {
+        const principal = await publicationAllowed(request, reply);
+        if (!principal) return reply;
+        const p = params.safeParse(request.params);
+        if (!p.success) return reply.code(400).send({ error: 'invalid_publication_preparation' });
+        return await execute(
+          principal,
+          request,
+          (client) => getPublicationReview(client, p.data.id),
+          false,
+          true
+        );
+      } catch (error) {
+        return publicationFail(reply, error);
+      }
+    }
+  );
+  app.get('/admin/api/achievement-management/publication-candidates', async (request, reply) => {
+    try {
+      const principal = await publicationAllowed(request, reply);
+      if (!principal) return reply;
+      const q = managementQuerySchema.safeParse(request.query);
+      if (!q.success) return reply.code(400).send({ error: 'invalid_publication_preparation' });
+      return await execute(
+        principal,
+        request,
+        (client) => getPublicationCandidates(client, q.data.page),
+        false,
+        true
+      );
+    } catch (error) {
+      return publicationFail(reply, error);
+    }
+  });
+  app.get(
+    '/admin/api/achievement-management/publication-candidates/:id',
+    async (request, reply) => {
+      try {
+        const principal = await publicationAllowed(request, reply);
+        if (!principal) return reply;
+        const p = params.safeParse(request.params);
+        if (!p.success) return reply.code(400).send({ error: 'invalid_publication_preparation' });
+        return await execute(
+          principal,
+          request,
+          (client) => getPublicationCandidate(client, p.data.id),
+          false,
+          true
+        );
+      } catch (error) {
+        return publicationFail(reply, error);
+      }
+    }
+  );
+  app.post(
+    '/admin/api/achievement-management/drafts/:id/prepare-publication',
+    { bodyLimit: 8192 },
+    async (request, reply) => {
+      try {
+        const principal = await publicationAllowed(request, reply, true);
+        if (!principal) return reply;
+        const p = params.safeParse(request.params),
+          body = publicationPreparationInputSchema.safeParse(request.body);
+        if (!p.success || !body.success)
+          return reply.code(400).send({ error: 'invalid_publication_preparation' });
+        return await execute(
+          principal,
+          request,
+          (client) => preparePublication(client, p.data.id, body.data),
+          false,
+          true
+        );
+      } catch (error) {
+        return publicationFail(reply, error);
+      }
+    }
+  );
+  const activationAllowed = async (request: FastifyRequest, reply: FastifyReply, write = false) => {
+    const principal = await publicationAllowed(request, reply, write);
+    if (!principal) return null;
+    const allowed = await withRequestContext(
+      pool,
+      'qigong_api_runtime',
+      { principalId: principal, requestId: request.id },
+      (client) => canActivatePublication(client)
+    );
+    if (!allowed) {
+      void reply.code(403).send({ error: 'achievement_activation_denied' });
+      return null;
+    }
+    return principal;
+  };
+  app.get(
+    '/admin/api/achievement-management/publication-candidates/:id/activation-review',
+    async (request, reply) => {
+      try {
+        const principal = await activationAllowed(request, reply);
+        if (!principal) return reply;
+        const p = params.safeParse(request.params);
+        if (!p.success) return reply.code(400).send({ error: 'invalid_achievement_activation' });
+        return await execute(
+          principal,
+          request,
+          (client) => getActivationReview(client, p.data.id),
+          false,
+          false,
+          true
+        );
+      } catch (error) {
+        return publicationFail(reply, error);
+      }
+    }
+  );
+  for (const operation of ['activate', 'cancel'] as const)
+    app.post(
+      '/admin/api/achievement-management/publication-candidates/:id/' + operation,
+      { bodyLimit: 8192 },
+      async (request, reply) => {
+        try {
+          const principal = await activationAllowed(request, reply, true);
+          if (!principal) return reply;
+          const p = params.safeParse(request.params),
+            body = achievementActivationInputSchema.safeParse(request.body);
+          if (!p.success || !body.success)
+            return reply.code(400).send({ error: 'invalid_achievement_activation' });
+          return await execute(
+            principal,
+            request,
+            (client) =>
+              operation === 'activate'
+                ? activatePublication(client, p.data.id, body.data)
+                : cancelPublicationActivation(client, p.data.id, body.data),
+            false,
+            false,
+            true
+          );
+        } catch (error) {
+          return publicationFail(reply, error);
+        }
+      }
+    );
   app.get('/admin/achievement-management', async (request, reply) => {
     headers(reply);
     const principal = await principalFor(request);

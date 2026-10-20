@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { achievementCodeSchema, achievementQuerySchema } from './admin-achievements.js';
 import { uiText } from './ui-localization.js';
 import type { AdminLocale } from './admin-locale.js';
+import { hasAchievementVersions } from './achievement-version-compat.js';
 export const exportFiltersSchema = achievementQuerySchema
   .omit({ page: true, limit: true })
   .strict();
@@ -16,6 +17,7 @@ export const exportPreviewSchema = z.object({
   code: achievementCodeSchema,
   name: z.string(),
   ruleVersion: z.number().int().positive(),
+  provenance: z.string().nullable().optional(),
   count: z.number().int().min(0).max(5001),
   overLimit: z.boolean(),
   limit: z.literal(5000)
@@ -26,6 +28,7 @@ export const personalExportSchema = z
     code: achievementCodeSchema,
     name: z.string(),
     ruleVersion: z.number().int().positive(),
+    provenance: z.string().nullable().optional(),
     count: z.number().int().min(0).max(5000),
     rows: z
       .array(
@@ -58,12 +61,20 @@ export const getAchievementExportPreview = async (
   query: ExportFilters,
   locale: AdminLocale
 ) => {
+  const versioned = query.version !== undefined;
+  if (versioned && !(await hasAchievementVersions(client)))
+    throw Error('invalid achievement export');
   const result = await client.query<{ data: unknown }>(
-    'SELECT admin.achievement_export_preview($1,$2,$3,$4,$5,$6) data',
-    parameters(code, query, locale)
+    versioned
+      ? 'SELECT admin.achievement_version_export_preview($1,$2,$3,$4,$5,$6,$7) data'
+      : 'SELECT admin.achievement_export_preview($1,$2,$3,$4,$5,$6) data',
+    [...parameters(code, query, locale), ...(versioned ? [query.version] : [])]
   );
   const data = exportPreviewSchema.parse(result.rows[0]?.data);
-  return { ...data, name: uiText(locale, data.name) };
+  return {
+    ...data,
+    name: data.provenance === 'published_snapshot' ? data.name : uiText(locale, data.name)
+  };
 };
 // Quoting alone does NOT prevent spreadsheet formulas or numeric ID coercion.
 // Apostrophe text guards are deliberate CSV presentation characters, not database updates.
@@ -76,7 +87,7 @@ export const csvCell = (value: string, forceText = false): string => {
   return '"' + guarded.replace(/"/g, '""') + '"';
 };
 export const encodeAchievementCsv = (data: PersonalExport, locale: AdminLocale): Buffer => {
-  const title = uiText(locale, data.name);
+  const title = data.provenance === 'published_snapshot' ? data.name : uiText(locale, data.name);
   const header = [
     'line_id',
     'telegram_id',
@@ -115,7 +126,8 @@ export const achievementCsvFilename = (
   code: string,
   name: string,
   locale: AdminLocale,
-  now: Date = new Date()
+  now: Date = new Date(),
+  sourceOwnedName = true
 ) => {
   achievementCodeSchema.parse(code);
   const stamp = now
@@ -124,7 +136,7 @@ export const achievementCsvFilename = (
     .replace(/\.\d{3}Z$/, 'Z');
   const label =
     Array.from(
-      uiText(locale, name)
+      (sourceOwnedName ? uiText(locale, name) : name)
         .normalize('NFC')
         .replace(/[\\/<>:"|?*\p{C}]/gu, '_')
         .trim()
@@ -156,13 +168,24 @@ export const prepareAchievementCsv = async (
   purpose: ExportPurpose,
   sessionToken: string
 ) => {
+  const versioned = query.version !== undefined;
+  if (versioned && !(await hasAchievementVersions(client)))
+    throw Error('invalid achievement export');
   const result = await client.query<{ data: unknown }>(
-    'SELECT admin.prepare_achievement_personal_export($1,$2,$3,$4,$5,$6,$7) data',
-    [...parameters(code, query, locale), purpose]
+    versioned
+      ? 'SELECT admin.prepare_achievement_version_export($1,$2,$3,$4,$5,$6,$7,$8) data'
+      : 'SELECT admin.prepare_achievement_personal_export($1,$2,$3,$4,$5,$6,$7) data',
+    [...parameters(code, query, locale), purpose, ...(versioned ? [query.version] : [])]
   );
   const data = personalExportSchema.parse(result.rows[0]?.data),
     body = encodeAchievementCsv(data, locale),
-    file = achievementCsvFilename(data.code, data.name, locale);
+    file = achievementCsvFilename(
+      data.code,
+      data.name + (versioned ? '-v' + data.ruleVersion : ''),
+      locale,
+      new Date(),
+      data.provenance !== 'published_snapshot'
+    );
   // Still in the request transaction: failure rolls back audit/cooldown, before any CSV bytes leave.
   const allowed = await client.query<{ allowed: boolean }>(
     'SELECT admin.can_export_achievement_personal_now() AND admin.achievement_export_session_current($1) allowed',

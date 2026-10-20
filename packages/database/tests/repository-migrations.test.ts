@@ -55,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0042_activity_consecutive_drafts.sql'
+      '0046_achievement_evaluation_and_readers.sql'
     );
 
     expect(first.applied).toEqual([
@@ -100,13 +100,17 @@ describeWithDatabase('repository migrations', () => {
       '0039_achievement_personal_export.sql',
       '0040_achievement_management_drafts.sql',
       '0041_independent_activity_drafts.sql',
-      '0042_activity_consecutive_drafts.sql'
+      '0042_activity_consecutive_drafts.sql',
+      '0043_achievement_rule_versions.sql',
+      '0044_achievement_publication_candidates.sql',
+      '0045_versioned_achievement_runtime.sql',
+      '0046_achievement_evaluation_and_readers.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0042_activity_consecutive_drafts.sql',
+      currentVersion: '0046_achievement_evaluation_and_readers.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0042_activity_consecutive_drafts.sql',
+      maximumVersion: '0046_achievement_evaluation_and_readers.sql',
       ready: true
     });
   });
@@ -480,9 +484,20 @@ describeWithDatabase('repository migrations', () => {
       );
       const principalId = principal.rows[0]!.id;
       await database.pool.query(
-        `INSERT INTO admin.role_grants (principal_id,role_id,scope_type,region_id,reason) SELECT $1,id,'region',$2,'upgrade test' FROM admin.roles WHERE code='regional_admin'`,
+        `INSERT INTO admin.role_grants (principal_id,role_id,scope_type,region_id,valid_from,reason) SELECT $1,id,'region',$2,clock_timestamp()-INTERVAL '1 day','upgrade test' FROM admin.roles WHERE code='regional_admin'`,
         [principalId, region.rows[0]!.id]
       );
+      // This fixture requires an already-effective reviewer, not a sub-millisecond grant boundary.
+      const reviewer = await withRequestContext(
+        database.pool,
+        'qigong_api_runtime',
+        { requestId: randomUUID(), principalId },
+        (client) =>
+          client.query<{ allowed: boolean }>('SELECT admin.can_review_application($1) allowed', [
+            region.rows[0]!.id
+          ])
+      );
+      expect(reviewer.rows[0]!.allowed).toBe(true);
       const application = async (platform: 'telegram' | 'line', subject: string) => {
         const result = await database.pool.query<{ id: string }>(
           `INSERT INTO identity.onboarding_applications (platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164)

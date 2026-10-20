@@ -29,7 +29,7 @@ export const apiLogRedaction = Object.freeze({
 });
 
 export const minimumMigrationVersion = '0042_activity_consecutive_drafts.sql';
-export const maximumMigrationVersion = '0042_activity_consecutive_drafts.sql';
+export const maximumMigrationVersion = '0046_achievement_evaluation_and_readers.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

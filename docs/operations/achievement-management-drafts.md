@@ -10,6 +10,18 @@
 
 使用者指出40的「新增活動草稿」實際帶入三伏／冬至來源，語意不符合獨立新增，已另核准本機修正。41候選分開空白新增獨立活動badge與既有季節設定草稿；新event身份不覆蓋正式季節／49種定義，保留原drafts／previews。使用者後續另明確核准本次提交推送與41直接維護例外，已在精確SHA CI／演練及停寫final actual restore/preservation過後完成正式fafbb68／41切換；見[60.729秒維護／229 Node HTTPS與復原證據](independent-activity-deployment.md)。rule正式發布／授獎仍不開放；resume後留41／fix forward，不退40或舊快照。詳見[獨立活動規格、1014測試與13組瀏覽器證據](independent-activity-drafts.md)。下列原40範圍為已部署歷史基線。
 
+## 後續第二階段A（本機候選43，未提交／未部署）
+
+使用者另核准先做不可變版本與歷史讀取相容，已完成本機43 expand、42/43相容候選與版別名單／CSV／學員歷史讀取。舊資料不回填或歸零，未知版本不猜舊條件，phase27與舊worker不變；B publisher與C即時授獎／自動撤回尚未接通。A保留舊學員report內legacy evaluator，不宣稱所有report已純讀。見[完整A範圍、1047測試及相容先行版策略](achievement-rule-versions.md)。
+
+## 後續第二階段B（本機候選44，A/B均未部署）
+
+使用者另核准準備待啟用版本的本機實作；新0044與獨立private snapshots、prepare permission／actual-session／revision/hash／future／post-lock guards、三語準備與只讀列表已過1079測試與13組browser。快照不改A版本表、49 live definitions或awards/jobs，即使日期到也不自動啟用。正式publish/activate/recalculate仍不存在，C授獎引擎及正式切換另核准。見[B範圍與證據](achievement-publication-candidates.md)。
+
+## 後續第二階段C（本機候選45／46，A/B/C均未部署）
+
+使用者另核准C本機完整實作並確認重新達標自動恢復。已接canonical identities／runtime版本、營運gate、發布／pre-start cancel、committed-mutation evaluation、original-version撤回恢復／audit、finite截止＋24h、generation補漏與所有report pure-read。最終1105測試／13組合成browser過；gate DEFAULT FALSE、沒有enable API，本機階段未提交推送部署或正式發獎；使用者後續已另明確核准A/B/C及43–46協調維護部署，待CI／42相容及升級演練／停寫final actual restore/preservation過才切換。基線仍be126a5／42；恢復留46／fix forward，operator gate維持FALSE、營運啟用另核准。詳見[C完整範圍及正式啟用前置](achievement-versioned-runtime.md)；以下原40範圍為歷史基線，不能據此繞過C gate。
+
 ## 介面與資料流
 
 - 既有「系統與個人設定」分類增加單一「活動與成就管理」入口，不新增一長串sidebar子項；capability獨立查詢、失敗隱藏，分類仍初始收合。

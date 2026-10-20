@@ -23,7 +23,10 @@ export const localizeSystemLabels = (locale: Locale, value: unknown): unknown =>
   for (const key of ['methods', 'badges', 'mix'])
     if (Array.isArray(result[key]))
       result[key] = result[key].map((item) => {
-        const label = fields(item, locale, ['name', 'group', 'parent_name']);
+        const label =
+          key === 'badges' && object(item) && item.provenance === 'published_snapshot'
+            ? item
+            : fields(item, locale, ['name', 'group', 'parent_name']);
         if (key === 'methods' && object(label) && typeof label.name_zh_tw === 'string')
           return {
             ...label,

@@ -45,6 +45,7 @@ suite('Independent event cumulative/consecutive drafts, lossless41→42', () => 
     dispose: () => Promise<void>,
     login: string,
     oldDir: string,
+    target42: string,
     start: string,
     end: string,
     legacy: Draft,
@@ -133,9 +134,13 @@ suite('Independent event cumulative/consecutive drafts, lossless41→42', () => 
     root = db.pool;
     dispose = () => db.dispose();
     oldDir = await mkdtemp(path.join(tmpdir(), 'event-streak41-'));
-    for (const name of await readdir(dir))
+    target42 = await mkdtemp(path.join(tmpdir(), 'event-streak42-'));
+    for (const name of await readdir(dir)) {
       if (name.endsWith('.sql') && name < '0042_')
         await copyFile(path.join(dir, name), path.join(oldDir, name));
+      if (name.endsWith('.sql') && name < '0043_')
+        await copyFile(path.join(dir, name), path.join(target42, name));
+    }
     await runMigrations(root, oldDir, 'event-streak-before41');
     login = 'event_streak_' + randomUUID().replaceAll('-', '');
     const password = randomBytes(24).toString('hex');
@@ -242,10 +247,10 @@ suite('Independent event cumulative/consecutive drafts, lossless41→42', () => 
     const before = await hashes(),
       beforeSecurity = await security();
     expect(Object.keys(before)).toHaveLength(79);
-    expect((await runMigrations(root, dir, 'event-streak42')).applied).toEqual([
+    expect((await runMigrations(root, target42, 'event-streak42')).applied).toEqual([
       '0042_activity_consecutive_drafts.sql'
     ]);
-    expect((await runMigrations(root, dir, 'event-streak42-repeat')).applied).toEqual([]);
+    expect((await runMigrations(root, target42, 'event-streak42-repeat')).applied).toEqual([]);
     expect(await hashes()).toEqual(before);
     expect(await security()).toEqual(beforeSecurity);
   });
@@ -257,6 +262,7 @@ suite('Independent event cumulative/consecutive drafts, lossless41→42', () => 
     }
     await dispose?.();
     if (oldDir) await rm(oldDir, { recursive: true, force: true });
+    if (target42) await rm(target42, { recursive: true, force: true });
   });
   it('keeps41 event JSON, source hashes, revision and cached preview byte-equivalent without a false backfill', async () => {
     const d = (

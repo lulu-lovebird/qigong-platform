@@ -348,6 +348,10 @@ suite('Telegram learner workspace, private summaries and reconciled achievements
   });
   it('awards streak, cumulative, method, time and yearly combo badges idempotently', async () => {
     for (let offset = -9; offset <= 0; offset++) await seed(offset, ['dayan_chu', 'dayan_gao']);
+    // Reads are pure: explicit reconciliation, not opening the page, issues legacy awards.
+    const unprocessed = await report<{ badges: Badge[] }>('achievements');
+    expect(unprocessed.badges.every((b) => b.awards.length === 0)).toBe(true);
+    await query('SELECT ops.reconcile_practice_badges(20)', [], true);
     const first = await report<Profile & { badges: Badge[] }>('achievements');
     expect(first.totalDays).toBe(10);
     expect(first.currentStreak).toBe(10);
@@ -371,12 +375,14 @@ suite('Telegram learner workspace, private summaries and reconciled achievements
   it('never treats makeup submission timestamps as qualifying morning or night practice', async () => {
     for (let offset = -4; offset <= 0; offset++)
       await seed(offset, ['dayan_chu'], undefined, 'makeup', 6);
+    await query('SELECT ops.reconcile_practice_badges(20)', [], true);
     const data = await report<{ badges: Badge[] }>('achievements');
     expect(data.badges.find((b) => b.code === 'time_morning')?.awards).toEqual([]);
     expect(data.badges.find((b) => b.code === 'streak_3')?.awards).toHaveLength(1);
   });
   it('reconciles corrected qualifications, retaining award history and recording restoration', async () => {
     const id = await seed(0, ['dayan_chu', 'dayan_gao']);
+    await query('SELECT ops.reconcile_practice_badges(20)', [], true);
     await report('achievements');
     await pool.query(
       "DELETE FROM core.checkin_method_selections WHERE checkin_id=$1 AND practice_method_id=(SELECT id FROM core.practice_methods WHERE code='dayan_gao')",
@@ -418,6 +424,7 @@ suite('Telegram learner workspace, private summaries and reconciled achievements
       ).rows[0]!.day_offset;
       await seed(offset, ['guishou_bagua']);
     }
+    await query('SELECT ops.reconcile_practice_badges(20)', [], true);
     const data = await report<{ badges: Badge[] }>('achievements');
     expect(data.badges.find((b) => b.code === 'seasonal_winter')?.awards).toEqual([
       expect.objectContaining({ period: String(lastYear), revoked: false })

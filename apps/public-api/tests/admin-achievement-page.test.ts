@@ -240,7 +240,139 @@ const deferred = <T = Response>() => {
     }
   };
 };
+const versionCatalog = (): AchievementCatalog => {
+  const data = catalog();
+  data.badges[0]!.versions = [
+    {
+      code: 'streak_3',
+      ruleVersion: 1,
+      name: 'Frozen current',
+      kind: 'streak',
+      threshold: 3,
+      methodCodes: [],
+      seasons: [],
+      configurationKnown: true,
+      configured: true,
+      isCurrent: true,
+      recipientCount: 1
+    },
+    {
+      code: 'streak_3',
+      ruleVersion: 7,
+      name: 'streak_3 · v7',
+      kind: 'unknown',
+      threshold: null,
+      methodCodes: [],
+      seasons: [],
+      configurationKnown: false,
+      configured: false,
+      isCurrent: false,
+      recipientCount: 1
+    }
+  ];
+  return data;
+};
+const versionFetcher =
+  (wrongPreview = false): typeof fetch =>
+  async (input, init) => {
+    const url = requestUrl(input),
+      q = new URL(url, 'https://example.invalid');
+    if (url.includes('/capabilities?'))
+      return Response.json({ canReadAchievements: true, canExportAchievements: true });
+    if (url.endsWith('/export/preview'))
+      return Response.json({
+        name: 'streak_3 · v7',
+        ruleVersion: wrongPreview ? 1 : 7,
+        count: 1,
+        overLimit: false,
+        limit: 5000
+      });
+    if (url.endsWith('/export'))
+      return new Response('SYNTHETIC ONLY', {
+        headers: {
+          'content-type': 'text/csv',
+          'content-disposition': "attachment; filename*=UTF-8''version-v7.csv"
+        }
+      });
+    if (q.pathname.endsWith('/recipients')) {
+      const v = Number(q.searchParams.get('version') || 1);
+      const result = recipients();
+      result.ruleVersion = v;
+      result.name = v === 7 ? 'streak_3 · v7' : 'Frozen current';
+      result.configurationKnown = v !== 7;
+      result.rows[0]!.awards[0]!.ruleVersion = v;
+      return Response.json(result);
+    }
+    void init;
+    return Response.json(versionCatalog());
+  };
 describe('Read-only achievement view controller', () => {
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'selects historical versions and pins preview/CSV to the same version in %s',
+    async (locale) => {
+      const f = fixture(locale, versionFetcher());
+      await settle();
+      await click(f.buttons().find((b) => b.dataset.badgeCode === 'streak_3')!);
+      const select = all(f.get('achievements-recipients')).find((n) => n.tagName === 'select')!;
+      expect(select.value).toBe('1');
+      select.value = '7';
+      await select.listeners.get('change')?.({ preventDefault: vi.fn() });
+      await settle();
+      expect(f.location.href).toContain('version=7');
+      expect(f.get('achievements-recipients').textContent).toContain('streak_3 · v7');
+      expect(f.get('achievements-recipients').textContent).toContain(
+        achievementTexts(locale).unknownCondition
+      );
+      await click(
+        all(f.get('achievements-recipients')).find((n) => n.dataset.exportCsv === 'true')!
+      );
+      const writes = f.fetch.mock.calls.filter(([, o]) => o?.method === 'POST');
+      expect(writes).toHaveLength(2);
+      for (const [, o] of writes) {
+        if (typeof o?.body !== 'string') throw Error('Missing version payload');
+        expect(JSON.parse(o.body)).toMatchObject({ version: '7' });
+      }
+      expect(f.confirm.mock.calls[0]?.[0]).toContain('7');
+      expect(f.downloads).toHaveLength(1);
+      expect(f.downloads[0]!.filename).toBe('version-v7.csv');
+    }
+  );
+  it('refuses an export preview that reports another version', async () => {
+    const f = fixture('en', versionFetcher(true));
+    await settle();
+    await click(f.buttons()[0]!);
+    const select = all(f.get('achievements-recipients')).find((n) => n.tagName === 'select')!;
+    select.value = '7';
+    await select.listeners.get('change')?.({ preventDefault: vi.fn() });
+    await settle();
+    await click(all(f.get('achievements-recipients')).find((n) => n.dataset.exportCsv === 'true')!);
+    expect(f.confirm).not.toHaveBeenCalled();
+    expect(f.downloads).toHaveLength(0);
+    expect(f.fetch.mock.calls.filter(([, o]) => o?.method === 'POST')).toHaveLength(1);
+  });
+  it('cancels a pending export when the version changes during confirmation', async () => {
+    let change: () => void = () => {};
+    const f = fixture('en', versionFetcher(), {
+      confirm: () => {
+        change();
+        return true;
+      }
+    });
+    await settle();
+    await click(f.buttons()[0]!);
+    const select = all(f.get('achievements-recipients')).find((n) => n.tagName === 'select')!;
+    select.value = '7';
+    await select.listeners.get('change')?.({ preventDefault: vi.fn() });
+    await settle();
+    change = () => {
+      const current = all(f.get('achievements-recipients')).find((n) => n.tagName === 'select')!;
+      current.value = '1';
+      void current.listeners.get('change')?.({ preventDefault: vi.fn() });
+    };
+    await click(all(f.get('achievements-recipients')).find((n) => n.dataset.exportCsv === 'true')!);
+    expect(f.downloads).toHaveLength(0);
+    expect(f.fetch.mock.calls.filter(([, o]) => o?.method === 'POST')).toHaveLength(1);
+  });
   it.each(['zh_TW', 'zh_CN', 'en'] as const)(
     'renders literal DTO content and key-complete static labels in %s',
     async (locale) => {
