@@ -1,15 +1,21 @@
 # Qigong Platform — 交接摘要
 
-## 發布候選A/B/C／43–46：協調維護已核准，營運gate維持FALSE
+## 最新部署：成就第二階段A/B/C 951d1c8／46，營運gate仍FALSE
 
-- 使用者核准C本機完整範圍，政策已定：無截止達標即發、更正後不達原版自動撤回、再達標同筆恢復／保留原earned_at與歷史；finite global latest makeup UTC＋24hours。**使用者已另明確核准本次A/B/C commit/push與42→43–46協調維護部署；待精確SHA CI／隔離42相容及升級保存演練過、停API／雙worker後final加密DB／roles／runtime實際還原保存過才切相容程式與升級46；resume後留46／fix forward、不退42或舊snapshot。不啟用operator gate、不正式發布新版rule／發獎／外部通知，其他旗標不變；目前尚未切換，基線仍be126a5／42**。A/B工作樹與既有2份無關文件保留，0001–0042不動。
+- 正式 **951d1c8856aaba15dd8f6dcaaabb91feef489f04**／schema46／API min42/max46／原phase27，精確SHA CI **39371539528**原run成功／**1105 tests**。使用者另明確核准本次42→43–46協調維護；2026-10-20 **05:05:07–05:06:16 UTC（台北13:05–13:06）／69.035秒**。停寫final加密DB／roles／runtime站外解密hash、fresh PG16 actual restore與**79表／19people／56checkins／原1draft／0previews** exact保存過，才先切951相容API在正式42私有ready／資料exact（05:05:33），再次停API後clone及正式apply4／repeat0；正式46比對clone完整normalized/security與private API startup前後86表exact。準備snapshot55筆之後新增的一筆正常寫入保留，未回灌舊資料。
+- **05:05:40 resume marker先於workers**；237 Node HTTPS、healthy／queues0／restart0、兩條實際URL redaction correlation過，env640／protected units／flags與全檔normal Caddy相同，post-runtime再站外加密並實際extract；clone/probe停。**operator enabled FALSE／runtime versions0／cancellations0／new-award transitions0／pending candidates0**，沒有正式新版rule、new-engine授獎、得獎通知、agent正式draft或個資CSV。0001–0046現在immutable；resume後留46／fix forward，不退42或舊snapshot。真人global角色／LINE-TG手機／歷史與CSV單版驗收及營運啟用另核准。見[46發布／final actual restore／復原證據](docs/operations/achievement-versioned-deployment.md)。
+- **OFF也已移除report讀取內的evaluator**；原49靠legacy worker，並未啟用新引擎的commit即授獎。以下A/B/C本機checkpoint保留開發時範圍與失敗證據，部署狀態以本節為準。
+
+## 第二階段C本機checkpoint與設計（已合併部署46／gate OFF）
+
+- 使用者核准C本機完整範圍，政策已定：無截止達標即發、更正後不達原版自動撤回、再達標同筆恢復／保留原earned_at與歷史；finite global latest makeup UTC＋24hours。**使用者已另明確核准本次A/B/C commit/push與42→43–46協調維護部署；已完成精確SHA CI／隔離42相容及升級保存演練、停API／雙worker後final加密DB／roles／runtime實際還原保存過，再切相容程式與升級46；resume後留46／fix forward、不退42或舊snapshot。不啟用operator gate、不正式發布新版rule／發獎／外部通知，其他旗標不變；已切951d1c8／46**。A/B/C44檔已提交，既有2份無關文件排除保留，0001–0042不動；43–46亦現immutable。
 - 新0045 canonical identities種原49、award／legacy registry FK轉canonical但rows不改、immutable runtime版本／取消表及private ops control；same-role global super/master manage+prepare+activate且operator gate ON才可發布（permissions32），未來日期／hash/source/TZ policy／started guards與actual-session postcheck；B sealed row不改，derived activation state另讀。pre-start append cancel，舊candidate不復活，新candidate可同未來日替換已取消版本；並行1runtime/audit。0046統一pure qualifiers＋evaluator，current version新授、舊版只maintain既有award，unknown歷史不猜；Core live49不加新codes。
 - deferred constraint triggers於practice/method最終交易COMMIT、per-person generation評估一次，timezone變動也enqueue，person→job locks／SKIP LOCKED／worker補漏與next midnight/effective/settlement due保留；native API回應前已earned/revoked/restored，audit失敗rollback整個交易。所有workspace report別名移除evaluate，即使OFF也pure read（原49改靠legacy worker，正式 rollout須承認此行為差異）。ON所有grant/restore入口守settlement，gate未到不視同不達標；既有早發legacy不因gate本身撤回。
-- runtime-aware admin/learner/history/one-version CSV及event/challenge描述、scheduled/cancelled狀態接線；published_snapshot人工名稱用明示語言，不OpenCC自動轉。management legacy新draft來源跟最新可證實published快照，平行舊稿sourceChanged；started活動不改，控制OFF時publication UI不可用／API403，沒有偷偷切旗標。API候選min42/max46、phase27/worker readiness不變，五schema42–46 matrix過；正式相容先行版／遷移／營運enable皆另核准。
+- runtime-aware admin/learner/history/one-version CSV及event/challenge描述、scheduled/cancelled狀態接線；published_snapshot人工名稱用明示語言，不OpenCC自動轉。management legacy新draft來源跟最新可證實published快照，平行舊稿sourceChanged；started活動不改，控制OFF時publication UI不可用／API403，沒有偷偷切旗標。API候選min42/max46、phase27/worker readiness不變，五schema42–46 matrix過；正式相容先行版／遷移已按另行核准完成，營運enable仍另核准。
 - 最終兩strict gates／完整verify **1105 tests**（API812／DB285／config2／identity6），C runtime13+upgrade1含81舊表保存（new permission/2 mappings及job新gen欄例外）、defaultOFF/no backfill、commit lifecycle／原earned timestamp／no duplicate audits、original-version/no carry、unknown、finite exact cutoff／readpure、started lock、worker durable & writer-held due-job SKIP LOCKED no lost wake-up、ALL final methods、atomic audit rollback、全legacy families；HTTP7含兩角色future publish/cancel/same-date replacement／source與manualCN／並行／CSRF/hash/stale/session audit rollback。VM32／五schema矩陣過。
 - browser13組／24圖，隔離preview owner才設gate TRUE：12draft＋24prepare→12snapshots，12synthetic future schedules＋12取消／48confirmations，legacy business hashes不變（expected runtime/cancel/identity metadata與job due例外）、新pub metadata確有預期變動，不假稱無publication；provider/正式0。專用PG/browser驗後停止，不是真人驗收。full曾TS array可能undefined、舊DB4/舊API1依賴read-trigger-awards失敗，改typed精確length2與explicit reconciliation／local native gate ON且原state/history斷言保留，再完整1104過；補取消同日替換／family後完整1105過。SQL dollar quoting失敗log保留，未放寬安全或時鐘。見[C實作、證據、限制與正式啟用前置](docs/operations/achievement-versioned-runtime.md)。
 
-## 本機第二階段B候選44：準備不可變待啟用版本（A/B均未提交／未部署）
+## 第二階段B本機checkpoint44（後已合併部署46，以下為當時範圍）
 
 - 使用者核准B具體本機方案：super／master準備待啟用版本、revision/hash/reason/session/future/post-lock guards，UI明示非啟用；**不commit/push/deploy／不連正式、C未接通，不發布／啟用／發獎**。正式上一發布仍以下be126a5／42；A工作樹及兩份無關文件保留。
 - 新0044增admin.achievement_publication_candidates（forced-RLS、immutable update/delete/truncate、state只awaiting_activation、activation=false）及permission achievement.prepare_publication（只global super/master default，same-role需manage_drafts），permissions31；不新增Core live definitions／core version rows或award/jobs。sealed snapshot含saved config／base/source/config SHA、future date、supported zones／deadline；候選號在code鎖下保留，避registry與unknown stored award舊號。並行同draft/revision只建一份，id/time/hash/audit不刷新；改draft/archived/source變getter標stale但sealed bytes不改。
@@ -18,7 +24,7 @@
 - 最終Node24兩strict gates＋完整verify **1079 tests**（API800／DB271／config2／identity6），DB11 actual43→44 apply1/repeat0／80舊表與old functions保存（僅新增permission／2 mappings差異）、hash／future／year／max reserved unknown舊號／immutable／post-lock source/grant expiry／audit rollback；Model9／新HTTP6／VM29過，含audit中撤session／自然session到期afterwait全rollback。browser13組／24圖，12drafts＋24確認POST只建12pending snapshots／24預期audit，retry id/hash/time一致、重開snapshot過，Core/award/job及其他business不變，provider0／正式0。
 - 初輪exact capabilities fixture新增canPreparePublication=false，保留精確canPublish=false；full lint抓新fixture unused/unsafe any後用strict DTO parse修正。下一輪legacy0013→0014 reviewer permission拒絕失敗保留，該test-role明示clock_timestamp-1day並加can_review_application=true前置斷言；正式SQL／時鐘不改、時計根因不稱已修，最後focused與full1079過。專用PG／browser驗後停止。見[B範圍／安全邊界／證據](docs/operations/achievement-publication-candidates.md)。
 
-## 本機第二階段A候選43：不可變版本／歷史讀取（未提交／未部署）
+## 第二階段A本機checkpoint43（後已合併部署46，以下為當時範圍）
 
 - 使用者確定無截止功法badge達標即發、更正後不達原版本條件自動撤回，並核准A本機實作；B正式發布、C即時授獎／自動撤回接線及再次達標是否恢復仍待後續。**本輪未連正式、未commit/push/deploy，正式上一發布仍以下be126a5／42，publish false／端點不存在，無正式個資CSV／provider send／flags／政策變更**。兩份既有無關文件不動。
 - 新0043 additive table core.achievement_rule_versions凍結49個可證實current legacy snapshot（含原leaf codes與season），歷史無來源版本snapshot=null／unknown，不拿新條件猜舊版；UPDATE／DELETE／TRUNCATE拒絕、forced RLS／無raw grants。全部79舊表rows及old functions保存、awards／jobs／進度不改；只有新metadata table／讀取facades，不改0001–0042。admin版本selector／歷史名單與一CSV一version、snapshot名稱／條件與unknown警語；learner本人含已撤回版本，跨人／跨scope不洩漏。
@@ -26,7 +32,7 @@
 - Node24兩strict gates與最終完整verify **1047 tests**（API779／DB260／config2／identity6）；DB8 actual42→43 apply1/repeat0、79舊表與old definitions exact、immutable/scope/unknown/verified歷史與單版export；HTTP42/43矩陣2、admin VM18／TG歷史HTTP20覆蓋。browser13組／24圖、12 metadata CSV preview＋12取消確認／CSV bytes0，business fingerprints不變、draft/preview/audit0、無API/JS errors／overflow。
 - 開發SQL NULL type／constraint parentheses及CSV quoted fixture期待錯誤有修復保留；全suite曾抓既有admin-reporting JS toFixed(3/20,1)=.1與PG numeric round=.2差異，改test-only BigInt rational oracle，報表SQL／時鐘／fixture不動，不放寬斷言；focused27及完整1047過，strict version型別收緊後再驗完整1047。測試環境驗後停止，不是正式OAuth／實體手機驗收。見[A範圍、證據與相容先行版策略](docs/operations/achievement-rule-versions.md)。
 
-## 最新部署：獨立活動可選連續打卡 be126a5／42
+## 前次部署：獨立活動可選連續打卡 be126a5／42
 
 - 正式 **be126a547142f6917accd98993ac1e938d955f59**／exact42／phase27，精確SHA CI **39281636756**首輪成功／**1031 tests**。CI先queued／runner未分派，當時未停機／未升級，使用者要求繼續後核對同一run成功才續行；沒有重跑或跳過CI。使用者另核准本次41→42直接維護例外，**2026-10-19 16:38:38–16:39:41 UTC／62.146秒**，API16:38:39停寫後final加密DB／roles／runtime站外decrypt驗hash、fresh PG16 actual restore與**79表／19people／53checkins**保存過才升級；production applied1／repeat0，API私有啟動前後79表exact，既有1draft／0preview的raw hashes不變、無false回填。**16:39:05 resume marker先於workers**，229 Node HTTPS／health healthy／restart0／queues0，env640／units／flags保留、normal Caddy全檔相同，post-runtime再加密與實際extract。兩個真guest log marker依TCP ports／reqId對應redaction過，clone／probe停，無agent正式草稿／個資CSV／真人provider test send。
 - 重新整理頁面後可選「需連續打卡」，預設仍累計；勾選保存後再試算。**仍僅草稿／試算，不啟用rule發布／授獎／重算。** 0001–0042現immutable；resume後留42／fix forward，舊41拒42，不退41或回灌舊snapshot。42人員手機驗收尚待，不當作完整角色matrix。見[42正式部署／實際還原／復原邊界](docs/operations/activity-consecutive-deployment.md)。

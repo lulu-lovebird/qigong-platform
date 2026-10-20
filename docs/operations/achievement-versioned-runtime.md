@@ -1,8 +1,8 @@
-# 第二階段C：版本化發布、即時授獎／撤回／恢復（本機候選45／46）
+# 第二階段C：版本化發布、即時授獎／撤回／恢復（已部署46／營運OFF）
 
 ## 核准與範圍
 
-使用者已確認：無截止功法badge達標即發、更正後不達原得獎版本條件自動撤回、再次達標自動恢復；有截止活動仍須max supported-zone補登截止UTC＋完整24hours。接著核准完整C本機方案，包含統一引擎、啟用／取消、交易提交評估、歷史／CSV／學員相容、並行／補漏及**正式開關預設關閉**。本機實作階段未commit／push／deploy／連正式／發送得獎通知。使用者後續另明確核准本次A/B/C提交推送與42→43–46協調維護部署：精確SHA CI及隔離42相容先行版／升級保存演練通過，封鎖入口並停API／雙worker後取得final加密DB／roles／runtime、實際還原保存過才切換相容程式並升級46；resume後留46／fix forward，不退42或舊snapshot。**operator gate仍須FALSE，不啟用營運或新規則授獎／外部通知**。目前待執行，正式基線be126a5／42，0001–0042 immutable不改；兩份無關文件保留排除。
+使用者已確認：無截止功法badge達標即發、更正後不達原得獎版本條件自動撤回、再次達標自動恢復；有截止活動仍須max supported-zone補登截止UTC＋完整24hours。接著核准完整C本機方案，包含統一引擎、啟用／取消、交易提交評估、歷史／CSV／學員相容、並行／補漏及**正式開關預設關閉**。本機實作階段未commit／push／deploy／連正式／發送得獎通知。使用者後續另明確核准本次A/B/C提交推送與42→43–46協調維護部署：精確SHA CI及隔離42相容先行版／升級保存演練通過，封鎖入口並停API／雙worker後取得final加密DB／roles／runtime、實際還原保存過才切換相容程式並升級46；resume後留46／fix forward，不退42或舊snapshot。**operator gate仍須FALSE，不啟用營運或新規則授獎／外部通知**。已按本次授權完成正式`951d1c8`／46：CI39371539528原run1105tests、隔離演練、停寫final實際還原／79表保存、正式42相容先行版及4migration升級過；維護69.035秒、237 Node HTTPS／healthy。gate FALSE、runtime/cancellations/new-award transitions/pending candidates0，原1draft不改。0001–0046現均immutable；兩份無關文件保留排除。見[部署與final actual restore／復原紀錄](achievement-versioned-deployment.md)。
 
 ## 核心資料與預設OFF
 
@@ -42,10 +42,10 @@
 - CSV仍一份一版本、原global super/master contacts權限、purpose/CSRF、5001 sentinel、size/cooldown、post-encode actual session驗權及formula／ID guards不變；不因取消／恢復發放外部通知。
 - 管理頁從sealed snapshot顯示發布／排程與啟用前取消；operator OFF或無權限時隱藏／拒絕，沒有UI開關。activation理由另欄且離開有veto，confirmation綁id/hash與generation，權限失效清舊snapshot與controls。不從editor未存條件直接發布。
 
-## 相容、正式發布前置（尚未執行）
+## 相容、已部署與未核准營運啟用
 
 - 合併候選API min42/max46；42／43缺功能時明確fallback／拒絕不支援操作；44只prepare；45 gate因46未安裝而false；46預設control false。五個exact schema42–46的同候選readiness與version/export/gating矩陣過，phase27／原worker readiness不換。
-- 舊正式be exact42不能直接接43–46。使用者已另核准本次commit/push與協調維護，須等exact-SHA CI／matching compatible42與42→46隔離演練過，再做停寫final加密備份actual restore/preservation、正式42相容先行版與逐步遷移／流量驗證。尚未正式執行，不沿用先前42維護授權；恢復後留46／fix forward，不能退42或回灌舊snapshot。
+- 舊正式be exact42不能直接接43–46。使用者已另核准本次commit/push與協調維護，須等exact-SHA CI／matching compatible42與42→46隔離演練過，再做停寫final加密備份actual restore/preservation、正式42相容先行版與逐步遷移／流量驗證。上述本次流程已執行並驗證，不沿用先前42維護授權；恢復後留46／fix forward，不能退42或回灌舊snapshot。43–46現在亦為已部署immutable migrations。
 - **營運啟用另核准**：新control仍false，不因deploy或給activate permission自動打開。正式enable前還需真人角色／LINE/TG手機驗收、實際規則／日期確認、catch-up/backlog／batch容量與operational pause/fix-forward審核。此時沒有任何正式新版rule被發布或發獎。
 
 ## 驗證及失敗紀錄

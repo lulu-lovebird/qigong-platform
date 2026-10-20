@@ -1,6 +1,8 @@
-# 第二階段B：準備不可變待啟用版本（本機候選44）
+# 第二階段B：準備不可變待啟用版本（已合併部署46）
 
-## 核准與安全邊界
+**最新狀態：A/B/C已依另行明確核准合併部署`951d1c8`／schema46，CI39371539528／1105tests；operator gate維持FALSE，正式新版runtime／發獎transition0。真人驗收及營運啟用另核准。下列為各本機checkpoint當時範圍及證據，不是目前未部署／缺少C API或待確認政策的描述。** 見[本次部署、final actual restore與fix-forward界線](achievement-versioned-deployment.md)。
+
+## 核准與安全邊界（本機checkpoint當時）
 
 使用者在A本機完成後，確認B具體方案：建立「準備發布、待啟用版本」、global master／super權限、revision／hash／reason／session／future-date及post-lock來源防護，補UI／三語／測試；**本輪不commit／push／deploy／連正式，不啟用正式發布或發獎**。A所有本機修改與兩份既有無關文件保留。正式上一發布仍be126a5／42。
 

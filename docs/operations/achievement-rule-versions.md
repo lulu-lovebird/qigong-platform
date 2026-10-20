@@ -1,6 +1,8 @@
-# 第二階段A：不可變版本與歷史讀取相容（本機候選43）
+# 第二階段A：不可變版本與歷史讀取相容（已合併部署46）
 
-## 核准與邊界
+**最新狀態：A/B/C已依另行明確核准合併部署`951d1c8`／schema46，CI39371539528／1105tests；operator gate維持FALSE，正式新版runtime／發獎transition0。真人驗收及營運啟用另核准。下列為各本機checkpoint當時範圍及證據，不是目前未部署／缺少C API或待確認政策的描述。** 見[本次部署、final actual restore與fix-forward界線](achievement-versioned-deployment.md)。
+
+## 核准與邊界（本機checkpoint當時）
 
 使用者確認：無結束日功法badge達標即發；更正後不再達原獲獎版本條件則自動撤回、保留audit；有結束日活動沿用max supported-zone補登截止UTC＋24hours。接著核准**A階段本機實作與驗證**，不是B發布、C即時授獎實作／啟用授權，也不包含commit／push／deploy。正式上一發布紀錄仍be126a5／42，本輪未連正式、無正式個資CSV／provider sends／Console／flags／政策／同意變更。既有兩份無關文件保留。
 
