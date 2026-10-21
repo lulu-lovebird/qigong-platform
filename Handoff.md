@@ -1,12 +1,18 @@
 # Qigong Platform — 交接摘要
 
-## WhatsApp打卡完成卡發布候選（commit/push/deploy已另核准，待CI／還原保存）
+## 最新部署：WhatsApp打卡完成卡48caf6d／同schema46
+
+- 正式 **48caf6dc5fdad4f1b226bbb2da19652ef83f0fef**，精確SHA CI **39558164279**原run／**1156tests**及兩strict gates過；8檔feature提交、兩份無關文件保留。API min42/max46／phase27，**無migration applier／DDL／grant/backfill**。Manifest僅channel-workspace-pages及ui-zh-cn JS/map四檔改、新completion JS/map/d.ts三檔，325其他檔及worker入口相同；原locale key/value不變、36份LINE/TG／其他WA HTML byte-identical，compiled完成卡9組＋申請6組／9HTTP及原mock回歸／RT14 mock jobs過。
+- 使用者另明確核准本次commit/push/deploy；2026-10-21 **07:07:14–07:08:19 UTC（台北15:07–15:08）／64.466秒**，停寫final加密DB／roles／runtime站外decrypt/hash、fresh PG16 actual restore/extract及**86表／20people／63checkins／原1draft/0previews** exact過，才切matching artifact，私有API startup前後86表exact。**07:07:43 resume marker先於workers**，246 Node HTTPS／healthy／queues0／restart0；全檔normal Caddy/env640/flags/units保留，六項WA loaded值與目前api.env一致、沒有回灌舊未配置WA或舊token。post-runtime另加密實際extract，真URL redaction2probe過；clone/probe停。
+- 新WA完成卡只在confirmed save後顯示本次日期／功法／類型與鼓勵，至少3秒且無其他草稿才嘗試關閉，blocked時保留卡提示手動返回；不logout、不發聊天摘要，pending/unknown不完成。**operator FALSE／通知與Meta訂閱不改，無agent正式申請/打卡/心得/審核/個資CSV或provider test sends**。0001–0046 immutable，留46 fix forward、不退42或舊DB；必要same46 binary回復也保留目前WA env及所有寫入。本人手機/WebView完成卡與實際關閉尚待驗收，不以mock斷言WA能關閉。見[完成卡／final actual restore／復原界線](docs/operations/whatsapp-checkin-completion.md)。
+
+## WhatsApp打卡完成卡本機checkpoint（後已部署48caf6d）
 
 - 使用者本人回報WA已可打卡（僅該次，不擴張完整手機matrix），核准本機改為Web UI紀錄＋「已完成打卡／明天繼續加油」＋3秒無其他草稿才嘗試關閉；不恢復聊天摘要、不自動登出。新whatsapp-checkin-completion模組只接WA checkin，驗server ack UUID/version/action/receiptQueued=false後才顯示日期／時區／當時功法／regular-makeup-corrected，心得感受不進卡；失敗／pending／unknown不顯完成或關閉、保留requestId與草稿；3秒timer在刷新後安排，refresh失敗保留成功卡但暫停關閉，其他日期／時區dirty或busy不關閉，blocked/throw保留卡與手動返回提示，不假稱WA可關閉。完成卡防重複save，返回編輯／pagehide／stale generation取消舊timer。身份／CSRF／API／DB／通知／授獎／Meta不改。
 - 新VM23＋整合16（原共用68→84），真cookie HTTP9確認ack契約，完整Node24兩strict gates／verify **1156tests（API863／DB285／config2／identity6）**，map1494/1160。初期VM hidden初值6失敗與lint Request直接String 5錯保留，修fixture符合真HTML及typed path helper，未放寬assert／規則。從HEAD另編baseline，LINE/TG及其他WA共36份三語rendered HTML byte-identical。
-- 本機Chrome18組／18圖＝三語×390/1280×三操作，真DOM／真3秒等待，mock auth/transport/blocked close，private note不進卡、無overflow／JS errors／Storage或logout/chat請求；僅18次記憶體mock保存，不是真WA手機關閉或正式打卡驗收。**本輪不commit/push/deploy、不連正式寫入或發訊息；兩份無關文件保留，本機驗證後使用者已另明確核准本次commit/push/deploy；須精確SHA CI／fresh46 clone與停寫final加密DB／roles／runtime actual restore/preservation過才切換，不執行migration，保留目前WA環境／通知／授獎／Meta設定。尚未切換，正式仍以下368／46。** PG／browser驗後停止。見[實作、1156測試與發布前置](docs/operations/whatsapp-checkin-completion.md)。
+- 本機Chrome18組／18圖＝三語×390/1280×三操作，真DOM／真3秒等待，mock auth/transport/blocked close，private note不進卡、無overflow／JS errors／Storage或logout/chat請求；僅18次記憶體mock保存，不是真WA手機關閉或正式打卡驗收。**本輪不commit/push/deploy、不連正式寫入或發訊息；兩份無關文件保留，本機驗證後使用者已另明確核准本次commit/push/deploy；須精確SHA CI／fresh46 clone與停寫final加密DB／roles／runtime actual restore/preservation過才切換，不執行migration，保留目前WA環境／通知／授獎／Meta設定。已按此授權完成48caf6d／同46切換，最新正式狀態以上節為準；以下368為前次發布。** PG／browser驗後停止。見[實作、1156測試與發布前置](docs/operations/whatsapp-checkin-completion.md)。
 
-## 最新部署：WhatsApp申請語言修正368e980／同schema46
+## 前次部署：WhatsApp申請語言修正368e980／同schema46
 
 - 正式 **368e980e3b2af5781548e51963f34b546d3ed918**，精確SHA CI **39470584651**原run／**1117tests**與兩strict gates過；5檔feature提交、兩份無關文件保留。API min42/max46／phase27，**無migration applier／DDL／grant／backfill**；329個manifest涵蓋檔僅application-page.js及map不同，327檔包括backend/workers相同。原頁切三語保留form與checkbox，送出用目前locale；LINE/TG流程不放寬。
 - 使用者後續明確核准本次commit/push/deploy；2026-10-20 **18:13:37–18:14:37 UTC（台北10/21 02:13–02:14）／60.813秒**。fresh46隔離相容／保存與compiled UI/legacy／RT14 mock jobs過才維護；停API／雙worker後final加密DB／roles／runtime站外decrypt/hash、fresh PG16 actual restore/extract及**86表／19people／61checkins／原1draft／0previews** exact過，才切matching artifacts，private API startup前後86表exact。**18:14:01 resume marker先於workers**，243 Node HTTPS／healthy／queues0／restart0；normal Caddy全檔與env640／flags／units保留，WA六項loaded值與現api.env相符，沒有以舊未配置snapshot覆寫；post-runtime另加密實際extract，兩真URL redaction probes過，clone/probe停。
