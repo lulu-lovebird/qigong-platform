@@ -211,6 +211,12 @@ suite('WhatsApp cookie sessions at the HTTP boundary', () => {
     );
     expect(saved.statusCode, saved.body).toBe(200);
     expect(saved.json<{ receiptQueued: boolean }>().receiptQueued).toBe(false);
+    const acknowledged = saved.json<{ checkinId: string; version: number; action: string }>();
+    expect(acknowledged.checkinId).toMatch(
+      /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
+    );
+    expect(Number.isSafeInteger(acknowledged.version) && acknowledged.version > 0).toBe(true);
+    expect(acknowledged.action).toBe('regular');
     expect(sendText).not.toHaveBeenCalled();
     expect(sendWorkspaceMenu).not.toHaveBeenCalled();
   });

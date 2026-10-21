@@ -2,6 +2,7 @@ import { lineUiText } from './line-ui-localization.js';
 import { journalTexts } from './journal-locale.js';
 import { uiText, uiDictionary } from './ui-localization.js';
 import { whatsappBrowserBootstrap, whatsappLoginMarkup } from './whatsapp-browser-bootstrap.js';
+import { addWhatsAppCheckinCompletion } from './whatsapp-checkin-completion.js';
 import type { LearnerLocale } from './learner-locale.js';
 import { telegramWorkspaceTexts } from './telegram-workspace-locale.js';
 import { lineLoginScript } from './application-page.js';
@@ -192,6 +193,8 @@ export const renderChannelWorkspacePage = (
         'const mayLeave = (includeZone=true) => !busy && (!dirty(includeZone)||window.confirm(t.discard));window.whatsappMayLeave=()=>{if(!mayLeave())return false;leaving=true;syncClosing();return true;};window.whatsappLeaveCancelled=()=>{leaving=false;syncClosing();};'
       );
   }
+  if (channel.platform === 'whatsapp' && page === 'checkin')
+    html = addWhatsAppCheckinCompletion(html, lang);
   // The cross-author disclosure names both providers, not just the current reader channel.
   const authorNotice = journalTexts(lang).authorNameNotice;
   return html

@@ -1,5 +1,11 @@
 # Qigong Platform — 交接摘要
 
+## WhatsApp打卡完成卡發布候選（commit/push/deploy已另核准，待CI／還原保存）
+
+- 使用者本人回報WA已可打卡（僅該次，不擴張完整手機matrix），核准本機改為Web UI紀錄＋「已完成打卡／明天繼續加油」＋3秒無其他草稿才嘗試關閉；不恢復聊天摘要、不自動登出。新whatsapp-checkin-completion模組只接WA checkin，驗server ack UUID/version/action/receiptQueued=false後才顯示日期／時區／當時功法／regular-makeup-corrected，心得感受不進卡；失敗／pending／unknown不顯完成或關閉、保留requestId與草稿；3秒timer在刷新後安排，refresh失敗保留成功卡但暫停關閉，其他日期／時區dirty或busy不關閉，blocked/throw保留卡與手動返回提示，不假稱WA可關閉。完成卡防重複save，返回編輯／pagehide／stale generation取消舊timer。身份／CSRF／API／DB／通知／授獎／Meta不改。
+- 新VM23＋整合16（原共用68→84），真cookie HTTP9確認ack契約，完整Node24兩strict gates／verify **1156tests（API863／DB285／config2／identity6）**，map1494/1160。初期VM hidden初值6失敗與lint Request直接String 5錯保留，修fixture符合真HTML及typed path helper，未放寬assert／規則。從HEAD另編baseline，LINE/TG及其他WA共36份三語rendered HTML byte-identical。
+- 本機Chrome18組／18圖＝三語×390/1280×三操作，真DOM／真3秒等待，mock auth/transport/blocked close，private note不進卡、無overflow／JS errors／Storage或logout/chat請求；僅18次記憶體mock保存，不是真WA手機關閉或正式打卡驗收。**本輪不commit/push/deploy、不連正式寫入或發訊息；兩份無關文件保留，本機驗證後使用者已另明確核准本次commit/push/deploy；須精確SHA CI／fresh46 clone與停寫final加密DB／roles／runtime actual restore/preservation過才切換，不執行migration，保留目前WA環境／通知／授獎／Meta設定。尚未切換，正式仍以下368／46。** PG／browser驗後停止。見[實作、1156測試與發布前置](docs/operations/whatsapp-checkin-completion.md)。
+
 ## 最新部署：WhatsApp申請語言修正368e980／同schema46
 
 - 正式 **368e980e3b2af5781548e51963f34b546d3ed918**，精確SHA CI **39470584651**原run／**1117tests**與兩strict gates過；5檔feature提交、兩份無關文件保留。API min42/max46／phase27，**無migration applier／DDL／grant／backfill**；329個manifest涵蓋檔僅application-page.js及map不同，327檔包括backend/workers相同。原頁切三語保留form與checkbox，送出用目前locale；LINE/TG流程不放寬。

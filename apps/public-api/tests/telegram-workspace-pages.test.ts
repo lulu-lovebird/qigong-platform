@@ -123,6 +123,8 @@ const entry = (date: string, note = ''): Entry => ({
   methods: [{ code: 'dayan_chu', name: 'Dayan 1', group: 'Dayan' }],
   feelingTags: []
 });
+const workspaceRequestPath = (input: Parameters<typeof fetch>[0]): string =>
+  typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
 const fixture = (
   page: TelegramWorkspacePage = 'checkin',
   options: {
@@ -151,6 +153,7 @@ const fixture = (
   get('days').value = '30';
   get('language').value = options.locale ?? 'en';
   get('monthly').hidden = true;
+  get('wa-completion').hidden = true;
   const links = (['checkin', 'leaderboard', 'methods', 'achievements'] as const).map((view) => {
     const link = element('a');
     link.dataset.page = view;
@@ -185,6 +188,9 @@ const fixture = (
     search: options.lineSearch ?? '?lang=en',
     href: ''
   };
+  let timerId = 0;
+  const completionTimers = new Map<number, { callback: () => void; delay: number }>();
+  const browserClose = vi.fn();
   const history = { replaceState: vi.fn() },
     confirm = vi.fn(() => true),
     listeners = new Map<string, Handler>();
@@ -200,8 +206,8 @@ const fixture = (
       data = {
         checkinId: randomUUID(),
         version: 4,
-        action: 'regular',
-        receiptQueued: true,
+        action: body.version ? 'corrected' : body.date === profile.today ? 'regular' : 'makeup',
+        receiptQueued: options.channel !== 'whatsapp',
         ...(options.savedSharing ? { communitySharing: options.savedSharing } : {})
       };
     else if (body.view === 'methods')
@@ -279,7 +285,16 @@ const fixture = (
     },
     location,
     history,
+    setTimeout: (callback: () => void, delay: number) => {
+      completionTimers.set(++timerId, { callback, delay });
+      return timerId;
+    },
+    clearTimeout: (id: number) => {
+      completionTimers.delete(id);
+    },
     window: {
+      closed: false,
+      close: browserClose,
       Telegram: options.native ? { WebApp: app } : undefined,
       confirm,
       addEventListener: (name: string, handler: Handler) => {
@@ -311,7 +326,9 @@ const fixture = (
     html,
     app,
     lineClose,
-    texts
+    texts,
+    browserClose,
+    completionTimers
   };
 };
 const click = (item: Element) => item.onclick?.({ preventDefault: vi.fn() });
@@ -321,6 +338,182 @@ const tick = async () => {
 };
 
 describe('Telegram workspace generated scripts and unsaved private drafts', () => {
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'shows the %s WhatsApp receipt only after save, without leaking reflections or saving twice',
+    async (locale) => {
+      const f = fixture('checkin', { channel: 'whatsapp', locale });
+      await tick();
+      f.all('[data-method]')[0]!.checked = true;
+      f.get('note').value = 'PRIVATE COMPLETION NOTE';
+      await click(f.get('submit'));
+      expect(f.get('wa-completion').hidden).toBe(false);
+      expect(f.get('editor').hidden).toBe(true);
+      expect(f.texts(f.get('wa-completion-record'))).toContain(f.profile.today);
+      expect(f.texts(f.get('wa-completion-record'))).toContain('Dayan 1');
+      expect(f.texts(f.get('wa-completion-record'))).not.toContain('PRIVATE COMPLETION NOTE');
+      expect(f.texts(f.get('wa-completion-record'))).not.toContain('Relaxed');
+      expect(f.browserClose).not.toHaveBeenCalled();
+      expect([...f.completionTimers.values()].map((t) => t.delay)).toEqual([3000]);
+      await click(f.get('submit'));
+      const saves = f.fetchMock.mock.calls.filter(([path]) => path === '/whatsapp/workspace/save');
+      expect(saves).toHaveLength(1);
+      expect(saves[0]?.[1]?.headers).toMatchObject({ 'x-whatsapp-csrf-token': 'c'.repeat(43) });
+      expect(jsonBody(saves[0]?.[1]?.body)).not.toHaveProperty('token');
+      for (const timer of [...f.completionTimers.values()]) timer.callback();
+      expect(f.browserClose).toHaveBeenCalledTimes(1);
+      expect(f.get('wa-completion').hidden).toBe(false);
+      expect(
+        f.fetchMock.mock.calls.some(
+          ([path]) =>
+            workspaceRequestPath(path).includes('/logout') ||
+            workspaceRequestPath(path).includes('/webhook')
+        )
+      ).toBe(false);
+    }
+  );
+  it.each(['makeup', 'corrected'] as const)(
+    'displays the actual WhatsApp %s operation',
+    async (action) => {
+      const f = fixture('checkin', {
+        channel: 'whatsapp',
+        entries: action === 'corrected' ? [entry('2026-10-09')] : []
+      });
+      await tick();
+      if (action === 'makeup') await click(f.get('yesterdayTab'));
+      f.all('[data-method]')[0]!.checked = true;
+      await click(f.get('submit'));
+      expect(f.get('wa-completion').hidden).toBe(false);
+      expect(f.texts(f.get('wa-completion-record'))).toContain(
+        action === 'makeup' ? 'Makeup check-in' : 'Correction'
+      );
+      expect(f.texts(f.get('wa-completion-record'))).toContain(
+        action === 'makeup' ? '2026-10-08' : '2026-10-09'
+      );
+    }
+  );
+  it('does not show a WhatsApp completion while the save response is still pending', async () => {
+    const f = fixture('checkin', { channel: 'whatsapp' });
+    await tick();
+    f.all('[data-method]')[0]!.checked = true;
+    const original = f.fetchMock.getMockImplementation();
+    if (!original) throw Error('Missing fetch implementation');
+    let finish: ((response: Response) => void) | undefined;
+    f.fetchMock.mockImplementation((input, init) =>
+      workspaceRequestPath(input) === '/whatsapp/workspace/save'
+        ? new Promise<Response>((resolve) => {
+            finish = resolve;
+          })
+        : original(input, init)
+    );
+    const pending = click(f.get('submit'));
+    await tick();
+    expect(f.get('wa-completion').hidden).toBe(true);
+    expect(f.completionTimers.size).toBe(0);
+    expect(f.browserClose).not.toHaveBeenCalled();
+    if (!finish) throw Error('Missing save response callback');
+    finish(
+      new Response(
+        JSON.stringify({
+          checkinId: randomUUID(),
+          version: 1,
+          action: 'regular',
+          receiptQueued: false
+        })
+      )
+    );
+    await pending;
+    expect(f.get('wa-completion').hidden).toBe(false);
+  });
+  it.each([401, 403, 409, 503, 'network', 'malformed'] as const)(
+    'does not complete or close on WhatsApp save result %s',
+    async (failure) => {
+      const f = fixture('checkin', { channel: 'whatsapp' });
+      await tick();
+      f.all('[data-method]')[0]!.checked = true;
+      f.get('note').value = 'Retained after uncertainty';
+      const original = f.fetchMock.getMockImplementation();
+      if (!original) throw Error('Missing fetch implementation');
+      f.fetchMock.mockImplementation(async (input, init) => {
+        if (workspaceRequestPath(input) === '/whatsapp/workspace/save') {
+          if (failure === 'network') throw Error('Unknown transport result');
+          return failure === 'malformed'
+            ? new Response(
+                JSON.stringify({
+                  checkinId: 'invalid',
+                  version: 4,
+                  action: 'regular',
+                  receiptQueued: false
+                })
+              )
+            : new Response('{}', { status: failure });
+        }
+        return original(input, init);
+      });
+      await click(f.get('submit'));
+      expect(f.get('wa-completion').hidden).not.toBe(false);
+      expect(f.browserClose).not.toHaveBeenCalled();
+      expect(f.completionTimers.size).toBe(0);
+      expect(f.get('note').value).toBe('Retained after uncertainty');
+      expect(f.all('[data-method]')[0]!.checked).toBe(true);
+      if (failure === 503 || failure === 'network' || failure === 'malformed') {
+        const first = f.fetchMock.mock.calls.find(([path]) => path === '/whatsapp/workspace/save');
+        f.fetchMock.mockImplementation(original);
+        await click(f.get('submit'));
+        const last = f.fetchMock.mock.calls
+          .filter(([path]) => path === '/whatsapp/workspace/save')
+          .at(-1);
+        expect(jsonBody(last?.[1]?.body)).toEqual(jsonBody(first?.[1]?.body));
+        expect(f.get('wa-completion').hidden).toBe(false);
+      }
+    }
+  );
+  it('keeps the confirmed WhatsApp receipt visible after refresh fails, without another save or automatic closing', async () => {
+    const f = fixture('checkin', { channel: 'whatsapp' });
+    await tick();
+    f.all('[data-method]')[0]!.checked = true;
+    const original = f.fetchMock.getMockImplementation();
+    if (!original) throw Error('Missing fetch implementation');
+    f.fetchMock.mockImplementation((input, init) =>
+      workspaceRequestPath(input) === '/whatsapp/workspace/profile'
+        ? Promise.resolve(new Response('{}', { status: 503 }))
+        : original(input, init)
+    );
+    await click(f.get('submit'));
+    expect(f.get('wa-completion').hidden).toBe(false);
+    expect(f.texts(f.get('wa-completion-record'))).toContain('Dayan 1');
+    expect(f.get('wa-completion-hint').textContent).toContain('refreshing failed');
+    expect(f.completionTimers.size).toBe(0);
+    expect(f.browserClose).not.toHaveBeenCalled();
+    expect(
+      f.fetchMock.mock.calls.filter(([path]) => path === '/whatsapp/workspace/save')
+    ).toHaveLength(1);
+  });
+  it('does not close over another WhatsApp date draft and restores it on return to editing', async () => {
+    const f = fixture('checkin', { channel: 'whatsapp' });
+    await tick();
+    await click(f.get('yesterdayTab'));
+    f.all('[data-method]')[0]!.checked = true;
+    f.get('note').value = 'OTHER DATE PRIVATE DRAFT';
+    await click(f.get('todayTab'));
+    f.all('[data-method]')[0]!.checked = true;
+    await click(f.get('submit'));
+    expect(f.get('wa-completion').hidden).toBe(false);
+    expect(f.completionTimers.size).toBe(0);
+    await click(f.get('wa-completion-close'));
+    expect(f.browserClose).not.toHaveBeenCalled();
+    await click(f.get('wa-completion-edit'));
+    await click(f.get('yesterdayTab'));
+    expect(f.get('note').value).toBe('OTHER DATE PRIVATE DRAFT');
+    expect(f.all('[data-method]')[0]!.checked).toBe(true);
+  });
+  it.each(['line', 'telegram'] as const)(
+    'does not add a WhatsApp completion or browser-close call to %s',
+    (channel) => {
+      const f = fixture('checkin', channel === 'line' ? { channel } : {});
+      expect(f.html).not.toContain('wa-completion');
+      expect(f.html).not.toContain('window.close(');
+    }
+  );
   it.each(['telegram', 'line', 'whatsapp'] as const)(
     'renders all language choices in Simplified %s and preserves a cancelled unsent reflection',
     async (channel) => {
