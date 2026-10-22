@@ -1,13 +1,19 @@
 # Qigong Platform — 交接摘要
 
-## 舊LINE badge雅名發布候選（commit/push/deploy已另核准，待CI／還原保存）
+## 最新部署：舊LINE badge雅名顯示別名a24f14e／同schema46
+
+- 正式 **a24f14e1473b5245744f7bfede57a7607a5cbf25**，精確SHA CI **39706172416**原run／**1345tests**及兩strict gates過，17檔feature含test-only notes前置修正、兩份無關文件排除。API min42/max46／phase27，**無migration applier／DDL／grant/backfill**；15既有編譯檔改（含4個經review且canonical等值的declaration-only排序差異）、3新module檔，317檔及CSV JS/map/d.ts／worker入口byte-identical。49名稱源對照只加displayName，原name/snapshot/CSV/awards不改，unknown/published/custom/v2+不套名。
+- Fresh46 clone保存及新舊readiness，compiled pure147/scoped catalog3/LINE-TG learner6/CSV metadata preview3過，prepare/bytes0、讀取前後86表exact；mock原回歸及RT14jobs過。使用者另核准本次commit/push/deploy；**2026-10-22 01:48:01–01:49:03 UTC（台北09:48–09:49）／62.658秒**，停寫final DB/roles/runtime站外加密decrypt/hash、fresh PG16 actual restore/extract及**86表／20people／70checkins／原1draft/0preview** exact過才切；private startup前後86表exact，**01:48:27 resume marker先於workers**。255 Node HTTPS／healthy／queues0／restart0、全檔normal Caddy/env640/flags/units保留，六WA loaded值匹配現env，post-runtime另加密實際extract，兩真URL redaction probe過、clone/probe停。
+- Operator FALSE／通知及Meta訂閱不改；無agent正式申請/checkin/心得/審核/個資CSV/provider test sends。0001–0046 immutable；留46 fix forward、不退42或舊DB/runtime。必要same46 binary recovery也只可另確認後用已驗48 matching artifact，保留目前WA env與所有新寫入，不能恢復舊token/未配置snapshot。真人圖鑑／後台雅名驗收尚待；請重開「我的修練」／成就榜。詳見[49對照與final actual restore／復原紀錄](docs/operations/legacy-badge-display-names.md)。
+
+## 舊LINE badge雅名本機checkpoint（後已部署a24f14e）
 
 - 使用者核准僅顯示層移植49可證實原名稱；33method按code/7/30/100精確、6combo與2seasonal改碼明示（49唯一mapping）。source-owned靜態legacy-badge-names＋獨立source fixture/hash；只有versioned reader、嚴格v1/known、原locale名/kind/threshold/leaf集合匹配且無custom/published/unknown或runtime條件欄時加displayName，name／snapshot/sourcehash／awards/進度不改。學員LINE/TG/WA與後台成就榜/選版名單顯示雅名及原版本名；CSV及草稿／sealed發布名不改。英文頁用原中文雅名literal fallback，不杜撰英譯；人工/unknown不套。
 - VM176、admin新增3／三渠道學員VM9、42–46 matrix5（42不猜、43+49aliases、unknown/CSV原名、metadata/award/job/audit指紋不變）、native TG/LINE/WA identity/CSRF/scope保留。最終Node24兩strict gates／完整verify **1345tests（API1052／DB285／config2／identity6）**，map1546/1203。原1338過後補7新條件拒套案時遇既有notes fixture channel有效時間邊界，僅test資料valid_from−1day及owner eligibility前置修正，原重複tag/Unicode/權限assert不動；曾誤以runtime呼叫private helper被拒，改owner檢查而未grant，failure留證，不稱時計根因修復。
 - Chrome12組／12圖＝admin與共用WA圖鑑×三語×390/1280；雅名/原名、unknown v7與published v2、無overflow/JS errors/storage；6CSV metadata preview全取消，prepare/bytes0。auth/API mock、SDK/images移除，不是真OAuth/Meta/手機驗收。首次preview mock字串版號coercion錯修mock，不改產品。
-- **本輪未commit/push/deploy、未連正式寫入或發訊息；DB/0001–0046/舊bot/CSV source/依賴/通知/授獎/Meta不改，兩份無關文件與legacy source hashes保留。** 1345測試與Chrome12組過後，使用者已另明確核准本次commit/push及同schema46部署；待精確SHA CI、fresh46 clone與停寫final加密DB／roles／runtime actual restore/preservation過才切換，不執行migration，保留CSV原名／歷史快照／現WA環境及營運旗標。尚未切換，正式仍以下48caf6d／46。詳見[49逐項名稱對照／1345測試／證據及邊界](docs/operations/legacy-badge-display-names.md)。
+- **本輪未commit/push/deploy、未連正式寫入或發訊息；DB/0001–0046/舊bot/CSV source/依賴/通知/授獎/Meta不改，兩份無關文件與legacy source hashes保留。** 1345測試與Chrome12組過後，使用者已另明確核准本次commit/push及同schema46部署；待精確SHA CI、fresh46 clone與停寫final加密DB／roles／runtime actual restore/preservation過才切換，不執行migration，保留CSV原名／歷史快照／現WA環境及營運旗標。已按此授權完成a24f14e／同46切換，最新正式狀態以上節為準；以下48caf6d為前次發布。詳見[49逐項名稱對照／1345測試／證據及邊界](docs/operations/legacy-badge-display-names.md)。
 
-## 最新部署：WhatsApp打卡完成卡48caf6d／同schema46
+## 前次部署：WhatsApp打卡完成卡48caf6d／同schema46
 
 - 正式 **48caf6dc5fdad4f1b226bbb2da19652ef83f0fef**，精確SHA CI **39558164279**原run／**1156tests**及兩strict gates過；8檔feature提交、兩份無關文件保留。API min42/max46／phase27，**無migration applier／DDL／grant/backfill**。Manifest僅channel-workspace-pages及ui-zh-cn JS/map四檔改、新completion JS/map/d.ts三檔，325其他檔及worker入口相同；原locale key/value不變、36份LINE/TG／其他WA HTML byte-identical，compiled完成卡9組＋申請6組／9HTTP及原mock回歸／RT14 mock jobs過。
 - 使用者另明確核准本次commit/push/deploy；2026-10-21 **07:07:14–07:08:19 UTC（台北15:07–15:08）／64.466秒**，停寫final加密DB／roles／runtime站外decrypt/hash、fresh PG16 actual restore/extract及**86表／20people／63checkins／原1draft/0previews** exact過，才切matching artifact，私有API startup前後86表exact。**07:07:43 resume marker先於workers**，246 Node HTTPS／healthy／queues0／restart0；全檔normal Caddy/env640/flags/units保留，六項WA loaded值與目前api.env一致、沒有回灌舊未配置WA或舊token。post-runtime另加密實際extract，真URL redaction2probe過；clone/probe停。
