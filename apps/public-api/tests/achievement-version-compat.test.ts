@@ -97,10 +97,51 @@ suite('Same candidate42to46 readiness and explicit version export boundaries', (
           (await database.pool.query('SELECT ops.achievement_event_streak_schema_ready() ready'))
             .rows[0]!.ready
         ).toBe(true);
+        const immutableState = async () => {
+          const tables = [
+            'core.practice_badge_definitions',
+            'core.person_practice_badges',
+            'ops.practice_badge_jobs',
+            'audit.events',
+            'audit.practice_badge_changes',
+            ...(schema >= 43 ? ['core.achievement_rule_versions'] : [])
+          ];
+          const state: unknown[] = [];
+          for (const table of tables)
+            state.push(
+              (
+                await database.pool.query(
+                  `SELECT md5(coalesce(jsonb_agg(to_jsonb(r) ORDER BY to_jsonb(r)::text),'[]'::jsonb)::text) hash FROM ${table} r`
+                )
+              ).rows
+            );
+          return state;
+        };
+        const beforeNames = await immutableState();
         const catalog = await app.inject({ url: '/admin/api/achievements', headers });
         expect(catalog.statusCode).toBe(200);
         const badge = catalog.json().badges.find((b: { code: string }) => b.code === 'streak_3');
         expect(Array.isArray(badge.versions)).toBe(schema >= 43);
+        expect(badge.name).toBe('連續練功 3 天');
+        expect(badge.displayName).toBe(schema >= 43 ? '入門' : undefined);
+        expect(
+          catalog.json<{ badges: { displayName?: string }[] }>().badges.filter((b) => b.displayName)
+        ).toHaveLength(schema >= 43 ? 49 : 0);
+        if (schema >= 43) {
+          expect(
+            badge.versions.find((v: { ruleVersion: number }) => v.ruleVersion === 7).displayName
+          ).toBeUndefined();
+          const originalPreview = await app.inject({
+            method: 'POST',
+            url: '/admin/api/achievements/streak_3/export/preview',
+            headers,
+            payload: { version: 1 }
+          });
+          expect(originalPreview.statusCode).toBe(200);
+          expect(originalPreview.json()).toMatchObject({ name: '連續練功 3 天', ruleVersion: 1 });
+          expect(originalPreview.json()).not.toHaveProperty('displayName');
+        }
+        expect(await immutableState()).toEqual(beforeNames);
         const selected = await app.inject({
           url: '/admin/api/achievements/streak_3/recipients?version=7',
           headers

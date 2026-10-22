@@ -187,6 +187,14 @@ suite('LINE workspace HTTP and private summaries', () => {
           })
         ).statusCode
       ).toBe(200);
+    const legacy = await post('/line/workspace/report', { view: 'achievements', locale: 'zh_CN' });
+    expect(legacy.statusCode).toBe(200);
+    const data = legacy.json<{ badges: { code: string; name: string; displayName?: string }[] }>();
+    expect(data.badges.filter((b) => b.displayName)).toHaveLength(49);
+    expect(data.badges.find((b) => b.code === 'method_dayan_100')).toMatchObject({
+      name: '大雁功 100 天',
+      displayName: '大雁功｜雁归太和'
+    });
   });
   it('saves with idempotent UUID/version protection, displays own sharing, and queues a private summary', async () => {
     await confirm();

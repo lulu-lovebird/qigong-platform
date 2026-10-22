@@ -1,5 +1,7 @@
 import type { PoolClient } from '@qigong/database';
 import { z } from 'zod';
+import { addLegacyBadgeDisplayNames } from './legacy-badge-names.js';
+import { localeSchema } from './ui-localization.js';
 
 // Additive43 readers are absent on42. Do not resolve a missing SQL function on42.
 export const hasAchievementVersions = async (client: PoolClient): Promise<boolean> =>
@@ -26,5 +28,6 @@ export const readVersionedLearnerAchievements = async (
       : "SELECT platform.channel_versioned_achievements($1,$2,$3) || CASE WHEN (platform.privacy_notice()->>'active')::boolean THEN jsonb_build_object('privacy',platform.privacy_usage($1,$2)) ELSE '{}'::jsonb END data",
     telegram ? [input.credential, input.locale] : [input.platform, input.credential, input.locale]
   );
-  return z.record(z.string(), z.unknown()).parse(result.rows[0]?.data);
+  const data = z.record(z.string(), z.unknown()).parse(result.rows[0]?.data);
+  return addLegacyBadgeDisplayNames(data, localeSchema.parse(input.locale));
 };

@@ -525,6 +525,69 @@ const exportResponse = (input: Parameters<typeof fetch>[0]): Response => {
 };
 const exportLink = (f: ReturnType<typeof fixture>) =>
   all(f.get('achievements-recipients')).find((n) => n.dataset.exportCsv === 'true');
+describe('Legacy alias view without changing version or CSV names', () => {
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'renders %s alias literally, retains the original and never leaks v1 alias into unknown v7',
+    async (locale) => {
+      const data = versionCatalog();
+      const badge = data.badges[0];
+      if (!badge?.versions?.[0]) throw Error('Missing version fixture');
+      const alias = '大雁功｜雁歸太和 <script>literal</script>';
+      badge.displayName = alias;
+      badge.versions[0].displayName = alias;
+      const f = fixture(
+        locale,
+        async (input, init) => {
+          const url = requestUrl(input);
+          if (url.includes('/capabilities'))
+            return Response.json({ canReadAchievements: true, canExportAchievements: true });
+          if (url.endsWith('/export/preview'))
+            return Response.json({
+              code: 'streak_3',
+              name: 'Frozen current',
+              ruleVersion: 1,
+              count: 1,
+              overLimit: false,
+              limit: 5000
+            });
+          if (url.includes('/recipients?'))
+            return Response.json({
+              ...recipients(),
+              ruleVersion: Number(new URL(url, f.location.href).searchParams.get('version'))
+            });
+          if (init?.method === 'POST') throw Error('CSV prepare must not run after cancellation');
+          return Response.json(data);
+        },
+        { confirm: () => false }
+      );
+      await settle();
+      expect(f.get('achievements-catalog').textContent).toContain(alias);
+      expect(f.get('achievements-catalog').textContent).toContain(badge.name);
+      await click(f.buttons().find((b) => b.dataset.badgeCode === 'streak_3')!);
+      expect(f.get('achievements-recipients').textContent).toContain(alias);
+      expect(f.get('achievements-recipients').textContent).toContain('Frozen current');
+      const link = exportLink(f);
+      if (!link) throw Error('Missing protected export link');
+      await click(link);
+      expect(f.confirm).toHaveBeenCalledTimes(1);
+      expect(f.confirm.mock.calls[0]?.[0]).toContain('Frozen current');
+      expect(f.confirm.mock.calls[0]?.[0]).not.toContain(alias);
+      const select = all(f.get('achievements-recipients')).find(
+        (n) => n.tagName === 'select' && n.value === '1'
+      );
+      if (!select) throw Error('Missing version selector');
+      select.value = '7';
+      const change = select.listeners.get('change');
+      if (!change) throw Error('Missing version change');
+      await change({ preventDefault: vi.fn() });
+      await settle();
+      expect(f.get('achievements-recipients').textContent).toContain('streak_3 · v7');
+      expect(f.get('achievements-recipients').textContent).not.toContain(alias);
+      expect(f.downloads).toHaveLength(0);
+    }
+  );
+});
+
 describe('Authorized personal CSV view controller', () => {
   it('does not render export controls for an ordinary reporting capability', async () => {
     const f = fixture('en');

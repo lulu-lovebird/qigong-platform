@@ -98,6 +98,8 @@ const element = (tagName = 'div'): Element => {
 interface Badge {
   code: string;
   name: string;
+  displayName?: string;
+  ruleVersion?: number;
   kind: string;
   configured: boolean;
   threshold: number;
@@ -338,6 +340,57 @@ const tick = async () => {
 };
 
 describe('Telegram workspace generated scripts and unsaved private drafts', () => {
+  it.each(
+    (['telegram', 'line', 'whatsapp'] as const).flatMap((channel) =>
+      (['zh_TW', 'zh_CN', 'en'] as const).map((locale) => ({ channel, locale }))
+    )
+  )(
+    'renders $channel/$locale alias and original version name as literal text',
+    async ({ channel, locale }) => {
+      const alias = '大雁功｜雁歸太和 <script>literal</script>';
+      const f = fixture('achievements', {
+        ...(channel === 'telegram' ? {} : { channel }),
+        locale,
+        badges: [
+          {
+            code: 'method_dayan_100',
+            name: 'Dayan · 100 days',
+            displayName: alias,
+            kind: 'method',
+            configured: true,
+            threshold: 100,
+            ruleVersion: 1,
+            awards: []
+          },
+          {
+            code: 'streak_3',
+            name: 'streak_3 · v7',
+            kind: 'unknown',
+            configured: false,
+            threshold: 0,
+            ruleVersion: 7,
+            awards: []
+          },
+          {
+            code: 'challenge_123',
+            name: 'Published name 原文 <literal>',
+            kind: 'challenge',
+            configured: true,
+            threshold: 3,
+            ruleVersion: 2,
+            awards: []
+          }
+        ]
+      });
+      await tick();
+      const text = f.texts(f.get('badges'));
+      expect(text).toContain(alias);
+      expect(text).toContain('Dayan · 100 days');
+      expect(text).toContain('streak_3 · v7');
+      expect(text).toContain('Published name 原文 <literal>');
+      expect(f.get('badges').children).toHaveLength(3);
+    }
+  );
   it.each(['zh_TW', 'zh_CN', 'en'] as const)(
     'shows the %s WhatsApp receipt only after save, without leaking reflections or saving twice',
     async (locale) => {

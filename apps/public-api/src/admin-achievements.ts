@@ -4,6 +4,7 @@ import { localeSchema } from './ui-localization.js';
 import { localizeSystemLabels } from './system-label-localization.js';
 import type { AdminLocale } from './admin-locale.js';
 import { hasAchievementVersions } from './achievement-version-compat.js';
+import { addLegacyBadgeDisplayNames } from './legacy-badge-names.js';
 export const achievementQuerySchema = z
   .object({
     lang: localeSchema.optional(),
@@ -62,6 +63,7 @@ export const achievementCatalogSchema = z.object({
       endDate: z.iso.date().nullable().optional(),
       activationState: z.enum(['scheduled', 'published', 'cancelled']).optional(),
       name: z.string(),
+      displayName: z.string().optional(),
       threshold: z.number().int().positive(),
       methodCodes: z.array(z.string()),
       ruleVersion: z.number().int().positive(),
@@ -74,6 +76,7 @@ export const achievementCatalogSchema = z.object({
             code: achievementCodeSchema,
             ruleVersion: z.number().int().positive(),
             name: z.string(),
+            displayName: z.string().optional(),
             kind: z.enum([
               'streak',
               'total',
@@ -168,7 +171,15 @@ export const getAchievementCatalog = async (
     parameters(query, locale)
   );
   return achievementCatalogSchema.parse(
-    localizeSystemLabels(locale, achievementCatalogSchema.parse(result.rows[0]?.data))
+    localizeSystemLabels(
+      locale,
+      achievementCatalogSchema.parse(
+        addLegacyBadgeDisplayNames(
+          z.record(z.string(), z.unknown()).parse(result.rows[0]?.data),
+          locale
+        )
+      )
+    )
   );
 };
 export const getAchievementRecipients = async (

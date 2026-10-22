@@ -1,0 +1,67 @@
+{
+  "sources": [
+    {
+      "path": "qigong-line-bot/schema.sql",
+      "sha256": "ff014ae4b51a3c7a5d1979a006425c01b2f4f9a208bbe253f42fc5e9ac7415ef"
+    },
+    {
+      "path": "qigong-line-bot/migrations/005_line_combo_badges.sql",
+      "sha256": "afefa75de765f4c4b7aa15662d456c578554b4d58c46acad0be355619e6d86b2"
+    },
+    {
+      "path": "qigong-line-bot/migrations/008_line_method_day_badges.sql",
+      "sha256": "4d9e6f902ee7ba32bfe4d777736775b1a8bb7be674fe128b249ee9f9fedeb4c1"
+    }
+  ],
+  "names": {
+    "streak_3": "入門",
+    "streak_7": "小成",
+    "streak_21": "結丹",
+    "streak_100": "百日築基",
+    "total_10": "初芽",
+    "total_100": "大樹",
+    "time_morning": "晨露",
+    "time_night": "夜靜",
+    "seasonal_summer_27": "夏練三伏",
+    "seasonal_winter_27": "冬練三九",
+    "combo_dayan": "大雁雙修",
+    "combo_wuqinxi": "五禽圓滿",
+    "combo_huichun": "回春雙式",
+    "combo_guishou": "龜壽全式",
+    "combo_zhengyang": "正陽雙照",
+    "combo_jinggong": "靜功雙法",
+    "method_dayan_7": "大雁功｜雁行入雲",
+    "method_dayan_30": "大雁功｜雁翥沖虛",
+    "method_dayan_100": "大雁功｜雁歸太和",
+    "method_wuqinxi_7": "五禽戲｜五行啟藏",
+    "method_wuqinxi_30": "五禽戲｜五靈調炁",
+    "method_wuqinxi_100": "五禽戲｜五禽歸真",
+    "method_huichun_7": "回春功｜春芽復炁",
+    "method_huichun_30": "回春功｜春和養真",
+    "method_huichun_100": "回春功｜回春長青",
+    "method_guishou_7": "龜壽功｜龜息守一",
+    "method_guishou_30": "龜壽功｜龜鶴養元",
+    "method_guishou_100": "龜壽功｜壽炁綿長",
+    "method_zhengyang_7": "正陽功｜朝陽啟炁",
+    "method_zhengyang_30": "正陽功｜正陽養正",
+    "method_zhengyang_100": "正陽功｜陽和充盈",
+    "method_huanghai_7": "晃海功｜晃海聽潮",
+    "method_huanghai_30": "晃海功｜海定神凝",
+    "method_huanghai_100": "晃海功｜海天一炁",
+    "method_lotus_7": "蓮花養心法｜蓮心初照",
+    "method_lotus_30": "蓮花養心法｜蓮臺澄心",
+    "method_lotus_100": "蓮花養心法｜蓮華見性",
+    "method_heqi_7": "和氣舒壓法｜和氣舒懷",
+    "method_heqi_30": "和氣舒壓法｜和光同塵",
+    "method_heqi_100": "和氣舒壓法｜氣和神泰",
+    "method_sanwo_7": "三窩功｜三窩聚炁",
+    "method_sanwo_30": "三窩功｜三田歸元",
+    "method_sanwo_100": "三窩功｜窩藏元和",
+    "method_liuyin_7": "六音理臟法｜六音調藏",
+    "method_liuyin_30": "六音理臟法｜六律和臟",
+    "method_liuyin_100": "六音理臟法｜六炁周流",
+    "method_jinggong_7": "靜功｜守靜入門",
+    "method_jinggong_30": "靜功｜澄心守一",
+    "method_jinggong_100": "靜功｜虛極靜篤"
+  }
+}

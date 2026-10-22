@@ -186,6 +186,22 @@ suite('WhatsApp cookie sessions at the HTTP boundary', () => {
       401
     );
   });
+  it('shows all49 legacy display aliases only through the authenticated WhatsApp achievement reader', async () => {
+    const browser = await login();
+    for (const locale of ['zh_TW', 'zh_CN', 'en']) {
+      const r = await post('/whatsapp/workspace/report', { view: 'achievements', locale }, browser);
+      expect(r.statusCode).toBe(200);
+      const data = r.json<{ badges: { code: string; name: string; displayName?: string }[] }>();
+      expect(data.badges.filter((b) => b.displayName)).toHaveLength(49);
+      const badge = data.badges.find((b) => b.code === 'method_dayan_100');
+      expect(badge?.displayName).toBe(locale === 'zh_CN' ? '大雁功｜雁归太和' : '大雁功｜雁歸太和');
+      expect(badge?.name).toBe(locale === 'en' ? 'Dayan · 100 days' : '大雁功 100 天');
+    }
+    expect(
+      (await post('/whatsapp/workspace/report', { view: 'achievements' }, browser, false))
+        .statusCode
+    ).toBe(401);
+  });
   it('saves without any WhatsApp sender or receipt even after explicit signed-inbound window recording', async () => {
     const browser = await login();
     await withRequestContext(runtime, 'qigong_api_runtime', { requestId: randomUUID() }, (c) =>

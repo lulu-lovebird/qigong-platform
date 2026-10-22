@@ -1,5 +1,12 @@
 # Qigong Platform — 交接摘要
 
+## 舊LINE badge雅名發布候選（commit/push/deploy已另核准，待CI／還原保存）
+
+- 使用者核准僅顯示層移植49可證實原名稱；33method按code/7/30/100精確、6combo與2seasonal改碼明示（49唯一mapping）。source-owned靜態legacy-badge-names＋獨立source fixture/hash；只有versioned reader、嚴格v1/known、原locale名/kind/threshold/leaf集合匹配且無custom/published/unknown或runtime條件欄時加displayName，name／snapshot/sourcehash／awards/進度不改。學員LINE/TG/WA與後台成就榜/選版名單顯示雅名及原版本名；CSV及草稿／sealed發布名不改。英文頁用原中文雅名literal fallback，不杜撰英譯；人工/unknown不套。
+- VM176、admin新增3／三渠道學員VM9、42–46 matrix5（42不猜、43+49aliases、unknown/CSV原名、metadata/award/job/audit指紋不變）、native TG/LINE/WA identity/CSRF/scope保留。最終Node24兩strict gates／完整verify **1345tests（API1052／DB285／config2／identity6）**，map1546/1203。原1338過後補7新條件拒套案時遇既有notes fixture channel有效時間邊界，僅test資料valid_from−1day及owner eligibility前置修正，原重複tag/Unicode/權限assert不動；曾誤以runtime呼叫private helper被拒，改owner檢查而未grant，failure留證，不稱時計根因修復。
+- Chrome12組／12圖＝admin與共用WA圖鑑×三語×390/1280；雅名/原名、unknown v7與published v2、無overflow/JS errors/storage；6CSV metadata preview全取消，prepare/bytes0。auth/API mock、SDK/images移除，不是真OAuth/Meta/手機驗收。首次preview mock字串版號coercion錯修mock，不改產品。
+- **本輪未commit/push/deploy、未連正式寫入或發訊息；DB/0001–0046/舊bot/CSV source/依賴/通知/授獎/Meta不改，兩份無關文件與legacy source hashes保留。** 1345測試與Chrome12組過後，使用者已另明確核准本次commit/push及同schema46部署；待精確SHA CI、fresh46 clone與停寫final加密DB／roles／runtime actual restore/preservation過才切換，不執行migration，保留CSV原名／歷史快照／現WA環境及營運旗標。尚未切換，正式仍以下48caf6d／46。詳見[49逐項名稱對照／1345測試／證據及邊界](docs/operations/legacy-badge-display-names.md)。
+
 ## 最新部署：WhatsApp打卡完成卡48caf6d／同schema46
 
 - 正式 **48caf6dc5fdad4f1b226bbb2da19652ef83f0fef**，精確SHA CI **39558164279**原run／**1156tests**及兩strict gates過；8檔feature提交、兩份無關文件保留。API min42/max46／phase27，**無migration applier／DDL／grant/backfill**。Manifest僅channel-workspace-pages及ui-zh-cn JS/map四檔改、新completion JS/map/d.ts三檔，325其他檔及worker入口相同；原locale key/value不變、36份LINE/TG／其他WA HTML byte-identical，compiled完成卡9組＋申請6組／9HTTP及原mock回歸／RT14 mock jobs過。

@@ -291,11 +291,19 @@ suite('Telegram workspace HTTP, bot menu and durable delivery integration', () =
         code: string;
         ruleVersion: number;
         configurationKnown: boolean;
+        name: string;
+        displayName?: string;
         threshold: number | null;
         awards: Array<{ revoked: boolean }>;
       }>;
     }>();
     expect(data.versioned).toBe(true);
+    expect(data.badges.filter((b) => b.displayName)).toHaveLength(49);
+    expect(
+      data.badges.find((b) => b.code === 'method_dayan_100' && b.ruleVersion === 1)
+    ).toMatchObject({ name: 'Dayan · 100 days', displayName: '大雁功｜雁歸太和' });
+    expect(data.badges.find((b) => b.ruleVersion === 7)).not.toHaveProperty('displayName');
+    expect(data.badges.find((b) => b.ruleVersion === 8)).not.toHaveProperty('displayName');
     expect(data.badges.find((b) => b.code === 'streak_3' && b.ruleVersion === 7)).toMatchObject({
       configurationKnown: false,
       threshold: null,

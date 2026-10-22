@@ -2,6 +2,7 @@ import { renderAdminShell } from './admin-dashboard.js';
 import { adminTexts, type AdminLocale } from './admin-locale.js';
 import { achievementTexts } from './admin-achievement-locale.js';
 import { badgeIcons, fallbackBadgeIcon } from './badge-icons.js';
+import { legacyBadgeAliasNotice } from './legacy-badge-names.js';
 
 export const renderAdminAchievementsPage = (locale: AdminLocale, canManageAdmins = false) => {
   const text = { ...adminTexts(locale), ...achievementTexts(locale) };
@@ -24,6 +25,7 @@ export const renderAdminAchievementsPage = (locale: AdminLocale, canManageAdmins
 <section id="achievements-recipients" class="card" tabindex="-1" aria-live="polite"><p>${text.selectBadge}</p></section>`,
     `
 (() => {
+ const legacyAliasText=${JSON.stringify(legacyBadgeAliasNotice(locale))};
  const t=${JSON.stringify(text)}, icons=${JSON.stringify(badgeIcons)}, fallback=${JSON.stringify(fallbackBadgeIcon)}, locale=${JSON.stringify(locale)};
  const $=id=>document.getElementById(id), node=(tag,text,className)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=String(text);if(className)n.className=className;return n;};
  const message=(text,values={})=>text.replace(/\\{([a-zA-Z]+)\\}/g,(_,key)=>String(values[key]??''));
@@ -62,10 +64,10 @@ export const renderAdminAchievementsPage = (locale: AdminLocale, canManageAdmins
    const badges=catalog.filter(b=>group(b.kind)===kind&&(!category||category===kind));if(!badges.length)continue;
    root.append(node('h2',t[kind]));const grid=node('div',undefined,'achievements-grid');
    for(const badge of badges){count++;const card=node('article',undefined,'card achievement-card'),heading=node('h3');
-    heading.append(node('span',Object.hasOwn(icons,badge.code)?icons[badge.code]:fallback,'achievement-icon'),document.createTextNode(badge.name));card.append(heading,node('p',condition(badge)),node('p',message(t.ruleVersion,{version:badge.ruleVersion}),'muted'));
+    heading.append(node('span',Object.hasOwn(icons,badge.code)?icons[badge.code]:fallback,'achievement-icon'),document.createTextNode(badge.displayName??badge.name));card.append(heading,node('p',condition(badge)),node('p',message(t.ruleVersion,{version:badge.ruleVersion}),'muted'));if(badge.displayName)card.append(node('p',message(legacyAliasText,{name:badge.name}),'muted'));
     if(badge.activationState)card.append(node('p',t[badge.activationState],'muted'));if(badge.versions?.length)card.append(node('p',message(t.versionsAvailable,{count:badge.versions.length}),'muted'));if(!badge.configured)card.append(node('p',t.unconfigured,'muted'));
     for(const season of badge.seasons)card.append(node('p',message(t.seasonDates,{year:season.year,start:season.startDate,end:season.endDate,zone:season.timezone,days:season.requiredDays}),'muted'));
-    const button=node('button',message(t.recipientCount,{count:badge.recipientCount}),'secondary');button.type='button';button.dataset.badgeCode=badge.code;button.setAttribute('aria-label',badge.name+' · '+button.textContent);button.addEventListener('click',()=>{selected=badge.code;selectedVersion=badge.versions?.length?String(badge.ruleVersion):null;page=1;updateUrl();void loadRecipients(true);});card.append(button);grid.append(card);
+    const button=node('button',message(t.recipientCount,{count:badge.recipientCount}),'secondary');button.type='button';button.dataset.badgeCode=badge.code;button.setAttribute('aria-label',(badge.displayName??badge.name)+' · '+button.textContent);button.addEventListener('click',()=>{selected=badge.code;selectedVersion=badge.versions?.length?String(badge.ruleVersion):null;page=1;updateUrl();void loadRecipients(true);});card.append(button);grid.append(card);
    }root.append(grid);
   }
   if(!count)root.append(node('p',t.noBadges));$('achievements-catalog').replaceChildren(root);
@@ -79,7 +81,7 @@ export const renderAdminAchievementsPage = (locale: AdminLocale, canManageAdmins
   const query=new URLSearchParams(applied);query.set('page',String(page));query.set('limit','20');if(selectedVersion)query.set('version',selectedVersion);
   try{
    const data=await get('/admin/api/achievements/'+encodeURIComponent(selected)+'/recipients',query,signal);if(own!==recipientGeneration)return;if(selectedVersion&&data.ruleVersion!==Number(selectedVersion)){$('achievements-recipients').replaceChildren();setStatus(t.invalidFilter,true);return;}
-   const root=node('div'),back=node('a',t.backToCatalog);back.href='#achievements-catalog';root.append(back,node('h2',(selectedMeta?.name||target.name)+' · '+t.recipients));
+   const root=node('div'),back=node('a',t.backToCatalog),shown=selectedMeta||target;back.href='#achievements-catalog';root.append(back,node('h2',(shown.displayName??shown.name)+' · '+t.recipients));if(shown.displayName)root.append(node('p',message(legacyAliasText,{name:shown.name}),'muted'));
    if(versions.length){const label=node('label',t.versionSelect),select=node('select');select.id='achievement-version';for(const v of versions){const option=node('option',message(t.ruleVersion,{version:v.ruleVersion})+(v.isCurrent?' · '+t.versionCurrent:'')+(!v.configurationKnown?' · '+t.versionUnknown:''));option.value=String(v.ruleVersion);select.append(option);}select.value=selectedVersion;select.addEventListener('change',()=>{selectedVersion=select.value;page=1;updateUrl();void loadRecipients();});label.append(select);root.append(label,node('p',condition(selectedMeta),'muted'));for(const s of selectedMeta.seasons||[])root.append(node('p',message(t.seasonDates,{year:s.year,start:s.startDate,end:s.endDate,zone:s.timezone,days:s.requiredDays}),'muted'));}
    if(canExport){const actions=node('div',undefined,'achievement-export-actions'),label=node('label',t.exportPurpose),purpose=node('select');purpose.id='achievement-export-purpose';for(const [value,title]of [['award_contact',t.purposeAwardContact],['internal_review',t.purposeInternalReview]]){const option=node('option',title);option.value=value;purpose.append(option);}purpose.value='award_contact';label.append(purpose);const link=node('a',t.csvExport,'achievement-export-link');link.href='#achievements-recipients';link.dataset.exportCsv='true';link.addEventListener('click',event=>{event.preventDefault();void exportRecipients(purpose.value,link);});actions.append(label,link);root.append(actions,node('p',t.exportPrivacy,'muted'),node('p',t.exportTextNote,'muted'));}
    if(!data.rows.length)root.append(node('p',t.noRecipients));

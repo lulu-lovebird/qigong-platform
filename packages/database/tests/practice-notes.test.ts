@@ -188,7 +188,7 @@ suite('private practice notes and stable feeling tag snapshots', () => {
       )
     ).rows[0]!.id;
     await pool.query(
-      "INSERT INTO identity.person_interaction_channels(person_id,platform_identity_id,activation_source) VALUES($1,$2,'onboarding')",
+      "INSERT INTO identity.person_interaction_channels(person_id,platform_identity_id,activation_source,valid_from) VALUES($1,$2,'onboarding',clock_timestamp()-INTERVAL '1 day')",
       [person, identity]
     );
     await pool.query(
@@ -208,6 +208,15 @@ suite('private practice notes and stable feeling tag snapshots', () => {
       )
     ).rows[0]!.id;
     token = randomBytes(32).toString('base64url');
+    // Owner-only fixture check; the private helper stays sealed from runtime roles.
+    // These tests are not exercising the just-created channel timing boundary.
+    expect(
+      (
+        await pool.query<{ person: string }>("SELECT platform.practice_person('line',$1) person", [
+          credential
+        ])
+      ).rows[0]?.person
+    ).toBe(person);
   });
   afterEach(async () => {
     await runtime?.end();
