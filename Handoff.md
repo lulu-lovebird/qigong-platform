@@ -1,5 +1,12 @@
 # Qigong Platform — 交接摘要
 
+## 初學者Help Pages發布候選（commit/push/deploy已另核准，待CI／還原保存）
+
+- 使用者核准本機3獨立Help：/line/help、/telegram/help、/whatsapp/help與三語，先首次使用／每日打卡／看紀錄，進階native details預設收合；公開零DB／零SDK/script/form、no-store/no-referrer/CSP，固定公開URL只lang/anchor、不含token，不建立同意/資格。各渠道文案區分LINE有效邀請/LIFF、TG Mini App/自選提醒、WA裝置登入/完成卡/無聊天摘要；心得可見性不錯說全私密，非法律政策發布。
+- Code內LINE保留5LIFF連結加public Help、TG start5native+1普通URL Help（/checkin仍1native）、WA5rows+workspace:help第6列；簽章/private/source/account/stale界線保留，Help在privacy/eligibility/application之前但不是授權bypass。LINE/TG bounded process-local hash guard5000/15min/monotonic，並行/衝突/失敗retry保護、不宣稱跨restart exactly-once；WA既有durable inbox保留且Help不延長service window。正式richmenu六格、TG setMyCommands/menu button、Meta Console皆未改，只備草稿。
+- Unit28+guard5、active-policy前提native routes5全域state hash不變（僅WA inbox除外），WA三語menu3，原LINE/NativeTG/reminder安全回歸過；最終Node24兩strict gates／完整verify **1386tests（API1093／DB285／config2／identity6）**，map1719/1347。原TS/escape/interactive fixture/menu期待失敗保留並精確修，不關規則或移除原身份/無token斷言。Chrome18組／18圖（3渠道×三語×390/1280）真本機路由/零DB，不是真OAuth/手機或正式menu驗收。
+- **未commit/push/deploy、不連正式寫入或發訊息、不改DB/0001–0046/依賴/正式menu/憑證/通知/授獎**；兩份無關文件保留，本機1386測試與18組Chrome過後，使用者另明確核准本次commit/push與同schema46部署；待精確SHA CI、fresh46 clone與停寫final加密DB／roles／runtime actual restore/preservation過才切換，不執行migration，保留LINE正式六格、provider menu／目前WA env／通知／授獎／Meta設定。尚未切換，正式依前次紀錄仍以下a24／46。Help URL須部署後才可放正式richmenu；六格滿，草稿只建議另核准後將加入格改說明、加入文字指令照留，本輪不動現六格。詳見[Help內容/入口/六格草稿/1386測試及邊界](docs/operations/learner-help-pages.md)。
+
 ## 最新部署：舊LINE badge雅名顯示別名a24f14e／同schema46
 
 - 正式 **a24f14e1473b5245744f7bfede57a7607a5cbf25**，精確SHA CI **39706172416**原run／**1345tests**及兩strict gates過，17檔feature含test-only notes前置修正、兩份無關文件排除。API min42/max46／phase27，**無migration applier／DDL／grant/backfill**；15既有編譯檔改（含4個經review且canonical等值的declaration-only排序差異）、3新module檔，317檔及CSV JS/map/d.ts／worker入口byte-identical。49名稱源對照只加displayName，原name/snapshot/CSV/awards不改，unknown/published/custom/v2+不套名。

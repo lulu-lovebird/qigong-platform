@@ -8,6 +8,8 @@ import { renderApplicationPage } from './application-page.js';
 import { registerTelegramWorkspace } from './telegram-workspace.js';
 import { registerLearnerJournalRoutes } from './journal-routes.js';
 import { telegramFeatureButtons } from './telegram-feature-buttons.js';
+import { helpLabel, helpUrl, isHelpCommand } from './learner-help-content.js';
+import { createHelpReplyGuard } from './help-reply-guard.js';
 import { handleReviewNotificationBind } from './review-notifications.js';
 import { handleTelegramReminder, parseTelegramReminder } from './telegram-reminders.js';
 import { registerTelegramMiniapp } from './telegram-miniapp-auth.js';
@@ -64,7 +66,7 @@ export interface TelegramOnboardingConfig {
   sendMessage?: (
     chatId: number,
     text: string,
-    buttons?: ReadonlyArray<{ text: string; url: string }>
+    buttons?: ReadonlyArray<{ text: string; url: string; webApp?: boolean }>
   ) => Promise<void>;
 }
 
@@ -73,6 +75,7 @@ export const registerTelegramOnboarding = (
   pool: Pool,
   config: TelegramOnboardingConfig
 ) => {
+  const replyHelp = createHelpReplyGuard();
   app.get('/telegram/apply', async (request, reply) =>
     reply
       .header('cache-control', 'no-store')
@@ -92,7 +95,7 @@ export const registerTelegramOnboarding = (
     (async (
       chatId: number,
       text: string,
-      buttons?: ReadonlyArray<{ text: string; url: string }>
+      buttons?: ReadonlyArray<{ text: string; url: string; webApp?: boolean }>
     ) => {
       const response = await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
         method: 'POST',
@@ -105,7 +108,9 @@ export const registerTelegramOnboarding = (
             ? {
                 reply_markup: {
                   inline_keyboard: buttons.map((button) => [
-                    { text: button.text, web_app: { url: button.url } }
+                    button.webApp === false
+                      ? { text: button.text, url: button.url }
+                      : { text: button.text, web_app: { url: button.url } }
                   ])
                 }
               }
@@ -136,6 +141,38 @@ export const registerTelegramOnboarding = (
       message.from.is_bot
     ) {
       return { ok: true };
+    }
+    if (isHelpCommand(message.text)) {
+      const age = message.date === undefined ? 0 : Math.floor(Date.now() / 1000) - message.date;
+      if (age < -60 || age >= 86400) return { ok: true };
+      try {
+        await replyHelp(
+          String(parsed.data.update_id),
+          String(message.from.id),
+          message.text ?? '',
+          async () => {
+            const saved = await withRequestContext(
+              pool,
+              'qigong_api_runtime',
+              { requestId: request.id },
+              (c) =>
+                c.query<{ locale: string }>(
+                  "SELECT platform.get_identity_locale('telegram',$1) locale",
+                  [String(message.from.id)]
+                )
+            );
+            const locale = learnerLocale(saved.rows[0]?.locale);
+            await sendMessage(
+              message.chat.id,
+              helpLabel(locale) + '\n' + helpUrl('telegram', locale),
+              [{ text: helpLabel(locale), url: helpUrl('telegram', locale), webApp: false }]
+            );
+          }
+        );
+        return { ok: true };
+      } catch {
+        return reply.code(503).send({ error: 'help_unavailable' });
+      }
     }
     const displayName = telegramProfileDisplayName(message.from),
       proofTime = message.date,

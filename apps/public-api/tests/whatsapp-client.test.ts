@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import {
   createWhatsAppTextSender,
+  createWhatsAppWorkspaceMenuSender,
   createWhatsAppNotificationSender,
   loadWhatsAppNotificationConfig,
   type WhatsAppNotificationConfig
@@ -17,6 +19,41 @@ const config: WhatsAppNotificationConfig = {
 };
 afterEach(() => vi.unstubAllGlobals());
 describe('Meta WhatsApp Cloud API transport', () => {
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'adds a bounded public-help menu row in %s without personal URL data',
+    async (locale) => {
+      const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+        Response.json({ messages: [{ id: 'synthetic-menu-id' }] })
+      );
+      vi.stubGlobal('fetch', fetch);
+      await createWhatsAppWorkspaceMenuSender(config)('659900001234', 'Synthetic menu', locale);
+      const body = fetch.mock.calls[0]?.[1]?.body;
+      if (typeof body !== 'string') throw Error('Missing menu payload');
+      const data = z
+        .object({
+          interactive: z.object({
+            action: z.object({
+              sections: z.array(
+                z.object({ rows: z.array(z.object({ id: z.string(), title: z.string() })) })
+              )
+            })
+          })
+        })
+        .parse(JSON.parse(body));
+      const rows = data.interactive.action.sections[0]?.rows;
+      if (!rows) throw Error('Missing rows');
+      expect(rows.map((r) => r.id)).toEqual([
+        'workspace:checkin',
+        'workspace:leaderboard',
+        'workspace:methods',
+        'workspace:achievements',
+        'workspace:journal',
+        'workspace:help'
+      ]);
+      expect(rows.every((r) => [...r.title].length <= 24)).toBe(true);
+      expect(body).not.toMatch(/#|access_token|session=/);
+    }
+  );
   it.each([
     ['approved', 'en'],
     ['rejected', 'en'],

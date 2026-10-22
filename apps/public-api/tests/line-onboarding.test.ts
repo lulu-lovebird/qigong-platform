@@ -128,9 +128,13 @@ describeWithDatabase('LINE onboarding and checkin', () => {
         expect(response.statusCode).toBe(200);
         const message = reply.mock.calls.at(-1)?.[1];
         expect(message).toBeDefined();
+        if (typeof message !== 'string') throw Error('Missing signed LINE reply');
         for (const page of ['checkin', 'leaderboard', 'method-analysis', 'achievements', 'journal'])
           expect(message).toContain('https://liff.line.me/123456-test/' + page);
-        expect(message).not.toContain('https://checkin.baiyinqigong.org/line/');
+        expect(message.match(/https:\/\/checkin\.baiyinqigong\.org\/line\/[^\s]+/g)).toEqual([
+          'https://checkin.baiyinqigong.org/line/help'
+        ]);
+        expect(message).not.toMatch(/access_token=|#/);
         expect(message).not.toContain('mock-access-token');
         expect(message).not.toContain('idToken');
       }

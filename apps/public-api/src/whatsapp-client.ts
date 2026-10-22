@@ -1,4 +1,5 @@
 import { uiText } from './ui-localization.js';
+import { helpLabel } from './learner-help-content.js';
 import { z } from 'zod';
 import type { NotificationSender } from './onboarding-notifications.js';
 
@@ -119,7 +120,8 @@ export const createWhatsAppWorkspaceMenuSender =
                   'achievements',
                   locale === 'en' ? 'Achievements / history' : uiText(locale, '成就／月曆')
                 ],
-                ['journal', locale === 'en' ? 'Shared reflections' : uiText(locale, '心得分享')]
+                ['journal', locale === 'en' ? 'Shared reflections' : uiText(locale, '心得分享')],
+                ['help', helpLabel(locale)]
               ].map(([id, title]) => ({ id: 'workspace:' + id, title: title! }))
             }
           ]

@@ -1,12 +1,15 @@
 import { localeQuery, type LearnerLocale } from './learner-locale.js';
 import { uiDictionary } from './ui-localization.js';
-export type TelegramFeature = 'checkin' | 'leaderboard' | 'methods' | 'achievements' | 'journal';
+import { helpLabel } from './learner-help-content.js';
+export type TelegramFeature =
+  'checkin' | 'leaderboard' | 'methods' | 'achievements' | 'journal' | 'help';
 const features: ReadonlyArray<TelegramFeature> = [
   'checkin',
   'leaderboard',
   'methods',
   'achievements',
-  'journal'
+  'journal',
+  'help'
 ];
 const aliases: Readonly<Record<string, TelegramFeature>> = {
   checkin: 'checkin',
@@ -18,14 +21,16 @@ const aliases: Readonly<Record<string, TelegramFeature>> = {
   mystats: 'achievements',
   badges: 'achievements',
   journal: 'journal',
-  share: 'journal'
+  share: 'journal',
+  help: 'help'
 };
 const paths: Readonly<Record<TelegramFeature, string>> = {
   checkin: '/telegram/checkin',
   leaderboard: '/telegram/leaderboard',
   methods: '/telegram/method-analysis',
   achievements: '/telegram/achievements',
-  journal: '/telegram/journal'
+  journal: '/telegram/journal',
+  help: '/telegram/help'
 };
 const labels = {
   zh_TW: {
@@ -47,7 +52,11 @@ export const telegramFeatureButtons = (locale: LearnerLocale, command?: string) 
   const feature = command ? aliases[command.toLowerCase()] : undefined;
   if (command && !feature) throw Error('Unknown Telegram feature');
   return (feature ? [feature] : features).map((page) => ({
-    text: (locale === 'en' ? labels.en : uiDictionary(locale, labels.zh_TW))[page],
-    url: 'https://checkin.baiyinqigong.org' + paths[page] + localeQuery(locale)
+    text:
+      page === 'help'
+        ? '❓ ' + helpLabel(locale)
+        : (locale === 'en' ? labels.en : uiDictionary(locale, labels.zh_TW))[page],
+    url: 'https://checkin.baiyinqigong.org' + paths[page] + localeQuery(locale),
+    ...(page === 'help' ? { webApp: false } : {})
   }));
 };

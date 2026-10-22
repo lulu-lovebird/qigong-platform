@@ -221,7 +221,11 @@ suite('Telegram static launch and verified exchange', () => {
       });
       expect(response.statusCode).toBe(200);
       const buttons = sendMessage.mock.calls.at(-1)?.[2];
-      expect(buttons).toHaveLength(command === '/start' ? 5 : 1);
+      expect(buttons).toHaveLength(command === '/start' ? 6 : 1);
+      if (command === '/start') {
+        expect(buttons?.slice(0, 5).every((b) => !b.url.includes('/help'))).toBe(true);
+        expect(buttons?.at(-1)?.url).toBe('https://checkin.baiyinqigong.org/telegram/help');
+      }
       expect(buttons?.every((b) => !b.url.includes('#'))).toBe(true);
       expect(sendMessage.mock.calls.at(-1)?.[1]).not.toContain('15');
     }

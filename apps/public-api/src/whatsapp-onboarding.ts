@@ -1,4 +1,5 @@
 import { localeSchema, uiText } from './ui-localization.js';
+import { helpLabel, helpUrl, isHelpCommand } from './learner-help-content.js';
 import {
   registerWhatsAppBrowserSessions,
   resolveWhatsAppWorkspaceCredential,
@@ -251,11 +252,18 @@ export const registerWhatsAppOnboarding = (
               );
               const locale = learnerLocale(preference.rows[0]?.locale);
               const texts = learnerTexts(locale);
+              const text = command.trim();
+              if (isHelpCommand(text)) {
+                await sendText(
+                  message.from,
+                  helpLabel(locale) + '\n' + helpUrl('whatsapp', locale)
+                );
+                return;
+              }
               await client.query('SELECT platform.record_whatsapp_service_window($1,$2)', [
                 message.from,
                 new Date(Number(message.timestamp) * 1000).toISOString()
               ]);
-              const text = command.trim();
               const language = /^\/?language(?:\s+(\S+))?$/i.exec(text);
               if (language) {
                 const selected = language[1];
@@ -347,7 +355,8 @@ export const registerWhatsAppOnboarding = (
                   labels.leaderboard + ' ' + link('leaderboard'),
                   labels.methods + ' ' + link('method-analysis'),
                   labels.achievements + ' ' + link('achievements'),
-                  shared.feed + ' ' + link('journal')
+                  shared.feed + ' ' + link('journal'),
+                  helpLabel(locale) + ' ' + helpUrl('whatsapp', locale)
                 ].join('\n');
                 try {
                   await sendMenu(message.from, menu, locale);

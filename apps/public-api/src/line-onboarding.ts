@@ -2,6 +2,8 @@ import { createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { localeSchema, resolveLocale } from './ui-localization.js';
 import { lineBotTexts } from './line-ui-localization.js';
+import { helpUrl, helpLabel, isHelpCommand } from './learner-help-content.js';
+import { createHelpReplyGuard } from './help-reply-guard.js';
 import { learnerLocale, localeQuery, type LearnerLocale } from './learner-locale.js';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
@@ -43,6 +45,7 @@ const token = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 const webhookEvent = z.object({
   type: z.string(),
   webhookEventId: z.string().optional(),
+  timestamp: z.number().int().nonnegative().safe().optional(),
   replyToken: z.string().optional(),
   source: z.object({ type: z.string(), userId: userId.optional() }),
   message: z.object({ type: z.string(), text: z.string().optional() }).optional()
@@ -58,6 +61,7 @@ const details = z.object({
 
 export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config: LineConfig) => {
   const liffBase = `https://liff.line.me/${encodeURIComponent(config.liffId)}`;
+  const replyHelp = createHelpReplyGuard();
   const legacyVerify = config.verifyIdToken;
   const verifyIdentity =
     config.verifyIdentity ??
@@ -186,7 +190,17 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
           /^(?:\/)?(?:menu|選單|菜单|leaderboard|排行榜|methods|methodanalysis|功法分析|achievements|我的成就|成就|history|打卡紀錄|journal|share|心得|心得分享)$/i.test(
             event.message.text?.trim() ?? ''
           );
-        if (!isCheckin && !isApply && !isPrivacy && !workspaceCommand) continue;
+        const isHelp =
+          event.type === 'message' &&
+          event.message?.type === 'text' &&
+          isHelpCommand(event.message.text);
+        if (!isCheckin && !isApply && !isPrivacy && !workspaceCommand && !isHelp) continue;
+        if (
+          isHelp &&
+          event.timestamp !== undefined &&
+          (event.timestamp > Date.now() + 60_000 || event.timestamp < Date.now() - 86_400_000)
+        )
+          continue;
         const saved = await withRequestContext(
           pool,
           'qigong_api_runtime',
@@ -200,6 +214,20 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
         const locale = learnerLocale(saved.rows[0]?.locale),
           texts = lineBotTexts(locale),
           language = localeQuery(locale);
+        if (isHelp) {
+          try {
+            await replyHelp(
+              event.webhookEventId || event.replyToken,
+              event.source.userId,
+              event.message?.text ?? '',
+              () =>
+                replyMessage(event.replyToken!, helpLabel(locale) + '\n' + helpUrl('line', locale))
+            );
+          } catch {
+            return reply.code(503).send({ error: 'help_unavailable' });
+          }
+          continue;
+        }
         if (isApply || isCheckin) {
           const continuation = await getLineInviteContinuation(
             pool,
@@ -253,7 +281,8 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
               `${texts.ranking}: ${liffBase}/leaderboard${language}`,
               `${texts.methods}: ${liffBase}/method-analysis${language}`,
               `${texts.achievements}: ${liffBase}/achievements${language}`,
-              `${texts.journal}: ${liffBase}/journal${language}`
+              `${texts.journal}: ${liffBase}/journal${language}`,
+              `${helpLabel(locale)}: ${helpUrl('line', locale)}`
             ].join('\n')
           );
         } else {

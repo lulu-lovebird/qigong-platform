@@ -44,8 +44,14 @@ describe('Telegram command presentation', () => {
       expect(buttons[0]!.url).not.toContain('#');
     }
   });
-  it('keeps five start entries and parses explicit opt-in settings without loose arguments', () => {
-    expect(telegramFeatureButtons('zh_TW')).toHaveLength(5);
+  it('keeps five native start entries plus public help and parses explicit opt-in settings without loose arguments', () => {
+    expect(telegramFeatureButtons('zh_TW')).toHaveLength(6);
+    expect(
+      telegramFeatureButtons('zh_TW')
+        .slice(0, 5)
+        .every((b) => !Object.hasOwn(b, 'webApp'))
+    ).toBe(true);
+    expect(telegramFeatureButtons('zh_TW').at(-1)).toMatchObject({ webApp: false });
     expect(parseTelegramReminder('/remind')).toEqual({ action: 'read' });
     expect(parseTelegramReminder('/remind 21')).toEqual({ action: 'hour', value: '21' });
     expect(parseTelegramReminder('/remind off')).toEqual({ action: 'off' });
@@ -214,7 +220,7 @@ suite('Signed Telegram reminders and restricted durable delivery', () => {
     expect(sendMessage.mock.calls.at(-1)![2]).toHaveLength(1);
     expect(sendMessage.mock.calls.at(-1)![2]![0]!.text).toBe('✅ 開始打卡');
     await webhook('/start');
-    expect(sendMessage.mock.calls.at(-1)![2]).toHaveLength(5);
+    expect(sendMessage.mock.calls.at(-1)![2]).toHaveLength(6);
   });
   it('captures the selected Simplified locale for an explicit preview without opting the learner into reminders', async () => {
     await webhook('/language zh_CN');
