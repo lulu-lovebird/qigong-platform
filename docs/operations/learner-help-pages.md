@@ -1,14 +1,14 @@
-# 三渠道初學者Help Pages與入口（發布候選／待部署）
+# 三渠道初學者Help Pages與入口（已部署96e0c13／同schema46）
 
 ## 核准與交付界線
 
-使用者確認功能大致完備但學習負擔過多，核准本機製作LINE／Telegram／WhatsApp獨立指引與三語、公開唯讀路由、Bot選單及help入口；首次使用／每日打卡／看紀錄置前、進階FAQ預設收合，保留簽章／去重／時效／身份／同意邊界，Help不建立同意或資格。**未commit/push/deploy、不連正式寫入／發訊息、不改DB/migrations/provider Console/正式menu/通知/授獎/憑證**。兩份既有無關文件保留。依先前部署紀錄正式仍a24f14e／46，使用者在1386測試／18組Chrome驗證完成、預覽附件未能交付後，另明確核准本次commit/push/deploy；限同schema46的Help頁及程式內入口，待精確SHA CI、fresh46 clone相容／保存及停寫final加密DB／roles／runtime actual restore/preservation過才切換，不執行migration。LINE正式六格、provider正式menu、WA env／通知／授獎／Meta設定保留，不把部署當正式選單發布；尚未切換，本檔URL仍未正式發布。
+使用者確認功能大致完備但學習負擔過多，核准本機製作LINE／Telegram／WhatsApp獨立指引與三語、公開唯讀路由、Bot選單及help入口；首次使用／每日打卡／看紀錄置前、進階FAQ預設收合，保留簽章／去重／時效／身份／同意邊界，Help不建立同意或資格。**未commit/push/deploy、不連正式寫入／發訊息、不改DB/migrations/provider Console/正式menu/通知/授獎/憑證**。兩份既有無關文件保留。依先前部署紀錄正式仍a24f14e／46，使用者在1386測試／18組Chrome驗證完成、預覽附件未能交付後，另明確核准本次commit/push/deploy；限同schema46的Help頁及程式內入口，待精確SHA CI、fresh46 clone相容／保存及停寫final加密DB／roles／runtime actual restore/preservation過才切換，不執行migration。LINE正式六格、provider正式menu、WA env／通知／授獎／Meta設定保留，不把部署當正式選單發布；已完成96e0c13175d5cf661347f8299e7d7c440079b4c8／同46部署，CI39793684155原run1386tests、fresh clone與final actual restore/preservation通過，268 Node HTTPS／healthy。三URL及程式內入口已發布；正式provider menu／LINE六格未修改，真人Help流程驗收尚待。
 
-| 渠道     | 本機實作的正式路徑（待另核准部署） | 特別內容                                                                                |
-| -------- | ---------------------------------- | --------------------------------------------------------------------------------------- |
-| LINE     | `/line/help`                       | 有邀請回原邀請、一般申請待審；LIFF打卡／回條；新心得依告知進入學員流                    |
-| Telegram | `/telegram/help`                   | /start／Mini App／/checkin；私人回條；自選提醒與/remind off                             |
-| WhatsApp | `/whatsapp/help`                   | join／checkin、個人30天／共用15分鐘裝置登入、固定書籤、完成卡／關閉fallback、無聊天摘要 |
+| 渠道     | 已部署公開路徑   | 特別內容                                                                                |
+| -------- | ---------------- | --------------------------------------------------------------------------------------- |
+| LINE     | `/line/help`     | 有邀請回原邀請、一般申請待審；LIFF打卡／回條；新心得依告知進入學員流                    |
+| Telegram | `/telegram/help` | /start／Mini App／/checkin；私人回條；自選提醒與/remind off                             |
+| WhatsApp | `/whatsapp/help` | join／checkin、個人30天／共用15分鐘裝置登入、固定書籤、完成卡／關閉fallback、無聊天摘要 |
 
 每頁zh_TW/zh_CN/en，共用安全排版模板但渠道內容獨立。服務品牌白雁氣功／氣功打卡小幫手；不將開發者推定為所有部署營運者，不改正式政策。
 
@@ -50,7 +50,7 @@
 
 未來若要六格內直接露出Help，建議另核准第二版：將下右改「使用說明」，URI=`https://checkin.baiyinqigong.org/line/help`，Help第一次使用教回聊天傳「加入」，原文字加入指令仍保留。這只是操作稿，**本輪不更換六格、不產生或發布provider圖片／richmenu API**。部署Help後先驗公開URL／三語，再由負責人備份當前menu/image/動作與綁定、確認格位、另核准Console或API發布與真人LINE點擊；不可把未部署URL先放正式選單。
 
-TG setMyCommands/setChatMenuButton等正式設定及WA Meta Console同樣未改；本輪只是未部署的程式內選單／指令接入。既有bot username／私連結未硬編進Help，不移除現有功能。
+TG setMyCommands/setChatMenuButton等正式設定及WA Meta Console同樣未改；程式內選單／指令接入已另經核准部署，但provider正式menu設定仍未改。既有bot username／私連結未硬編進Help，不移除現有功能。
 
 ## 本機驗證與失敗留證
 
@@ -63,6 +63,19 @@ TG setMyCommands/setChatMenuButton等正式設定及WA Meta Console同樣未改�
 
 證據：`/tmp/qigong-help-{routes,routes-fixed,routes-policy,reminders,line-regression,line-regression-fixed,tg-regression,verify,verify-complete,build,browser}.log`，verify保留舊menu斷言失敗，complete為1386成功。`/tmp/qigong-help-browser/results.json`與18PNG；runner `/tmp/qigong-help-browser.mjs`。測試PG16/55526、HTTP55532/CDP55533完成後停止。
 
-## 待辦／部署邊界
+## 正式部署／final actual restore／復原
 
-commit/push與同schema46發布已獲後續明確核准；仍須精確SHA CI、正式final actual restore/preservation通過才切換。發布需保留現WA env及token／notifications／operator FALSE、不跑migration；之後才逐一確認各平台新Help入口及正式menu發布。無需為讀Help送出申請、打卡、同意、啟用提醒或產生任何正式個資CSV。
+- 功能 **96e0c13175d5cf661347f8299e7d7c440079b4c8**，19檔feature提交，精確SHA CI **39793684155**原run **1386tests**及兩strict gates成功；CI原先queued再in_progress，當時正式仍服務未停機，建置／clone先行但直到同run成功才維護，無重跑或繞過。API min42/max46／phase27、全0001–0046及dependencies不改，**無migration applier／DDL／grant/backfill**。
+- Manifest差異16既有編譯檔（7個runtime模組及map＋TG feature/onboarding兩宣告）、9新增Help三模組JS/map/declaration，319其他檔相同；worker及CSV runtime JS/map byte-identical。原compiled LINE/TG/grant/Authgear/journal／mock worker與systemd14mock receipts、雙lane新鮮heartbeat／graceful stop過，無外部發送。
+- fresh46 clone restore原86表／20people／74checkins/source/privacy/audit/jobs／函式及attrs/RLS/ACL/roles保存，新舊API均ready。三渠道×三語公開Help9頁／無script-form，讀取前後86表exact；三渠道簽章Help各實際mock回覆1次、duplicate皆不重送。只允許1個synthetic WA inbox marker新增，既有inbox row hash與其餘85表及state exact，沒有申請/資格/consent/service-window寫入。最初scope verifier以postgres讀root-private證據EACCES，在維護前被guard擋住；保留failure，改root controller讀JSON、postgres僅做只讀SQL，未擴檔權／DB grant或放寬比對，未重送signed fixture掩蓋重播差異。
+- 維護 **2026-10-22 14:36:34–14:37:40 UTC（台北22:36:34–22:37:40）／65.432monotonic秒**。入口封鎖、停寫／drain API及雙worker後，final DB／global roles／runtime分離key站外AES-GCM、decrypt/hash後fresh PG16**實際還原DB/roles與extract runtime**，86表／20people／74checkins／原1draft/0preview exact。比對包含所有現WA事件/links、目前env/token、name snapshots與metadata；正式DB沒有restore/migrate。
+- Matching artifact及version override切換，private API startup前後86表exact；**14:37:03 resume marker先於workers**，新epoch health合格才恢復入口。env640／6protected檔／3enabled links及通知/授獎flag保留，normal Caddy全檔byte-identical、其他站台不變；六項WA loaded值與目前api.env逐一相符，不回灌舊未配置WA或舊token。兩份無關文件持續排除。
+- 正式 **268 Node HTTPS**含三渠道三語Help/header/CSP/無script-form、POST404/query不反射及原功能邊界過；API/realtime active、restart0/exit0、minute success/timer active、receipt health healthy、兩lane各queue0，epoch samples0/p95null，不是假稱手機延遲或exactly-once。兩真guest TCP ports/reqId log probes證明incoming URL [REDACTED]及completion200/401、marker與三WA secrets未出現在current-invocation API journal。
+- Post-release runtime再站外encrypt/decrypt/hash後實際extract驗env/current/override/normal ingress，不說成post-release DB另還原；clone/probe停、worker/community fixture憑證檔刪。沒有agent正式申請/checkin/心得/審核/個資CSV/provider test sends（guest OAuth smoke僅暫存login challenge）。
+- **正式LINE richmenu六格、Telegram setMyCommands/setChatMenuButton、Meta Console均未修改**；程式內回覆菜單與help指令已上線不等於provider設定已發布。三公開網址現在可開，但六格替換／BotFather/menu正式發布及真人各client點擊仍另核准。閱讀Help不建立同意/資格；沒有啟用通知或新授獎，operator FALSE。
+- 恢復後保留46／全部新寫入／現WA env，優先fix forward。不退42、不回灌舊DB/runtime或token；必要binary recovery也須另確認且只能已驗same46的a24 matching artifact，保留DB/queues/audit/env與provider設定。
+- 私有證據`/tmp/qigong-help-release-96e0c13/`及`/tmp/qigong-help-release-{prepare,compiled,scope-fixed,realtime,activate,public,post-backup}.log`；compiled保留scope原失敗，scope-fixed為不改權限的比對成功。正式`/root/qigong-deploy-96e0c13`與deployment-tools/96e0c13。站外backup `~/.local/share/qigong-platform/backups/deployment-96e0c13`，分離key在backup-keys/deployment-96e0c13.key，不入Git/log/對話。
+
+## 真人驗收／正式選單發布待辦
+
+commit/push與同schema46發布已依後續核准完成，精確SHA CI、final actual restore/preservation過才切換。發布需保留現WA env及token／notifications／operator FALSE、不跑migration；之後才逐一確認各平台新Help入口及正式menu發布。無需為讀Help送出申請、打卡、同意、啟用提醒或產生任何正式個資CSV。
