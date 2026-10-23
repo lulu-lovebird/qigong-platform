@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { learnerHelpContent, helpUrl, isHelpCommand } from '../src/learner-help-content.js';
 import { telegramFeatureButtons } from '../src/telegram-feature-buttons.js';
+import {
+  lineHelpImages,
+  lineHelpImagePath,
+  lineHelpImageLabels
+} from '../src/learner-help-images.js';
 
 describe('public channel-specific beginner help', () => {
   it.each(
@@ -39,6 +44,72 @@ describe('public channel-specific beginner help', () => {
         expect(response.body).toContain('/privacy?platform=' + channel);
         expect(query).not.toHaveBeenCalled();
         expect(pool.totalCount).toBe(0);
+      } finally {
+        await app.close();
+        await pool.end();
+      }
+    }
+  );
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'adds only consented LINE screenshots in the intended sections for %s, without database access',
+    async (locale) => {
+      const pool = new pg.Pool();
+      const query = vi
+        .spyOn(pool, 'query')
+        .mockRejectedValue(Error('Help must not query database'));
+      const app = buildApp({ pool, logger: false });
+      try {
+        const r = await app.inject('/line/help?lang=' + locale);
+        expect(r.statusCode).toBe(200);
+        expect(r.headers['content-security-policy']).toContain("img-src 'self'");
+        expect(r.body.match(/<img /g)).toHaveLength(7);
+        expect(r.body.match(/loading="lazy"/g)).toHaveLength(7);
+        expect(r.body.match(/decoding="async"/g)).toHaveLength(7);
+        expect(r.body).toContain(lineHelpImageLabels(locale).notice);
+        expect(r.body).toContain('<details class="help-example"><summary>');
+        expect(r.body).not.toMatch(/<details[^>]*\bopen\b|<script|<form|data:image|<iframe/);
+        const start = r.body.indexOf('id="start"');
+        const daily = r.body.indexOf('id="daily"');
+        const history = r.body.indexOf('id="history"');
+        const more = r.body.indexOf('id="more"');
+        for (const image of lineHelpImages) {
+          const path = lineHelpImagePath(image);
+          const position = r.body.indexOf('src="' + path + '"');
+          expect(r.body).toContain('href="' + path + '" target="_blank" rel="noopener noreferrer"');
+          expect(r.body).toContain('width="' + image.width + '" height="' + image.height + '"');
+          const bounds =
+            image.section === 'start'
+              ? [start, daily]
+              : image.section === 'daily'
+                ? [daily, history]
+                : image.section === 'history'
+                  ? [history, more]
+                  : [more, r.body.length];
+          expect(position).toBeGreaterThan(bounds[0] ?? 0);
+          expect(position).toBeLessThan(bounds[1] ?? 0);
+          expect((await app.inject(path)).statusCode).toBe(200);
+        }
+        expect(query).not.toHaveBeenCalled();
+        expect(pool.totalCount).toBe(0);
+      } finally {
+        await app.close();
+        await pool.end();
+      }
+    }
+  );
+  it.each(['telegram', 'whatsapp'] as const)(
+    'does not add images or loosen image CSP for %s',
+    async (channel) => {
+      const pool = new pg.Pool();
+      const app = buildApp({ pool, logger: false });
+      try {
+        for (const locale of ['zh_TW', 'zh_CN', 'en']) {
+          const r = await app.inject('/' + channel + '/help?lang=' + locale);
+          expect(r.statusCode).toBe(200);
+          expect(r.body).not.toContain('<img ');
+          expect(r.body).not.toContain('help-figure');
+          expect(r.headers['content-security-policy']).not.toContain('img-src');
+        }
       } finally {
         await app.close();
         await pool.end();

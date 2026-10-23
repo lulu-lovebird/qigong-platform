@@ -1,5 +1,15 @@
 # 三渠道初學者Help Pages與入口（已部署96e0c13／同schema46）
 
+## LINE圖片發布候選（後另獲提交／推送／部署核准）
+
+- 使用者已回報自行將Help成功加入LINE正式圖文選單；這是部署後使用者的操作，不代表agent修改Console，也不將TG／Meta設定視為一併完成。使用者提供七張本人截圖，確認同意其中修練紀錄作為公開Help示例，另核准**僅本機**確定性裁切／壓縮／metadata移除，不用AI重繪、不改日期／數字／勾選／告知，**未核准commit/push/deploy**。
+- 原圖在專案外。七個衍生PNG共2,548,079 bytes（原5,162,773），RGB逐像素等於原圖對應區域；保留sRGB色彩宣告，除IHDR/sRGB/IDAT/IEND之外無metadata。01只留六格、02去聊天背景、03群組複選、04完整分享告知與完成按鈕、05只最新回條、07月曆／單日紀錄；06放native details預設收合，不把七圖全部當首頁任務。首次加入仍文字，不偽稱已拍到新申請流程。來源、座標與封裝要求見[圖片說明](../../assets/learner-help/README.md)。
+- `learner-help-images.ts`固定七檔／完整SHA256／尺寸／section，字面路由`/line/help/images/<sha256>/<file>`，不提供任意filesystem path。hash不合／缺檔為sanitized503/no-store，成功PNG/nosniff/no-referrer/CORP same-origin/嚴格CSP/public max-age3600。Help HTML仍no-store，只對LINE加入img-src self，其他渠道CSP與六份HTML byte-identical；沒有外站圖片／SDK／script／form／storage／DB查詢。圖片採lazy/async、固定尺寸、三語圖說/alt與明示繁中／示例紀錄；點原生連結另開原尺寸，圖片本身未翻譯、未改個人紀錄。
+- Node24兩strict gates、format/lint/source typecheck/build與靜態字表1756phrases/1379mappings通過。新圖片15tests與Help33tests共48；獨立完整API **1113tests**／identity6／config2通過。**整體verify尚未全綠**：DB285項中284過、既有`telegram-workspace.test.ts`的`awards streak, cumulative, method, time and yearly combo badges idempotently`在讀achievements時回`practice identity unavailable`。DB套件／migrations未改，未查明根因，不宣稱只是clock也不把重跑當修復；保留failure，不擅改身份SQL／fixture／權限、不重跑該案例洗綠。未達發布門檻，不稱1406全部過。
+- 初次verify被測試mock的import() type lint規則擋住，已改精確readFile結構型別，沒關lint或放寬型別。Chrome harness先因把檔案順序誤當DOM順序漏載history，再因把圖片border-box當content比例斷言失敗；原log保留，分別改用固定src定位與扣除實際border後驗內容比例，未改產品圖像或放寬閾值。
+- 真本機Chrome **18組／22張預覽**（三渠道×三語×390/1280，另三張成就展開及一張原生首屏）通過：六張主流程圖片實際decode、原尺寸native popup、FAQ與成就收合/展開、44px、anchor、無橫向溢出、零scripts/forms/storage、**DB attempts0／外站資源0／正式連線0／provider sends0**。這是本機瀏覽器，不是真LINE手機驗收；預覽檔存在不等於已送到Telegram。`/tmp/qigong-help-images-browser/results.json`及22PNG；最後目視檢查發現captureBeyondViewport產物的offscreen lazy圖雖已載入但未繪製，保留prepaint產物，改相同寬度展開完整viewport、await decode與paint後重拍，未改產品lazy/CSP，也未把空白圖片當完成預覽。原失敗log、complete／painted log與`/tmp/qigong-help-images-{verify,verify-complete,api-verify}.log`保留。
+- 本輪沒有SSH／正式寫入／正式訊息／DB或migration／dependencies／通知／授獎／憑證／provider設定變更，兩份無關文件保留。正式仍以下96e0c13文字版Help。使用者在本機失敗披露後另明確核准本次commit/push/deploy；須精確SHA原CI完整測試、fresh46 clone／七圖片路由與停寫final實際還原保存通過才可切換，CI失敗則停，不重跑洗綠或更改身份檢查。這是新原run的獨立完整驗證，不刪除本機失敗或宣稱根因已修；clock／時效診斷仍開放。未來發布須含root assets衍生檔、測全部七圖成功／未知path拒絕／sanitized缺圖，不只看readiness；不打包原圖或工具私有state，保留目前LINE選單、WA配置／schema46與所有正式寫入。
+
 ## 核准與交付界線
 
 使用者確認功能大致完備但學習負擔過多，核准本機製作LINE／Telegram／WhatsApp獨立指引與三語、公開唯讀路由、Bot選單及help入口；首次使用／每日打卡／看紀錄置前、進階FAQ預設收合，保留簽章／去重／時效／身份／同意邊界，Help不建立同意或資格。**未commit/push/deploy、不連正式寫入／發訊息、不改DB/migrations/provider Console/正式menu/通知/授獎/憑證**。兩份既有無關文件保留。依先前部署紀錄正式仍a24f14e／46，使用者在1386測試／18組Chrome驗證完成、預覽附件未能交付後，另明確核准本次commit/push/deploy；限同schema46的Help頁及程式內入口，待精確SHA CI、fresh46 clone相容／保存及停寫final加密DB／roles／runtime actual restore/preservation過才切換，不執行migration。LINE正式六格、provider正式menu、WA env／通知／授獎／Meta設定保留，不把部署當正式選單發布；已完成96e0c13175d5cf661347f8299e7d7c440079b4c8／同46部署，CI39793684155原run1386tests、fresh clone與final actual restore/preservation通過，268 Node HTTPS／healthy。三URL及程式內入口已發布；正式provider menu／LINE六格未修改，真人Help流程驗收尚待。
