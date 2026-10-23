@@ -1,4 +1,5 @@
 import { Script } from 'node:vm';
+import { renderChannelWorkspacePage } from '../src/channel-workspace-pages.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
   whatsappCompletionBootstrap,
@@ -140,6 +141,59 @@ describe('WhatsApp committed check-in completion', () => {
       expect(f.timers.size).toBe(0);
     }
   );
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'uses prominent, scoped success styles without changing %s copy or status semantics',
+    (locale) => {
+      const html = renderChannelWorkspacePage({ platform: 'whatsapp' }, 'checkin', locale);
+      const text = whatsappCompletionTexts(locale);
+      expect(html).toContain(
+        '<h2>' + text.title + '</h2><p class="success">' + text.encouragement + '</p>'
+      );
+      expect(html).toContain('role="status" aria-live="polite" tabindex="-1" hidden');
+      expect(html).toContain(
+        '.wa-completion{overflow-wrap:anywhere;border:3px solid #166534;background:#f0fdf4}'
+      );
+      expect(html).toContain(
+        '.wa-completion>h2{margin:0 0 12px;color:#14532d;font-size:clamp(2rem,8vw,2.75rem);font-weight:800;line-height:1.3;text-align:center}'
+      );
+      expect(html).toContain(
+        '.wa-completion>.success{margin:0 0 24px;color:#14532d;font-size:clamp(1.5rem,6vw,2rem);font-weight:800;line-height:1.4;text-align:center}'
+      );
+      expect(html).toContain('.wa-completion button{min-height:44px;white-space:normal}');
+      expect(html).toContain(whatsappCompletionBootstrap(locale));
+      expect(html).not.toContain('animation:');
+    }
+  );
+  it('keeps title and encouragement contrast above 7:1 on the success background', () => {
+    const luminance = (color: string): number => {
+      const weights = [0.2126, 0.7152, 0.0722] as const;
+      return weights.reduce((sum, weight, index) => {
+        const channel = Number.parseInt(color.slice(1 + index * 2, 3 + index * 2), 16) / 255;
+        return (
+          sum + weight * (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+        );
+      }, 0);
+    };
+    expect((luminance('#f0fdf4') + 0.05) / (luminance('#14532d') + 0.05)).toBeGreaterThanOrEqual(7);
+  });
+  it('does not inject success styling into LINE or other WhatsApp pages', () => {
+    for (const locale of ['zh_TW', 'zh_CN', 'en'] as const)
+      for (const page of [
+        'checkin',
+        'leaderboard',
+        'methods',
+        'achievements',
+        'journal'
+      ] as const) {
+        expect(
+          renderChannelWorkspacePage({ platform: 'line', liffId: '12345-synthetic' }, page, locale)
+        ).not.toContain('.wa-completion>h2');
+        if (page !== 'checkin')
+          expect(renderChannelWorkspacePage({ platform: 'whatsapp' }, page, locale)).not.toContain(
+            '.wa-completion>h2'
+          );
+      }
+  });
   it('freezes the successful date, zone and method labels before later UI changes', () => {
     const f = fixture();
     f.context.selectedDate = '2026-10-20';

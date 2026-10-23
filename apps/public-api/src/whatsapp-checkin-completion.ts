@@ -83,7 +83,7 @@ export const addWhatsAppCheckinCompletion = (html: string, locale: LearnerLocale
   const edits: ReadonlyArray<readonly [string, string]> = [
     [
       '</style>',
-      '.wa-completion{overflow-wrap:anywhere}.wa-completion button{min-height:44px;white-space:normal}</style>'
+      '.wa-completion{overflow-wrap:anywhere;border:3px solid #166534;background:#f0fdf4}.wa-completion>h2{margin:0 0 12px;color:#14532d;font-size:clamp(2rem,8vw,2.75rem);font-weight:800;line-height:1.3;text-align:center}.wa-completion>.success{margin:0 0 24px;color:#14532d;font-size:clamp(1.5rem,6vw,2rem);font-weight:800;line-height:1.4;text-align:center}.wa-completion button{min-height:44px;white-space:normal}</style>'
     ],
     ['<fieldset id="editor"', panel + '<fieldset id="editor"'],
     [
