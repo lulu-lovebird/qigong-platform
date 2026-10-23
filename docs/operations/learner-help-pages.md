@@ -1,6 +1,18 @@
-# 三渠道初學者Help Pages與入口（已部署96e0c13／同schema46）
+# 三渠道初學者Help Pages與入口（最新LINE圖解e2441cf／同schema46）
 
-## LINE圖片發布候選（後另獲提交／推送／部署核准）
+## LINE七圖正式發布／final actual restore／恢復
+
+- 功能 **e2441cfbbd6290378e0aa9a3a3b07a5ac278ab63**，15核准檔，精確SHA CI **39916621797**原run attempt1 **1406tests（API1113/DB285/config2/identity6）**與兩strict gates成功。原run queued/in_progress時未停機，未重跑CI／改DB fixture／SQL或身份斷言；本機`practice identity unavailable`原失敗仍保留為未結案，不把獨立Linux CI成功稱根治。
+- Artifact僅4既有檔變更（Help page與靜態簡中map的JS/map），新增image module JS/map/d.ts＋7經同意的衍生PNG，340其他manifest檔及worker/CSV runtime相同。封裝root assets且七圖SHA/尺寸/metadata皆驗過；沒有原圖、秘密env、dependency或0001–0046變動，無migration applier／DDL／grant/backfill。API min42/max46／phase27保持。
+- Fresh46一致snapshot restore **86表/20people/78checkins**及schema/security/roles exact，新舊96與e244均ready。Compiled三渠道三語9頁＋七圖／25路由檢查、6份非LINE HTML exact、metadata/錯hash/未知path/穿越/POST拒絕與HEAD過，讀取前後86表及domain exact；既有前端／簽章／grant/profile/journal與systemd14mock jobs、雙lane heartbeat/graceful stop過，無provider實際發送。
+- 維護 **2026-10-23 07:27:25–07:28:32 UTC（台北15:27:25–15:28:32）／66.714monotonic秒**。入口封鎖／API與雙worker drain-stop後，final DB／global roles／runtime站外分離key加密、decrypt/hash，fresh PG16**實際還原DB/roles並extract runtime**，86表/20people/78checkins/原1draft/0preview exact過才切matching artifact。正式DB沒有restore/migrate，private API起動與25項真HTTP圖片/Help檢查後86表exact；**07:27:55 resume marker先於workers**，新epoch health合格才開入口。
+- 公開 **原268HTTPS＋25圖片/Help檢查**皆過。首次新增檢查在第10項圖片cache header失敗，原log保留：origin是`public,max-age=3600`，公開Cloudflare實測`public,max-age=14400`且HIT、同一PNG SHA及其他安全標頭完全相符；未知／穿越全404。未改Cloudflare設定或產品程式，驗證器分別嚴格核對origin3600與edge14400，保留所有SHA/metadata/權限拒絕斷言後通過。**對外快取實際4小時，不承諾1小時撤圖／即時撤銷**；若需縮短edge TTL須另審，來源1小時不能當edge保證。
+- API/realtime active/restart0/exit0、minute success/timer active、receipt health healthy、兩lane queue0；epoch samples0/p95null不冒稱手機延遲。六WA loaded設定逐項與現env一致、env640/6protected檔/3links/flags保留、normal Caddy全檔byte-identical，兩實際TCP/reqId probe證明圖片query及admin query URL REDACTED/200與401、marker與WA secrets不在current invocation journal。Post-runtime再站外encrypt/decrypt/hash及actual extract驗current/override/normal ingress，不稱post-release DB又還原。Clone/probe停／fixture移除，沒有agent正式申請/checkin/心得/審核/個資CSV/provider test sends（guest OAuth smoke僅暫存login challenge）。
+- 已保留使用者自行設定的LINE正式六格，TG/Meta/Cloudflare Console未改，既有通知flags及**operator FALSE**保持。七圖已在`/line/help`三語頁發布；真人LINE閱讀/縮放與文案驗收仍待，不假稱本機22張已當附件交付。
+- 恢復後留46／所有新寫入／現WA env，優先fix forward；不退42、不回灌舊DB/runtime/token。必要same46 binary recovery也須另確認，僅可用已驗96e0c13 matching artifact，保留現資料／queues/audit/env及使用者選單。圖片撤下另處理edge/cache，不能承諾即時收回。
+- 私有證據`/tmp/qigong-help-images-release-e2441cf/`與`/tmp/qigong-help-images-release-{prepare,compiled,realtime,activate,public,public-diagnostic,image-public-complete,post-backup}.log`；正式`/root/qigong-deploy-e2441cf`、deployment-tools/e2441cf；站外backups/deployment-e2441cf與分離backup-keys/deployment-e2441cf.key，不入Git或對話。初次公開cache失敗、本機DB失敗與browser prepaint證據皆保留。
+
+## LINE圖片本機checkpoint（後已部署e2441cf）
 
 - 使用者已回報自行將Help成功加入LINE正式圖文選單；這是部署後使用者的操作，不代表agent修改Console，也不將TG／Meta設定視為一併完成。使用者提供七張本人截圖，確認同意其中修練紀錄作為公開Help示例，另核准**僅本機**確定性裁切／壓縮／metadata移除，不用AI重繪、不改日期／數字／勾選／告知，**未核准commit/push/deploy**。
 - 原圖在專案外。七個衍生PNG共2,548,079 bytes（原5,162,773），RGB逐像素等於原圖對應區域；保留sRGB色彩宣告，除IHDR/sRGB/IDAT/IEND之外無metadata。01只留六格、02去聊天背景、03群組複選、04完整分享告知與完成按鈕、05只最新回條、07月曆／單日紀錄；06放native details預設收合，不把七圖全部當首頁任務。首次加入仍文字，不偽稱已拍到新申請流程。來源、座標與封裝要求見[圖片說明](../../assets/learner-help/README.md)。

@@ -1,6 +1,14 @@
 # Qigong Platform — 交接摘要
 
-## LINE Help七圖發布候選（提交／推送／部署後另獲核准，待精確SHA原CI）
+## 最新部署：LINE Help七張操作圖e2441cf／同schema46
+
+- 正式 **e2441cfbbd6290378e0aa9a3a3b07a5ac278ab63**，15核准檔，精確SHA CI **39916621797**原run/attempt1 **1406tests**及兩strict gates過，未重跑CI；本機DB身份時效失敗仍保留未結案、不宣稱根治。API min42/max46／原phase27，0001–0046 immutable，無migration applier/DDL/grant/backfill/依賴變更。4既有JS/map變更、image module三檔＋7衍生PNG新增、340其他manifest檔／worker與CSV runtime相同；原圖不入庫。
+- 使用者已自行把Help加LINE六格，並確認本人七圖/公開示例同意與本輪commit/push/deploy核准。七圖只做pixel-exact裁切／無損壓縮／去metadata，不AI重繪、不改日期數字勾選告知；三語圖說/alt、lazy/async／原尺寸native新分頁、06成就預設收合。七檔/完整SHA/尺寸白名單、無任意filesystem path、sanitized缺圖503，LINE-only img-src self；TG/WA六份HTML byte-identical。
+- Fresh46 clone86表/20people/78checkins/security/roles exact，新舊ready、compiled9頁/七圖25路由及讀取前後86表exact，既有回歸／RT14mockjobs過。**2026-10-23 07:27:25–07:28:32 UTC（台北15:27–15:28）／66.714秒**，停API/雙worker後final DB/roles/runtime站外encrypt/decrypt/hash、fresh PG16 actual restore/extract與**86表/20people/78checkins/原1draft/0preview** exact過才切；private API起動及真HTTP七圖檢查後86表exact，**07:27:55 resume marker先於workers**。
+- **原268HTTPS＋25圖片/Help檢查**通過／healthy／queue0/restart0。初次圖片公開cache斷言失敗保留：origin3600秒但Cloudflare公開14400秒/HIT，PNG SHA及安全標頭相同；未改edge/產品程式，驗證器按tier嚴格檢查3600/14400後過。**對外實際4小時快取，不承諾1小時或即時撤圖**，縮短TTL須另審。六WA loaded值與現env相符，env640/flags/units/normal Caddy全檔保留，2URL redaction probe過、post-runtime再加密實際extract，clone停/fixture清。
+- 使用者LINE選單保留，TG/Meta/Cloudflare Console未改、operator FALSE、無agent正式申請/checkin/心得/審核/個資CSV/provider test sends。留46/current WA/all writes fix forward，不退42或舊DB/runtime/token；必要same46 binary recovery另確認且只用已驗96 matching artifact、不覆蓋現資料或選單。私人`/tmp/qigong-help-images-release-e2441cf`、`/root/qigong-deploy-e2441cf`、站外backup與分離key保留；本機DB/原browser/公開cache失敗不刪。真人新版LINE Help閱讀/縮放驗收待，22本機PNG不當已送Telegram附件。詳見[部署／實際還原／快取差異與復原](docs/operations/learner-help-pages.md)。
+
+## LINE Help七圖本機checkpoint（後已部署e2441cf）
 
 - 使用者已自行將Help加入LINE正式圖文選單，另確認七張為本人截圖、同意修練紀錄作公開Help示例，核准本機確定性裁切／壓縮／移除metadata，**不用AI重繪，不改日期／數字／勾選／告知；不commit/push/deploy**。原圖專案外，七衍生PNG從5,162,773降2,548,079 bytes、每像素等於原對應區域，除固定sRGB及必要PNG chunks外無metadata。01入口／02日期時區／03功法／04完整分享告知和完成／05最新回條／07歷史，06收合成就；首次加入仍文字。見[衍生圖與座標](assets/learner-help/README.md)。
 - 新learner-help-images固定七檔/完整SHA256/尺寸白名單，沒有動態filesystem path，sanitized缺圖／hash不符503，成功PNG/nosniff/no-referrer/CORP same-origin/嚴格CSP/public max-age3600。只有LINE HTML加img-src self，仍零DB/script/form/SDK/storage；三語圖說/alt明示繁中示例，不翻改圖片內紀錄。六份TG/WA Help HTML與原版byte-identical，成就native details預設收合，圖片lazy/async/固定尺寸／原生新分頁原尺寸。
@@ -8,7 +16,7 @@
 - **完整verify尚未全綠**：DB **284過／1失敗**，`telegram-workspace.test.ts`的badge idempotency案例在achievements report回`practice identity unavailable`。DB套件／migrations未改；不猜根因、不改身份／權限／fixture，也不重跑案例洗綠，不能稱1406全過。先前測試mock import() type lint已改精確readFile結構型別；Chrome harness原檔案順序／DOM順序及border-box比率失敗留證，已按固定src及content-box修正，未放寬閾值／產品內容。最後目視發現full-page產物offscreen lazy圖未paint，prepaint保留，相同寬度展開完整viewport／await decode+paint後重拍22PNG，未改產品lazy/CSP。
 - `/tmp/qigong-help-images-{verify,verify-complete,api-verify,browser,browser-fixed,browser-complete,browser-painted}.log`及browser/results.json／22PNG留本機。尚待既有DB失敗另核准診斷／必要修正、完整verify及本機預覽審核；發布仍另核准且必須封裝root assets衍生圖並驗七路由，不只驗readiness。本輪無SSH／正式寫入／正式訊息／provider設定／DB／依賴／通知／授獎／env變更，兩份無關文件保留。使用者在上述失敗已披露後另明確核准本次commit/push/deploy；只有精確SHA原CI完整測試及fresh46 clone／七圖路由／停寫final備份實際還原保存通過才能切換，CI失敗則停，不重跑洗綠或放寬身份檢查。本機DB失敗仍是未結案診斷，不能用CI成功稱根治。目前正式仍 **96e0c13／46文字版**，留46／現WA環境及所有新寫入，不回灌舊快照。見[本機候選、失敗留證與發布邊界](docs/operations/learner-help-pages.md)。
 
-## 最新部署：三渠道初學者Help Pages 96e0c13／同schema46
+## 前次部署：三渠道初學者Help Pages 96e0c13／同schema46
 
 - 正式 **96e0c13175d5cf661347f8299e7d7c440079b4c8**，精確SHA CI **39793684155**原run／**1386tests**及兩strict gates過（原queued/in_progress時未停機，未重跑CI），19檔提交／兩份無關文件保留。API min42/max46/phase27，**無migration applier／DDL/grant/backfill**；16既有編譯檔改、9新增Help模組檔、319檔及worker/CSV runtime相同。/line/help、/telegram/help、/whatsapp/help三語公開說明及程式內help入口已發布，非provider正式menu變更。
 - Fresh46 clone原86表/20people/74checkins保存，新舊ready，公開9頁前後86表exact；三簽章help各1mock回覆/duplicates不重送，僅synthetic WA inbox+1（old rows及其他85表/state exact），不寫consent/資格/links/service windows。Scope verifier原EACCES在維護前被擋，改root讀私有JSON、postgres只讀SQL，未擴權或重送掩蓋；mock原回歸及RT14jobs過。
