@@ -5,7 +5,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Fastify from 'fastify';
 import {
   calculateDistanceMeters,
@@ -24,6 +24,130 @@ import {
 } from '../src/field-checkin-routes.js';
 import { buildApp } from '../src/app.js';
 import type { Pool } from '@qigong/database';
+import {
+  nfcMigrationVersion,
+  registerAdminRoutes,
+  type AdminAuthProvider
+} from '../src/admin-auth.js';
+
+beforeEach(() => vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', undefined));
+afterEach(() => vi.unstubAllEnvs());
+
+const createNfcSchemaClient = (version = nfcMigrationVersion, schemaReady = true) => ({
+  query: vi.fn(async (sql: string) => {
+    if (sql.includes('schema_migrations')) return { rows: [{ version }] };
+    if (sql.includes('LIMIT 0') && !schemaReady) throw new Error('NFC columns unavailable');
+    if (sql.includes('FROM pg_index')) return { rows: [{ ready: true }] };
+    return { rows: [] };
+  }),
+  release: vi.fn()
+});
+
+const adminProvider: AdminAuthProvider = {
+  callbackUrl: 'https://example.test/admin/auth/callback',
+  begin: vi.fn(async () => new URL('https://example.test/login')),
+  complete: vi.fn(async () => ({ iss: 'https://example.test', sub: 'admin' }))
+};
+
+const gatedApp = (kind: 'buildApp' | 'registerAdminRoutes', pool: Pool) => {
+  if (kind === 'buildApp') return buildApp({ pool, adminAuth: adminProvider, logger: false });
+  const app = Fastify({ genReqId: randomUUID });
+  registerAdminRoutes(app, pool, adminProvider);
+  return app;
+};
+
+const nfcRoutes = [
+  { method: 'GET', url: '/api/v1/fields/active' },
+  { method: 'POST', url: '/api/v1/field-checkin' },
+  { method: 'GET', url: '/admin/api/fields/capabilities' },
+  { method: 'GET', url: '/admin/api/fields' },
+  { method: 'GET', url: '/admin/api/fields/:id' },
+  { method: 'POST', url: '/admin/api/fields' },
+  { method: 'PUT', url: '/admin/api/fields/:id' },
+  { method: 'PATCH', url: '/admin/api/fields/:id' },
+  { method: 'GET', url: '/admin/fields' },
+  { method: 'GET', url: '/admin/api/attendance/capabilities' },
+  { method: 'GET', url: '/admin/api/attendance' },
+  { method: 'GET', url: '/admin/attendance' },
+  { method: 'GET', url: '/admin/attendance/export.csv' }
+] as const;
+
+describe.each(['buildApp', 'registerAdminRoutes'] as const)('NFC isolation via %s', (kind) => {
+  it.each([undefined, 'false', '1', 'TRUE', 'yes'])('does not opt in with %s', async (setting) => {
+    vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', setting);
+    const pool = { query: vi.fn(), connect: vi.fn() } as unknown as Pool;
+    const app = gatedApp(kind, pool);
+    await app.ready();
+    for (const route of nfcRoutes) {
+      expect(app.hasRoute(route)).toBe(false);
+      const response = await app.inject(route);
+      expect(response.statusCode).toBe(404);
+    }
+    expect((await app.inject('/admin/auth/me')).statusCode).toBe(401);
+    if (kind === 'buildApp') expect((await app.inject('/health/live')).statusCode).toBe(200);
+    expect(Reflect.get(pool, 'query')).not.toHaveBeenCalled();
+    expect(Reflect.get(pool, 'connect')).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('registers NFC routes only after explicit opt-in and schema readiness', async () => {
+    vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
+    const client = createNfcSchemaClient();
+    const pool = { query: vi.fn(), connect: vi.fn(async () => client) } as unknown as Pool;
+    const app = gatedApp(kind, pool);
+    await app.ready();
+    for (const route of nfcRoutes.filter(
+      (route) => kind === 'buildApp' || route.url.startsWith('/admin/')
+    )) {
+      expect(app.hasRoute(route)).toBe(true);
+    }
+    for (const url of ['/admin/api/fields/capabilities', '/admin/api/attendance/capabilities']) {
+      expect((await app.inject(url)).statusCode).toBe(401);
+    }
+    expect(client.query).toHaveBeenCalledWith('SET LOCAL ROLE qigong_api_runtime');
+    expect(client.release).toHaveBeenCalled();
+    expect(Reflect.get(pool, 'query')).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it.each([
+    ['0046_achievement_evaluation_and_readers.sql', true],
+    [nfcMigrationVersion, false]
+  ])('refuses startup with version %s and schemaReady=%s', async (version, schemaReady) => {
+    vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
+    const client = createNfcSchemaClient(version, schemaReady);
+    const pool = { query: vi.fn(), connect: vi.fn(async () => client) } as unknown as Pool;
+    const app = gatedApp(kind, pool);
+    await expect(app.ready()).rejects.toThrow('nfc_schema_not_ready');
+    for (const route of nfcRoutes) expect(app.hasRoute(route)).toBe(false);
+    expect(Reflect.get(pool, 'query')).not.toHaveBeenCalled();
+    expect(client.release).toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('keeps NFC navigation absent for an authenticated administrator while disabled', async () => {
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('admin.session_principal'))
+          return { rows: [{ principal_id: randomUUID() }] };
+        return { rows: [{ allowed: true }] };
+      }),
+      release: vi.fn()
+    };
+    const pool = { query: vi.fn(), connect: vi.fn(async () => client) } as unknown as Pool;
+    const app = gatedApp(kind, pool);
+    const response = await app.inject({
+      url: '/admin/',
+      headers: { cookie: '__Host-qigong-admin=test' }
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.body).not.toContain('href="/admin/fields');
+    expect(response.body).not.toContain('href="/admin/attendance');
+    expect(response.body).toContain('href="/admin/leaderboard');
+    expect(response.body).toContain('href="/admin/applications');
+    await app.close();
+  });
+});
 
 describe('Haversine Distance & Geofencing Calculation', () => {
   const TAIPEI_101 = { lat: 25.033961, lon: 121.564472 };
@@ -68,20 +192,20 @@ describe('Haversine Distance & Geofencing Calculation', () => {
   });
 
   it('verifies whether coordinates fall within a practice field geofence radius', () => {
-    const centerLat = 25.030000;
-    const centerLon = 121.536000;
+    const centerLat = 25.03;
+    const centerLon = 121.536;
     const radiusMeters = 50;
 
     // Point approx 20 meters north (1 deg lat ≈ 111,139m, so 0.00018 deg ≈ 20m)
-    const insideLat = 25.030180;
-    const insideLon = 121.536000;
+    const insideLat = 25.03018;
+    const insideLon = 121.536;
     expect(isWithinFieldGeofence(insideLat, insideLon, centerLat, centerLon, radiusMeters)).toBe(
       true
     );
 
     // Point approx 100 meters north (0.00090 deg ≈ 100m)
-    const outsideLat = 25.030900;
-    const outsideLon = 121.536000;
+    const outsideLat = 25.0309;
+    const outsideLon = 121.536;
     expect(isWithinFieldGeofence(outsideLat, outsideLon, centerLat, centerLon, radiusMeters)).toBe(
       false
     );
@@ -166,7 +290,7 @@ describe('Field Check-in Core Processing Service', () => {
     const createdAttendanceId = randomUUID();
 
     const mockDb: DatabaseExecutor = {
-      query: vi.fn(async (sql: string, params?: unknown[]) => {
+      query: vi.fn(async (sql: string) => {
         if (sql.includes('FROM core.practice_fields')) {
           return { rows: [mockFieldRow], rowCount: 1 };
         }
@@ -187,8 +311,8 @@ describe('Field Check-in Core Processing Service', () => {
       personId,
       fieldCode: 'DAAN_PARK',
       checkinMethod: 'nfc_gps',
-      userLatitude: 25.029700, // ~5 meters away
-      userLongitude: 121.536300
+      userLatitude: 25.0297, // ~5 meters away
+      userLongitude: 121.5363
     };
 
     const result = await processFieldCheckin(mockDb, input, { now: validSaturdayMorning });
@@ -596,7 +720,8 @@ describe('Field Check-in Routes HTTP Validation & Endpoints', () => {
     await app.close();
   });
 
-  it('integrates with buildApp to handle POST /api/v1/field-checkin success', async () => {
+  it('integrates with explicitly enabled buildApp to handle POST /api/v1/field-checkin success', async () => {
+    vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
     const personId = randomUUID();
     const attendanceId = randomUUID();
     const mockField = {
@@ -608,7 +733,11 @@ describe('Field Check-in Routes HTTP Validation & Endpoints', () => {
       latitude: '25.029659',
       longitude: '121.536284',
       radius_meters: '50',
-      active_time_rules: { day_of_week: [0, 1, 2, 3, 4, 5, 6], start_time: '00:00', end_time: '23:59' },
+      active_time_rules: {
+        day_of_week: [0, 1, 2, 3, 4, 5, 6],
+        start_time: '00:00',
+        end_time: '23:59'
+      },
       is_active: true
     };
 
@@ -621,10 +750,14 @@ describe('Field Check-in Routes HTTP Validation & Endpoints', () => {
           return { rows: [], rowCount: 0 };
         }
         if (sql.includes('INSERT INTO core.field_attendance')) {
-          return { rows: [{ id: attendanceId, checkin_at: new Date().toISOString() }], rowCount: 1 };
+          return {
+            rows: [{ id: attendanceId, checkin_at: new Date().toISOString() }],
+            rowCount: 1
+          };
         }
         return { rows: [], rowCount: 0 };
-      })
+      }),
+      connect: vi.fn(async () => createNfcSchemaClient())
     } as unknown as Pool;
 
     const app = buildApp({ pool: mockPool, logger: false });
@@ -636,7 +769,7 @@ describe('Field Check-in Routes HTTP Validation & Endpoints', () => {
         personId,
         fieldCode: 'DAAN_PARK',
         checkinMethod: 'nfc_gps',
-        userLatitude: 25.029660,
+        userLatitude: 25.02966,
         userLongitude: 121.536285
       }
     });

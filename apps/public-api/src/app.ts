@@ -3,7 +3,14 @@ import { isLocale, resolveLocale, learnerLocaleCookie } from './ui-localization.
 import { localizeSystemLabels } from './system-label-localization.js';
 import { adminLocaleCookie } from './admin-locale.js';
 import { checkApiRuntimePreflight, getMigrationStatus, type Pool } from '@qigong/database';
-import { registerAdminRoutes, type AdminAuthProvider } from './admin-auth.js';
+import {
+  registerAdminRoutes,
+  type AdminAuthProvider,
+  nfcMigrationVersion,
+  isNfcEnabled,
+  checkNfcSchemaReadiness,
+  registerNfcFeature
+} from './admin-auth.js';
 import { registerExternalJournalRoutes } from './journal-routes.js';
 import { registerLearnerPrivacyRoutes, isLearnerPrivacyError } from './learner-privacy-routes.js';
 import {
@@ -31,7 +38,7 @@ export const apiLogRedaction = Object.freeze({
 });
 
 export const minimumMigrationVersion = '0042_activity_consecutive_drafts.sql';
-export const maximumMigrationVersion = '0046_achievement_evaluation_and_readers.sql';
+export const maximumMigrationVersion = nfcMigrationVersion;
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -57,6 +64,8 @@ export const checkStartupReadiness = async (pool: Pool) => {
   const runtime = await checkApiRuntimePreflight(pool);
   if (!runtime.ready)
     return { ready: false as const, reason: 'runtime_role_misconfigured', runtime };
+  if (isNfcEnabled() && !(await checkNfcSchemaReadiness(pool)).ready)
+    return { ready: false as const, reason: 'nfc_schema_not_ready', migration, runtime };
   return { ready: true as const, migration, runtime };
 };
 
@@ -157,7 +166,7 @@ export const buildApp = ({
   registerLearnerHelpPages(app);
   registerLearnerPrivacyRoutes(app, pool);
   registerExternalJournalRoutes(app, pool);
-  registerFieldCheckinRoutes(app, pool);
+  registerNfcFeature(app, pool, (scope) => registerFieldCheckinRoutes(scope, pool));
   if (adminAuth) registerAdminRoutes(app, pool, adminAuth, line?.liffId);
   if (telegramOnboarding) registerTelegramOnboarding(app, pool, telegramOnboarding);
   if (line) registerLineOnboarding(app, pool, line);

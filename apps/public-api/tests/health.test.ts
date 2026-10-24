@@ -1,10 +1,28 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Pool } from 'pg';
-import { buildApp, maximumMigrationVersion } from '../src/app.js';
+import { buildApp, checkStartupReadiness, maximumMigrationVersion } from '../src/app.js';
 
-const createPoolMock = (version = maximumMigrationVersion, preflightReady = true) => {
+beforeEach(() => vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', undefined));
+afterEach(() => vi.unstubAllEnvs());
+
+type NfcSchema = 'ready' | 'missing_columns' | 'missing_index' | 'missing_result';
+
+const createPoolMock = (
+  version = maximumMigrationVersion,
+  preflightReady = true,
+  nfcSchema: NfcSchema | (() => NfcSchema) = 'ready'
+) => {
   const query = vi.fn(async (queryText: string) => {
+    const schema = typeof nfcSchema === 'function' ? nfcSchema() : nfcSchema;
     if (queryText.includes('schema_migrations')) return { rows: [{ version }] };
+    if (queryText.includes('LIMIT 0') && schema === 'missing_columns') {
+      throw new Error('NFC relation, column or runtime SELECT privilege missing');
+    }
+    if (queryText.includes('FROM pg_index')) {
+      return {
+        rows: schema === 'missing_result' ? [] : [{ ready: schema !== 'missing_index' }]
+      };
+    }
     if (queryText.includes('FROM pg_roles')) {
       return {
         rows: [
@@ -49,6 +67,7 @@ describe('health endpoints', () => {
     expect(response.json()).toMatchObject({ ok: true, version: 'test' });
     expect(response.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
     expect(Reflect.get(pool, 'query')).not.toHaveBeenCalled();
+    expect(Reflect.get(pool, 'connect')).not.toHaveBeenCalled();
     await app.close();
   });
 
@@ -70,11 +89,67 @@ describe('health endpoints', () => {
     await app.close();
   });
 
-  it('reports readiness when database and migrations are current', async () => {
+  it.each(['0046_achievement_evaluation_and_readers.sql', maximumMigrationVersion])(
+    'accepts %s without NFC schema access when NFC is off',
+    async (version) => {
+      const pool = createPoolMock(version, true, 'missing_columns');
+      const app = buildApp({ pool, logger: false });
+      const response = await app.inject({ method: 'GET', url: '/health/ready' });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ ok: true, migration: { currentVersion: version } });
+      const client = await pool.connect();
+      expect(Reflect.get(client, 'query')).not.toHaveBeenCalledWith(
+        expect.stringContaining('core.practice_fields')
+      );
+      expect(Reflect.get(client, 'query')).not.toHaveBeenCalledWith(
+        expect.stringContaining('FROM pg_index')
+      );
+      await app.close();
+    }
+  );
+
+  it('accepts explicitly enabled NFC only when 0047 schema probes succeed', async () => {
+    vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
     const app = buildApp({ pool: createPoolMock(), logger: false });
-    const response = await app.inject({ method: 'GET', url: '/health/ready' });
+    const response = await app.inject('/health/ready');
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ ok: true });
+    await app.close();
+  });
+
+  it.each([
+    ['0046_achievement_evaluation_and_readers.sql', 'ready'],
+    [maximumMigrationVersion, 'missing_columns'],
+    [maximumMigrationVersion, 'missing_index'],
+    [maximumMigrationVersion, 'missing_result']
+  ] as const)('fails startup readiness for enabled NFC with %s / %s', async (version, schema) => {
+    vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
+    expect(await checkStartupReadiness(createPoolMock(version, true, schema))).toMatchObject({
+      ready: false,
+      reason: 'nfc_schema_not_ready'
+    });
+  });
+
+  it('fails NFC health readiness if the schema becomes inaccessible after startup', async () => {
+    vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
+    let schemaAvailable = true;
+    const pool = createPoolMock(maximumMigrationVersion, true, () =>
+      schemaAvailable ? 'ready' : 'missing_columns'
+    );
+    const app = buildApp({ pool, logger: false });
+    await app.ready();
+    schemaAvailable = false;
+    const response = await app.inject('/health/ready');
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({ ok: false, reason: 'nfc_schema_not_ready' });
+    await app.close();
+  });
+
+  it('still rejects schema versions newer than 0047', async () => {
+    const app = buildApp({ pool: createPoolMock('0048_future.sql'), logger: false });
+    const response = await app.inject('/health/ready');
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({ reason: 'schema_version_mismatch' });
     await app.close();
   });
 

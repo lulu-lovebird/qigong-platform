@@ -39,6 +39,61 @@ export interface AdminAuthProvider {
   callbackUrl: string;
 }
 
+export const nfcMigrationVersion = '0047_practice_fields_and_nfc_attendance.sql';
+
+// Deliberate opt-in only. This gate is not an identity or authorization boundary.
+export const isNfcEnabled = () => process.env.NFC_FIELD_CHECKIN_ENABLED === 'true';
+
+export const checkNfcSchemaReadiness = async (pool: Pool) => {
+  try {
+    return await withRequestContext(
+      pool,
+      'qigong_api_runtime',
+      { requestId: crypto.randomUUID() },
+      async (client) => {
+        const migration = await client.query<{ version: string }>(
+          'SELECT version FROM public.schema_migrations ORDER BY version DESC LIMIT 1'
+        );
+        if (migration.rows[0]?.version !== nfcMigrationVersion) return { ready: false as const };
+        // Resolve every NFC column under the runtime role without reading learner rows.
+        // This checks schema accessibility, not write privileges or complete RLS/authorization.
+        await client.query(`
+          SELECT pf.id, pf.region_id, pf.code, pf.name_zh_tw, pf.name_en,
+                 pf.latitude, pf.longitude, pf.radius_meters, pf.active_time_rules,
+                 pf.is_active, pf.created_at, pf.updated_at,
+                 fa.id, fa.checkin_id, fa.person_id, fa.field_id, fa.checkin_method,
+                 fa.volunteer_person_id, fa.user_latitude, fa.user_longitude,
+                 fa.distance_meters, fa.checkin_at, fa.student_note
+          FROM core.practice_fields pf CROSS JOIN core.field_attendance fa LIMIT 0
+        `);
+        const index = await client.query<{ ready: boolean }>(`
+          SELECT EXISTS (
+            SELECT 1 FROM pg_index
+            WHERE indexrelid = to_regclass('core.idx_field_attendance_unique_day')
+              AND indrelid = to_regclass('core.field_attendance')
+              AND indisunique AND indisvalid AND indisready
+          ) AS ready
+        `);
+        return { ready: index.rows[0]?.ready === true };
+      }
+    );
+  } catch {
+    return { ready: false as const };
+  }
+};
+
+export const registerNfcFeature = (
+  app: FastifyInstance,
+  pool: Pool,
+  register: (scope: FastifyInstance) => void
+) => {
+  if (!isNfcEnabled()) return;
+  app.register(async (scope) => {
+    if (!(await checkNfcSchemaReadiness(pool)).ready) throw new Error('nfc_schema_not_ready');
+    register(scope);
+  });
+};
+
 const sessionCookie = '__Host-qigong-admin';
 const csrfCookie = '__Host-qigong-admin-csrf';
 const stateCookie = '__Host-qigong-admin-state';
@@ -497,24 +552,26 @@ export const registerAdminRoutes = (
     );
   });
 
-  registerAdminFieldRoutes(
-    app,
-    pool,
-    principalFor,
-    (request) => {
-      const value = request.headers['x-csrf-token'],
-        saved = cookies(request)[csrfCookie];
-      return (
-        typeof value === 'string' &&
-        typeof saved === 'string' &&
-        saved.length > 0 &&
-        timingSafeEqual(sha256(value), sha256(saved))
-      );
-    },
-    lineLiffId
-  );
+  registerNfcFeature(app, pool, (scope) => {
+    registerAdminFieldRoutes(
+      scope,
+      pool,
+      principalFor,
+      (request) => {
+        const value = request.headers['x-csrf-token'],
+          saved = cookies(request)[csrfCookie];
+        return (
+          typeof value === 'string' &&
+          typeof saved === 'string' &&
+          saved.length > 0 &&
+          timingSafeEqual(sha256(value), sha256(saved))
+        );
+      },
+      lineLiffId
+    );
 
-  registerAdminAttendanceRoutes(app, pool, principalFor, lineLiffId);
+    registerAdminAttendanceRoutes(scope, pool, principalFor, lineLiffId);
+  });
 
   app.post('/admin/auth/logout', async (request, reply) => {
     const values = cookies(request);
