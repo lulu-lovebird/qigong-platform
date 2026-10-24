@@ -10,6 +10,12 @@ import { registerLearnerJournalRoutes } from './journal-routes.js';
 import { telegramFeatureButtons } from './telegram-feature-buttons.js';
 import { helpLabel, helpUrl, isHelpCommand } from './learner-help-content.js';
 import { createHelpReplyGuard } from './help-reply-guard.js';
+import {
+  beginChannelInvitation,
+  channelInviteCommand,
+  channelInviteTexts
+} from './channel-invites.js';
+import { registerChannelInvitePages } from './channel-invite-routes.js';
 import { handleReviewNotificationBind } from './review-notifications.js';
 import { handleTelegramReminder, parseTelegramReminder } from './telegram-reminders.js';
 import { registerTelegramMiniapp } from './telegram-miniapp-auth.js';
@@ -73,9 +79,12 @@ export interface TelegramOnboardingConfig {
 export const registerTelegramOnboarding = (
   app: FastifyInstance,
   pool: Pool,
-  config: TelegramOnboardingConfig
+  config: TelegramOnboardingConfig,
+  inviteTarget?: string
 ) => {
+  registerChannelInvitePages(app, pool, 'telegram', config.webhookSecret, inviteTarget);
   const replyHelp = createHelpReplyGuard();
+  const replyInvitation = createHelpReplyGuard();
   app.get('/telegram/apply', async (request, reply) =>
     reply
       .header('cache-control', 'no-store')
@@ -280,6 +289,48 @@ export const registerTelegramOnboarding = (
         if (response) await sendMessage(message.chat.id, response);
         return { ok: true };
       }
+      const invitationCommand = channelInviteCommand('telegram', message.text ?? '');
+      if (invitationCommand.command) {
+        const inviteCopy = channelInviteTexts(locale);
+        const age =
+          message.date === undefined ? Number.POSITIVE_INFINITY : Date.now() / 1000 - message.date;
+        if (invitationCommand.invalid || (invitationCommand.token && (age < -60 || age >= 86400))) {
+          await sendMessage(message.chat.id, inviteCopy.unavailable);
+          return { ok: true };
+        }
+        const invitation = await withRequestContext(
+          pool,
+          'qigong_api_runtime',
+          { requestId: request.id },
+          (client) =>
+            beginChannelInvitation(
+              client,
+              'telegram',
+              String(message.from.id),
+              invitationCommand.token,
+              config.webhookSecret
+            )
+        );
+        if (invitation.status !== 'none' && invitation.status !== 'approved') {
+          if ('token' in invitation && typeof invitation.token === 'string') {
+            const url =
+              'https://checkin.baiyinqigong.org/telegram/invite' +
+              localeQuery(locale) +
+              '#' +
+              invitation.token;
+            await replyInvitation(
+              String(parsed.data.update_id),
+              String(message.from.id),
+              message.text ?? '',
+              () =>
+                sendMessage(message.chat.id, inviteCopy.reply + '\n' + url, [
+                  { text: inviteCopy.join, url, webApp: false }
+                ])
+            );
+          } else await sendMessage(message.chat.id, inviteCopy.unavailable);
+          return { ok: true };
+        }
+      }
       const privacyToken = createHmac('sha256', config.webhookSecret)
         .update('privacy:' + parsed.data.update_id + ':' + message.from.id)
         .digest('base64url');
@@ -414,6 +465,8 @@ export const registerTelegramOnboarding = (
       );
       return { status: 'pending' };
     } catch (error) {
+      if (error instanceof Error && error.message === 'channel invite continuation required')
+        return reply.code(409).send({ error: 'channel_invite_continuation_required' });
       if (isLearnerPrivacyError(error))
         return reply.code(403).send({
           error:

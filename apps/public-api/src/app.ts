@@ -13,6 +13,7 @@ import {
 import { registerLineOnboarding, type LineConfig } from './line-onboarding.js';
 import { registerWhatsAppOnboarding, type WhatsAppConfig } from './whatsapp-onboarding.js';
 import { registerLearnerHelpPages } from './learner-help-page.js';
+import type { InviteTransports } from './channel-invites.js';
 
 // LIFF primary redirects can contain both SDK credentials and private application fragments in the query.
 export const apiLogRedaction = Object.freeze({
@@ -30,7 +31,7 @@ export const apiLogRedaction = Object.freeze({
 });
 
 export const minimumMigrationVersion = '0042_activity_consecutive_drafts.sql';
-export const maximumMigrationVersion = '0046_achievement_evaluation_and_readers.sql';
+export const maximumMigrationVersion = '0047_channel_invitations.sql';
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -42,6 +43,7 @@ interface AppDependencies {
   telegramOnboarding?: TelegramOnboardingConfig;
   line?: LineConfig;
   whatsapp?: WhatsAppConfig;
+  inviteTransports?: InviteTransports;
 }
 
 export const checkStartupReadiness = async (pool: Pool) => {
@@ -66,8 +68,15 @@ export const buildApp = ({
   adminAuth,
   telegramOnboarding,
   line,
-  whatsapp
+  whatsapp,
+  inviteTransports = {}
 }: AppDependencies) => {
+  const enabledInviteTransports: InviteTransports = {
+    ...(telegramOnboarding && inviteTransports.telegram
+      ? { telegram: inviteTransports.telegram }
+      : {}),
+    ...(whatsapp && inviteTransports.whatsapp ? { whatsapp: inviteTransports.whatsapp } : {})
+  };
   const app = Fastify({
     logger:
       logger === false
@@ -156,10 +165,11 @@ export const buildApp = ({
   registerLearnerHelpPages(app);
   registerLearnerPrivacyRoutes(app, pool);
   registerExternalJournalRoutes(app, pool);
-  if (adminAuth) registerAdminRoutes(app, pool, adminAuth, line?.liffId);
-  if (telegramOnboarding) registerTelegramOnboarding(app, pool, telegramOnboarding);
+  if (adminAuth) registerAdminRoutes(app, pool, adminAuth, line?.liffId, enabledInviteTransports);
+  if (telegramOnboarding)
+    registerTelegramOnboarding(app, pool, telegramOnboarding, enabledInviteTransports.telegram);
   if (line) registerLineOnboarding(app, pool, line);
-  if (whatsapp) registerWhatsAppOnboarding(app, pool, whatsapp);
+  if (whatsapp) registerWhatsAppOnboarding(app, pool, whatsapp, enabledInviteTransports.whatsapp);
 
   return app;
 };

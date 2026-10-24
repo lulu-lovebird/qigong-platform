@@ -36,6 +36,7 @@ const fixture = (
   locale: AdminLocale = 'zh_TW',
   options: {
     allowed?: boolean;
+    channelInvites?: boolean;
     achievements?: boolean;
     management?: boolean;
     admin?: boolean;
@@ -62,6 +63,7 @@ const fixture = (
       const page = /data-journal-nav="([^"]+)"/.exec(attrs)?.[1];
       if (page) link.dataset.journalNav = page;
       if (attrs.includes('data-line-invites-nav')) link.dataset.invites = 'true';
+      if (attrs.includes('data-channel-invites-nav')) link.dataset.channelInvites = 'true';
       if (attrs.includes('data-achievements-nav')) link.dataset.achievements = 'true';
       if (attrs.includes('data-achievement-management-nav')) link.dataset.management = 'true';
       group.links.push(link);
@@ -86,17 +88,19 @@ const fixture = (
     return Response.json(
       url.includes('achievement-management')
         ? { canManage: options.management ?? false }
-        : url.includes('line-invites')
-          ? { canManage: options.allowed ?? false }
-          : url.includes('achievements')
-            ? { canReadAchievements: options.achievements ?? options.allowed ?? false }
-            : {
-                canReadJournal: options.allowed ?? false,
-                canManageTags: options.allowed ?? false,
-                canManageLearners: options.allowed ?? false,
-                canReadShared: options.allowed ?? false,
-                canPublishPrivacy: options.allowed ?? false
-              }
+        : url.includes('channel-invites')
+          ? { canManage: options.channelInvites ?? options.allowed ?? false }
+          : url.includes('line-invites')
+            ? { canManage: options.allowed ?? false }
+            : url.includes('achievements')
+              ? { canReadAchievements: options.achievements ?? options.allowed ?? false }
+              : {
+                  canReadJournal: options.allowed ?? false,
+                  canManageTags: options.allowed ?? false,
+                  canManageLearners: options.allowed ?? false,
+                  canReadShared: options.allowed ?? false,
+                  canPublishPrivacy: options.allowed ?? false
+                }
     );
   });
   const document = {
@@ -107,13 +111,15 @@ const fixture = (
         ? [...groups.values()]
         : selector === '[data-journal-nav]'
           ? links.filter((link) => link.dataset.journalNav)
-          : selector === '[data-line-invites-nav]'
-            ? links.filter((link) => link.dataset.invites)
-            : selector === '[data-achievements-nav]'
-              ? links.filter((link) => link.dataset.achievements)
-              : selector === '[data-achievement-management-nav]'
-                ? links.filter((link) => link.dataset.management)
-                : []
+          : selector === '[data-channel-invites-nav]'
+            ? links.filter((link) => link.dataset.channelInvites)
+            : selector === '[data-line-invites-nav]'
+              ? links.filter((link) => link.dataset.invites)
+              : selector === '[data-achievements-nav]'
+                ? links.filter((link) => link.dataset.achievements)
+                : selector === '[data-achievement-management-nav]'
+                  ? links.filter((link) => link.dataset.management)
+                  : []
   };
   const context = vm.createContext({
     document,
@@ -164,7 +170,12 @@ describe('Compact grouped admin navigation', () => {
       expect([...f.groups.keys()]).toEqual(['reports', 'learners', 'journal', 'settings']);
       const expected = {
         reports: ['/admin/', '/admin/leaderboard', '/admin/achievements', '/admin/method-analysis'],
-        learners: ['/admin/applications', '/admin/learners', '/admin/line-invites'],
+        learners: [
+          '/admin/applications',
+          '/admin/learners',
+          '/admin/line-invites',
+          '/admin/channel-invites'
+        ],
         journal: ['/admin/journal', '/admin/shared-journal', '/admin/practice-feeling-tags'],
         settings: [
           '/admin/administrators',
@@ -202,6 +213,16 @@ describe('Compact grouped admin navigation', () => {
     ).toBe(true);
     expect(f.links.some((link) => link.href.startsWith('/admin/administrators'))).toBe(false);
     expect(f.groups.get('settings')?.links.some((link) => !link.hidden)).toBe(true);
+  });
+  it('requires an independent channel-invitation capability and fails closed', async () => {
+    const granted = fixture('en', { channelInvites: true });
+    const denied = fixture('en', { allowed: true, channelInvites: false });
+    const failed = fixture('en', { channelInvites: true, fail: true });
+    expect(granted.links.find((link) => link.dataset.channelInvites)?.hidden).toBe(true);
+    await settle();
+    expect(granted.links.find((link) => link.dataset.channelInvites)?.hidden).toBe(false);
+    expect(denied.links.find((link) => link.dataset.channelInvites)?.hidden).toBe(true);
+    expect(failed.links.find((link) => link.dataset.channelInvites)?.hidden).toBe(true);
   });
   it('requires an independent reporting capability for the achievement link', async () => {
     const granted = fixture('en', { achievements: true });

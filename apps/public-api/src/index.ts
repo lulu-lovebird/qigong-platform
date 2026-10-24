@@ -4,6 +4,7 @@ import { buildApp, checkStartupReadiness } from './app.js';
 import { createAdminOidcProvider } from './oidc-provider.js';
 import { z } from 'zod';
 import { loadWhatsAppConfig } from './whatsapp-onboarding.js';
+import { loadInviteTransports } from './channel-invites.js';
 
 const environment = loadEnvironment();
 const telegramValues = [
@@ -67,6 +68,7 @@ const app = buildApp({
   ...(telegramOnboarding ? { telegramOnboarding } : {}),
   ...(line ? { line } : {}),
   ...(whatsapp ? { whatsapp } : {}),
+  inviteTransports: loadInviteTransports(process.env),
   serviceVersion: process.env.SERVICE_VERSION || 'development'
 });
 

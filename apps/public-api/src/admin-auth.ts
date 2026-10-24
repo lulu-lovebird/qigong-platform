@@ -11,6 +11,8 @@ import { registerAdminAchievementRoutes } from './admin-achievement-routes.js';
 import { registerAdminActivityRoutes } from './admin-activity-routes.js';
 import { registerAdminLearnerRoutes } from './admin-learner-routes.js';
 import { registerAdminLineInvites } from './admin-line-invite-routes.js';
+import { registerAdminChannelInvites } from './admin-channel-invite-routes.js';
+import type { InviteTransports } from './channel-invites.js';
 import { registerReviewNotificationRoutes } from './admin-review-notification-routes.js';
 import {
   adminLocaleCookie,
@@ -66,7 +68,8 @@ export const registerAdminRoutes = (
   app: FastifyInstance,
   pool: Pool,
   provider: AdminAuthProvider,
-  lineLiffId?: string
+  lineLiffId?: string,
+  inviteTransports: InviteTransports = {}
 ) => {
   app.get('/admin/auth/login', async (request, reply) => {
     const state = token();
@@ -471,6 +474,24 @@ export const registerAdminRoutes = (
       timingSafeEqual(sha256(value), sha256(saved))
     );
   });
+
+  registerAdminChannelInvites(
+    app,
+    pool,
+    inviteTransports,
+    principalFor,
+    (request) => {
+      const value = request.headers['x-csrf-token'],
+        saved = cookies(request)[csrfCookie];
+      return (
+        typeof value === 'string' &&
+        typeof saved === 'string' &&
+        saved.length > 0 &&
+        timingSafeEqual(sha256(value), sha256(saved))
+      );
+    },
+    (request) => cookies(request)[sessionCookie]
+  );
 
   if (lineLiffId)
     registerAdminLineInvites(app, pool, lineLiffId, principalFor, (request) => {

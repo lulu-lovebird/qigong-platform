@@ -11,10 +11,14 @@ const base = process.env.TEST_DATABASE_URL,
 suite('C schema44 to46 preserves existing data with runtime OFF', () => {
   it('applies45/46 once without evaluating/backfilling awards or enabling any runtime control', async () => {
     const db = await createIsolatedTestDatabase(base!),
-      old = await mkdtemp(path.join(tmpdir(), 'runtime44-'));
+      old = await mkdtemp(path.join(tmpdir(), 'runtime44-')),
+      target = await mkdtemp(path.join(tmpdir(), 'runtime46-'));
     try {
-      for (const f of await readdir(dir))
+      for (const f of await readdir(dir)) {
         if (f.endsWith('.sql') && f < '0045_') await copyFile(path.join(dir, f), path.join(old, f));
+        if (f.endsWith('.sql') && f < '0047_')
+          await copyFile(path.join(dir, f), path.join(target, f));
+      }
       await runMigrations(db.pool, old, 'runtime-before44');
       const person = (
         await db.pool.query<{ id: string }>(
@@ -59,11 +63,11 @@ suite('C schema44 to46 preserves existing data with runtime OFF', () => {
             "SELECT jsonb_agg(jsonb_build_array(n.nspname,c.relname,c.relowner::regrole::text,c.relacl::text,c.relrowsecurity,c.relforcerowsecurity) ORDER BY n.nspname,c.relname) s FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind='r' AND n.nspname IN('core','identity','admin','platform','audit','ops')"
           )
         ).rows[0]!.s;
-      expect((await runMigrations(db.pool, dir, 'runtime-expand46')).applied).toEqual([
+      expect((await runMigrations(db.pool, target, 'runtime-expand46')).applied).toEqual([
         '0045_versioned_achievement_runtime.sql',
         '0046_achievement_evaluation_and_readers.sql'
       ]);
-      expect((await runMigrations(db.pool, dir, 'runtime-repeat46')).applied).toEqual([]);
+      expect((await runMigrations(db.pool, target, 'runtime-repeat46')).applied).toEqual([]);
       expect(await fingerprint(true)).toEqual(before);
       const names = tables.map((t) => t.name);
       expect(
@@ -106,6 +110,7 @@ suite('C schema44 to46 preserves existing data with runtime OFF', () => {
     } finally {
       await db.dispose();
       await rm(old, { recursive: true, force: true });
+      await rm(target, { recursive: true, force: true });
     }
   });
 });

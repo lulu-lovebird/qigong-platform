@@ -55,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0046_achievement_evaluation_and_readers.sql'
+      '0047_channel_invitations.sql'
     );
 
     expect(first.applied).toEqual([
@@ -104,13 +104,14 @@ describeWithDatabase('repository migrations', () => {
       '0043_achievement_rule_versions.sql',
       '0044_achievement_publication_candidates.sql',
       '0045_versioned_achievement_runtime.sql',
-      '0046_achievement_evaluation_and_readers.sql'
+      '0046_achievement_evaluation_and_readers.sql',
+      '0047_channel_invitations.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0046_achievement_evaluation_and_readers.sql',
+      currentVersion: '0047_channel_invitations.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0046_achievement_evaluation_and_readers.sql',
+      maximumVersion: '0047_channel_invitations.sql',
       ready: true
     });
   });
