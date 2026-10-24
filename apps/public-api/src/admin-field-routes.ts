@@ -37,11 +37,15 @@ export const activeTimeRulesSchema = z
     { message: 'end_time must be strictly after start_time' }
   );
 
-export const defaultActiveTimeRules: ActiveTimeRules = Object.freeze({
-  day_of_week: Object.freeze([0, 6]),
+export const defaultActiveTimeRules: {
+  day_of_week: number[];
+  start_time: string;
+  end_time: string;
+} = {
+  day_of_week: [0, 6],
   start_time: '06:30',
   end_time: '09:00'
-});
+};
 
 export const createFieldInputSchema = z.object({
   region_id: z.string().uuid(),
@@ -66,9 +70,9 @@ export const updateFieldInputSchema = createFieldInputSchema.partial();
 export type UpdateFieldInput = z.infer<typeof updateFieldInputSchema>;
 
 export interface FieldUrlOptions {
-  readonly baseUrl?: string;
-  readonly liffId?: string;
-  readonly qrCodeSize?: number;
+  readonly baseUrl?: string | undefined;
+  readonly liffId?: string | undefined;
+  readonly qrCodeSize?: number | undefined;
 }
 
 export const generateFieldNfcUrl = (
@@ -359,6 +363,10 @@ export const registerAdminFieldRoutes = (
           return result.rows[0];
         }
       );
+
+      if (!inserted) {
+        return reply.code(500).send({ error: 'failed_to_create_field' });
+      }
 
       return reply.code(201).send({
         ok: true,
