@@ -3,7 +3,145 @@
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 
-## 第三批：0048 啟動相容性與 NFC feature readiness（基於 cdbc3a5；目前狀態）
+## 第四批：可信 LINE 身份 adapter／受控映射契約（基於 80bafc3；目前狀態）
+
+本批單一代理在父 checkout 順序修改五檔：
+
+- `apps/public-api/src/line-learner-identity.ts`（新增）
+- `apps/public-api/tests/line-learner-identity.test.ts`（新增）
+- `apps/public-api/src/line-profile.ts`
+- `apps/public-api/tests/line-profile.test.ts`
+- 本文件
+
+### 交付範圍：可測試 adapter，不是假裝已接通 production 映射
+
+`createLineLearnerIdentityAdapter(pool, options)(requestId, { idToken })` 回傳
+`LineLearnerIdentityResult`。只有 verifier 成功、映射符合資格、既有 privacy 檢查通過，
+才回傳 `ok: true` 與 `{ platform: 'line', subject, identityId, personId }`、當前 privacy 摘要。
+這是單次身份 snapshot，**不是簽到成功、可重用 session、attendance 或志工操作授權**。
+未註冊新路由，也未改動既有 LINE onboarding／日課／Telegram／WhatsApp 路由。
+
+- 預設重用 `line-profile.ts` 的 `verifyLineIdentity(idToken, loginChannelId)`；
+  不解碼未驗證 JWT、不信任 LINE browser profile、自稱 subject 或 UUID。
+  verifier 必須取得正確 channel audience、未到期 token 與正確 issuer；本批亦拒絕缺失 issuer。
+  verifier 與 resolver 的注入都僅供伺服器端組裝／測試，不從 request 提供。
+- credential 為 strict `{ idToken }`；缺失／空白／過長、body personId／volunteerId／
+  principalId／subject 一律不能建立身份。adapter 本身不讀 query、header 或 cookie 身份。
+  驗證失敗回 401，且不 connect、不查映射或 privacy。
+- 驗證後才以 `withRequestContext(pool, 'qigong_api_runtime', { requestId }, ...)` 執行；
+  person／principal GUC 由既有 helper 清空。必填 `resolveLearner(client, verifiedSubject)`
+  只取得已切換角色的 client 和已驗證 subject，不取得 pool 或客戶端 personId。
+  沒有 pool.query bootstrap、直接查身份表、手動切換 privileged role 或新 GRANT。
+- resolver 契約回傳 null，或 strict
+  `{ subject, identityId, personId, revoked, learnerActive, channelActive, applicationApproved }`。
+  ID 必須為 UUID，subject 必須吻合已驗證 subject；撤銷、非 active 學員、非有效 channel、
+  未 approved application 均回 403，不繼續讀 privacy。缺欄／錯型別等資料庫契約錯誤回 503。
+- 在同一 runtime transaction 呼叫既有、已授權的
+  `platform.privacy_usage('line', subject)`；不呼叫 begin／accept privacy，
+  不新增同意或 privacy session。必要同意缺失回 403，eligibility unavailable 回 403，
+  畸形 privacy／DB failure 回 503；沿用沒有 active policy 時的既有狀態，
+  不捏造 policy version／hash 或 acceptance。reflectionConsent=false 不阻止身份確認，
+  亦不代表可以寫入心得。
+- 成功不回 token、displayName 或額外 profile。錯誤不回傳 verifier／DB diagnostic，
+  adapter 不記 log、不處理或保存 GPS。每次重新驗證與映射，不快取資格；COMMIT 失敗
+  不能回成功，ROLLBACK／release 沿用既有 helper。
+
+### 精確 DB 缺口與下一批最小受控函式需求
+
+**本批沒有 production resolver，沒有把虛構 SQL 當成現有函式。**
+測試的 `test_only.resolve_line_learner` 只是 mock query 識別字，從未送到 DB。
+既有 `LineConfig.verifyIdentity` 與 `verifyIdToken` 供 onboarding 驗證；adapter 沒有借用
+onboarding 的 nickname refresh 副作用，也沒有為了身份查詢讀取日課／報表。
+
+已定位的實際授權邊界：
+
+- `0013_line_onboarding.sql` 的 `line_checkin_person(TEXT)` 已有 identity、active person、
+  approved application、有效 interaction channel 的查核，但 REVOKE PUBLIC 後沒有授予
+  `qigong_api_runtime` 直接 EXECUTE。`0023` 的 privacy wrapper 保留原函式 exposed 狀態，
+  不會替未暴露 helper 新增 runtime EXECUTE。
+- `0018` 的 `practice_person(TEXT,TEXT)`，以及 `0024` 的
+  `channel_workspace_person`／`channel_workspace_identity` 同樣不是 runtime 可直接執行的入口。
+  不能直接呼叫後以權限錯誤 fallback privileged pool，或用自稱 person context 解開 RLS。
+- runtime 可以執行 `privacy_usage(TEXT,TEXT)`，但它不提供 personId／identityId，
+  也不能單獨證明已通過 approved application 與有效 interaction channel 的學員映射。
+  `begin_privacy_gate` 會建立 session，不適合此唯讀身份確認需求。
+
+下一批應先審核一個**專用、最小輸出的 subject → LINE learner 映射函式**，例如提案名
+`platform.resolve_line_learner_identity(TEXT) RETURNS JSONB`（本批未建立／授權）：
+
+1. 僅接受 server-verified LINE subject，不接受自選 person／identity／volunteer ID。
+   檢查 subject 格式、identity 未撤銷、person.status=active、同 person／identity 的 channel
+   已生效且未終止，以及同平台／subject／person 的 approved application；缺失／不合格
+   不可回傳可用身份。輸出遵守上述 mapping 契約，不帶姓名、聯絡資料或其他平台資料。
+2. 固定 `search_path=pg_catalog`、schema-qualified 引用、受控且非 runtime owner、
+   明確 REVOKE PUBLIC，只在審核後授予該專用函式最小 EXECUTE；不擴大現有 helper、
+   表 GRANT、角色 membership 或 BYPASSRLS。安全審核及隔離 PostgreSQL 證據先於組裝 resolver。
+3. 另外的 attendance 寫入函式必須在寫入當下重查 identity／channel／eligibility／privacy，
+   檢查 learner self-checkin action／場地 region／時間窗，並原子化防重；不得只相信
+   adapter 先前回傳的 snapshot 或 `can_access_person` self-read。志工仍從可信 admin session
+   導出 principal，逐操作／grant／region 授權，與此 LINE adapter 分開。
+4. 真實隔離 DB 測試仍需驗證 missing／forged context、撤銷／停權／channel 更換、
+   privacy 版本／撤銷與並行變動、PUBLIC／session／runtime ACL、search_path shadowing、
+   transaction cleanup 及跨區／越權拒絕。本批 mock 的旗標與 SQL 順序不是實際 DB 證據。
+
+### 已確認產品決策（後續規格基準）
+
+- 團練 attendance 完全獨立；不建立／修改日課、功法選擇或功法心得，不自動連結 checkin。
+  成功只提醒學員回既有日課記錄功法感受；本批沒有簽到成功 UI 或寫入路徑。
+- 允許同日跨場；同人、同場、同日只可一次。團練日數按日期去重，不能把多場次當多日，
+  不混入既有日課 streak／統計。後續須明確規範伺服器權威日期／timezone 與並行唯一性。
+- 靜態 NFC URL + GPS 是便利用途，不是不可轉傳憑證或強防代簽／防定位偽造證明。
+- 原始學員 GPS 僅供當次驗證，不落盤、不記 log；只保存驗證結果和距離。
+  `0047` 的歷史 `user_latitude`／`user_longitude`、`checkin_id`／`student_note` 欄位
+  不代表新流程可使用；後續受控寫入／日誌契約必須明確禁止保存原始 GPS、建立日課連結
+  或寫心得，不能直接恢復舊 INSERT。本批沒有 migration、回填或清除歷史資料。
+
+NFC default-off、0048 deny-all、readiness 拒絕 NFC，以及所有 NFC routes／service 的
+隔離完整保留。身份驗證成功也不能解除 gate、RLS、readiness 或逐操作授權。
+
+### 第四批本地驗證與限制
+
+所有測試均為注入 verifier／mock fetch／mock DB／純函式或靜態契約。
+執行測試時明確移除 `TEST_DATABASE_URL`；未讀 .env／機密、連任何 DB／外部 API、
+執行 migration、部署／push／merge、改 package／lockfile／全域 config 或開子代理。
+
+實際命令（`env -u TEST_DATABASE_URL` 僅移除測試連線選項，沒有讀取其內容）：
+
+```sh
+# 每次 TS 修改後的相關測試；最終 66 passed（adapter 51、profile 15）
+env -u TEST_DATABASE_URL pnpm --filter @qigong/public-api exec vitest run tests/line-learner-identity.test.ts tests/line-profile.test.ts
+
+# 跨平台／日課／隱私及 NFC regression：349 passed、41 DB-dependent skipped
+# skipped 不是通過，不能推論真實 DB／端到端相容性
+env -u TEST_DATABASE_URL pnpm --filter @qigong/public-api exec vitest run tests/line-learner-identity.test.ts tests/line-profile.test.ts tests/line-security.test.ts tests/field-checkin.test.ts tests/health.test.ts tests/admin-attendance.test.ts tests/admin-navigation.test.ts tests/line-checkin-nfc.test.ts tests/line-onboarding.test.ts tests/telegram-onboarding.test.ts tests/whatsapp-onboarding.test.ts tests/channel-workspace.test.ts tests/learner-privacy.test.ts tests/learner-privacy-pages.test.ts tests/channel-workspace-pages.test.ts tests/whatsapp-checkin-completion.test.ts tests/telegram-miniapp-auth.test.ts tests/telegram-workspace-pages.test.ts tests/practice-notes.test.ts tests/request-log-privacy.test.ts
+
+# 0048／0047 靜態契約：54 passed，沒有執行 SQL
+env -u TEST_DATABASE_URL pnpm --filter @qigong/database exec vitest run tests/nfc-security-quarantine.test.ts tests/field-attendance-schema.test.ts
+
+# 四個 workspace package 通過
+pnpm typecheck
+pnpm build
+
+# 全專案仍有既有 9 errors，未擴大批次修復
+pnpm lint
+
+# 本批四個 TS 檔通過
+pnpm exec eslint apps/public-api/src/line-learner-identity.ts apps/public-api/src/line-profile.ts apps/public-api/tests/line-learner-identity.test.ts apps/public-api/tests/line-profile.test.ts
+pnpm exec tsc --noEmit --strict --exactOptionalPropertyTypes --noUncheckedIndexedAccess --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck apps/public-api/tests/line-learner-identity.test.ts apps/public-api/tests/line-profile.test.ts
+
+# 五檔均使用既有 Prettier 格式化並通過檢查
+pnpm exec prettier --check apps/public-api/src/line-learner-identity.ts apps/public-api/src/line-profile.ts apps/public-api/tests/line-learner-identity.test.ts apps/public-api/tests/line-profile.test.ts docs/operations/nfc-security-quarantine.md
+git diff --check
+```
+
+- 全域 lint 的既有錯誤仍限於未修改的 `admin-attendance-routes.ts`（1）與
+  `line-checkin-nfc.test.ts`（8）。本批測試／型別沒有失敗修復重試。
+- Node 為 v26.10.0，非要求的 Node 24；pnpm 有 engine warning，仍須 Node 24 重驗。
+- 未證明 PostgreSQL 真實權限／隔離或 LINE 真實 endpoint 行為；production resolver、
+  attendance 授權／寫入及端到端驗證尚未完成。此介面沒有可呼叫的 `allow_tool: false`
+  hook；本機 commit 不代替結構安全審核或部署核准。
+
+## 第三批歷史紀錄：0048 啟動相容性與 NFC feature readiness（基於 cdbc3a5）
 
 本批單一代理在本地 checkout 順序修改五檔：`apps/public-api/src/app.ts`、
 `apps/public-api/src/admin-auth.ts`、`apps/public-api/tests/health.test.ts`、
@@ -230,9 +368,10 @@ owner 固有的 DDL / TRUNCATE 權限並未消失。既有 FK referential action
 3. **一致性與最小資料**：開放存取前驗證 field operational region、learner / volunteer scope、
    歷史 region 可見性與 checkin owner 一致性；GPS / student note / 匯出另處理最小揭露及 consent。
    目前 quarantine 禁止所有地區與 checkin link 存取，但沒有新增一致性 constraint，也沒有清查舊資料。
-4. **產品決策**：團練 attendance 是否計入日課、使用何種功法尚未決定。
-   維持 attendance 獨立／不影響日課；不得自行捏造功法。
-   若未來決定開放日課連結，必須先加入同 person 的 ownership 防線及負向測試。
+4. **產品決策已確認**：以第四批所列決策為準。團練 attendance 獨立，不建立／修改
+   日課或功法心得；成功只提醒回既有日課記錄感受。同日可跨場，同人同場同日一次，
+   日數按日期去重。靜態 NFC URL + GPS 僅為便利用途；原始 GPS 不落盤／不記 log，
+   只保存驗證結果和距離。不得恢復舊日課連結或原始 GPS 寫入。
 5. **真實隔離 DB 與發布**：只有明確證明可拋棄且隔離的本機 PostgreSQL 才可執行。
    測試 upgrade / rollback、原有資料保留、PUBLIC／direct session／role membership／column grants、
    普通 owner FORCE、missing / forged context、跨區、錯誤 volunteer / checkin owner、pool context cleanup
