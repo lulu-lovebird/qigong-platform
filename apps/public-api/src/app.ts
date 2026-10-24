@@ -13,6 +13,7 @@ import {
 import { registerLineOnboarding, type LineConfig } from './line-onboarding.js';
 import { registerWhatsAppOnboarding, type WhatsAppConfig } from './whatsapp-onboarding.js';
 import { registerLearnerHelpPages } from './learner-help-page.js';
+import { registerFieldCheckinRoutes } from './field-checkin-routes.js';
 
 // LIFF primary redirects can contain both SDK credentials and private application fragments in the query.
 export const apiLogRedaction = Object.freeze({
@@ -156,6 +157,7 @@ export const buildApp = ({
   registerLearnerHelpPages(app);
   registerLearnerPrivacyRoutes(app, pool);
   registerExternalJournalRoutes(app, pool);
+  registerFieldCheckinRoutes(app, pool);
   if (adminAuth) registerAdminRoutes(app, pool, adminAuth, line?.liffId);
   if (telegramOnboarding) registerTelegramOnboarding(app, pool, telegramOnboarding);
   if (line) registerLineOnboarding(app, pool, line);
