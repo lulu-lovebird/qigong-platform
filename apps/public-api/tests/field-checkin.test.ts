@@ -13,9 +13,7 @@ import {
   isFieldCheckinTimeWindowValid,
   getActivePracticeFields,
   processFieldCheckin,
-  type DatabaseExecutor,
-  type FieldCheckinInput,
-  type PracticeFieldRecord
+  type FieldCheckinInput
 } from '../src/field-checkin-service.js';
 import {
   registerFieldCheckinRoutes,
@@ -30,8 +28,19 @@ import {
   type AdminAuthProvider
 } from '../src/admin-auth.js';
 
-beforeEach(() => vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', undefined));
-afterEach(() => vi.unstubAllEnvs());
+beforeEach(() => {
+  vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', undefined);
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => {
+      throw new Error('External API calls are forbidden in these isolated tests');
+    })
+  );
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 const createNfcSchemaClient = (version = nfcMigrationVersion, schemaReady = true) => ({
   query: vi.fn(async (sql: string) => {
@@ -51,7 +60,7 @@ const adminProvider: AdminAuthProvider = {
 
 const gatedApp = (kind: 'buildApp' | 'registerAdminRoutes', pool: Pool) => {
   if (kind === 'buildApp') return buildApp({ pool, adminAuth: adminProvider, logger: false });
-  const app = Fastify({ genReqId: randomUUID });
+  const app = Fastify({ genReqId: () => randomUUID() });
   registerAdminRoutes(app, pool, adminProvider);
   return app;
 };
@@ -269,517 +278,247 @@ describe('Weekend Field Check-in Time Window Validation', () => {
   });
 });
 
-describe('Field Check-in Core Processing Service', () => {
-  const mockFieldRow = {
-    id: 'f1000000-0000-0000-0000-000000000001',
-    region_id: 'r1000000-0000-0000-0000-000000000001',
-    code: 'DAAN_PARK',
-    name_zh_tw: '大安森林公園團練點',
-    name_en: 'Daan Forest Park',
-    latitude: 25.029659,
-    longitude: 121.536284,
-    radius_meters: 50,
-    active_time_rules: { day_of_week: [0, 6], start_time: '06:30', end_time: '09:00' },
-    is_active: true
-  };
+const gpsPayload: FieldCheckinInput = {
+  fieldCode: 'DAAN_PARK',
+  checkinMethod: 'nfc_gps',
+  userLatitude: 25.029659,
+  userLongitude: 121.536284
+};
 
-  const validSaturdayMorning = new Date('2026-10-23T23:00:00Z'); // 07:00 Taipei
+// These are syntactically plausible client claims, never verified identities/credentials.
+const forgedSubject = 'U' + 'a'.repeat(32);
+const forgedToken = 'not-a-verified-line-token';
 
-  it('successfully processes nfc_gps check-in within geofence and time window', async () => {
-    const personId = randomUUID();
-    const createdAttendanceId = randomUUID();
-
-    const mockDb: DatabaseExecutor = {
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes('FROM core.practice_fields')) {
-          return { rows: [mockFieldRow], rowCount: 1 };
-        }
-        if (sql.includes('FROM core.field_attendance') && sql.includes('SELECT id')) {
-          return { rows: [], rowCount: 0 }; // no duplicate
-        }
-        if (sql.includes('INSERT INTO core.field_attendance')) {
-          return {
-            rows: [{ id: createdAttendanceId, checkin_at: validSaturdayMorning.toISOString() }],
-            rowCount: 1
-          };
-        }
-        return { rows: [], rowCount: 0 };
-      })
-    };
-
-    const input: FieldCheckinInput = {
-      personId,
+const attacks = [
+  {
+    name: 'anonymous GPS',
+    payload: gpsPayload,
+    status: 503,
+    error: 'nfc_authorization_unavailable'
+  },
+  {
+    name: 'self-selected person',
+    payload: { ...gpsPayload, personId: randomUUID() },
+    status: 400,
+    error: 'invalid_input'
+  },
+  {
+    name: 'self-selected volunteer',
+    payload: { ...gpsPayload, volunteerPersonId: randomUUID() },
+    status: 400,
+    error: 'invalid_input'
+  },
+  {
+    name: 'self-selected daily checkin',
+    payload: { ...gpsPayload, checkinId: randomUUID() },
+    status: 400,
+    error: 'invalid_input'
+  },
+  {
+    name: 'forged subject',
+    payload: { ...gpsPayload, subject: forgedSubject },
+    status: 400,
+    error: 'invalid_input'
+  },
+  {
+    name: 'forged token',
+    payload: { ...gpsPayload, idToken: forgedToken },
+    status: 400,
+    error: 'invalid_input'
+  },
+  {
+    name: 'unscoped volunteer',
+    payload: { fieldCode: 'DAAN_PARK', checkinMethod: 'volunteer_manual' },
+    status: 403,
+    error: 'volunteer_authorization_unavailable'
+  },
+  {
+    name: 'forged volunteer and learner',
+    payload: {
       fieldCode: 'DAAN_PARK',
-      checkinMethod: 'nfc_gps',
-      userLatitude: 25.0297, // ~5 meters away
-      userLongitude: 121.5363
-    };
-
-    const result = await processFieldCheckin(mockDb, input, { now: validSaturdayMorning });
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.attendanceId).toBe(createdAttendanceId);
-      expect(result.fieldName).toBe('大安森林公園團練點');
-      expect(result.fieldCode).toBe('DAAN_PARK');
-      expect(result.checkinMethod).toBe('nfc_gps');
-      expect(result.distanceMeters).toBeDefined();
-      expect(result.distanceMeters).toBeLessThan(50);
-    }
-  });
-
-  it('successfully processes volunteer_manual check-in bypassing geofence', async () => {
-    const personId = randomUUID();
-    const volunteerPersonId = randomUUID();
-    const createdAttendanceId = randomUUID();
-
-    const mockDb: DatabaseExecutor = {
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes('FROM core.practice_fields')) {
-          return { rows: [mockFieldRow], rowCount: 1 };
-        }
-        if (sql.includes('FROM core.field_attendance') && sql.includes('SELECT id')) {
-          return { rows: [], rowCount: 0 };
-        }
-        if (sql.includes('INSERT INTO core.field_attendance')) {
-          return {
-            rows: [{ id: createdAttendanceId, checkin_at: validSaturdayMorning.toISOString() }],
-            rowCount: 1
-          };
-        }
-        return { rows: [], rowCount: 0 };
-      })
-    };
-
-    const input: FieldCheckinInput = {
-      personId,
-      fieldId: mockFieldRow.id,
       checkinMethod: 'volunteer_manual',
-      volunteerPersonId,
-      studentNote: '長輩手機無電，現場由志工核實補簽'
-    };
-
-    const result = await processFieldCheckin(mockDb, input, { now: validSaturdayMorning });
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.attendanceId).toBe(createdAttendanceId);
-      expect(result.checkinMethod).toBe('volunteer_manual');
-      expect(result.distanceMeters).toBeNull();
-    }
-  });
-
-  it('rejects check-in when field does not exist', async () => {
-    const mockDb: DatabaseExecutor = {
-      query: vi.fn(async () => ({ rows: [], rowCount: 0 }))
-    };
-
-    const input: FieldCheckinInput = {
       personId: randomUUID(),
-      fieldCode: 'NON_EXISTENT_FIELD',
-      checkinMethod: 'nfc_gps',
-      userLatitude: 25.029659,
-      userLongitude: 121.536284
-    };
-
-    const result = await processFieldCheckin(mockDb, input, { now: validSaturdayMorning });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe('field_not_found');
-    }
-  });
-
-  it('rejects check-in when field is inactive', async () => {
-    const inactiveField = { ...mockFieldRow, is_active: false };
-    const mockDb: DatabaseExecutor = {
-      query: vi.fn(async () => ({ rows: [inactiveField], rowCount: 1 }))
-    };
-
-    const input: FieldCheckinInput = {
+      volunteerPersonId: randomUUID()
+    },
+    status: 400,
+    error: 'invalid_input'
+  },
+  {
+    name: 'forged credential/context headers',
+    payload: gpsPayload,
+    headers: {
+      authorization: 'Bearer ' + forgedToken,
+      'x-line-access-token': forgedToken,
+      'x-person-id': randomUUID(),
+      'x-subject': forgedSubject,
+      cookie: '__Host-qigong-admin=forged'
+    },
+    status: 503,
+    error: 'nfc_authorization_unavailable'
+  },
+  {
+    name: 'forged query identity',
+    payload: gpsPayload,
+    query: {
       personId: randomUUID(),
-      fieldCode: 'DAAN_PARK',
-      checkinMethod: 'nfc_gps',
-      userLatitude: 25.029659,
-      userLongitude: 121.536284
-    };
+      subject: forgedSubject,
+      volunteerPersonId: randomUUID(),
+      checkinId: randomUUID()
+    },
+    status: 503,
+    error: 'nfc_authorization_unavailable'
+  }
+];
 
-    const result = await processFieldCheckin(mockDb, input, { now: validSaturdayMorning });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe('field_inactive');
-    }
-  });
-
-  it('rejects check-in outside active weekend practice hours', async () => {
-    const mockDb: DatabaseExecutor = {
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes('FROM core.practice_fields')) {
-          return { rows: [mockFieldRow], rowCount: 1 };
-        }
-        return { rows: [], rowCount: 0 };
-      })
-    };
-
-    const mondayMorning = new Date('2026-10-25T23:00:00Z'); // Monday 07:00 Taipei
-    const input: FieldCheckinInput = {
-      personId: randomUUID(),
-      fieldCode: 'DAAN_PARK',
-      checkinMethod: 'nfc_gps',
-      userLatitude: 25.029659,
-      userLongitude: 121.536284
-    };
-
-    const result = await processFieldCheckin(mockDb, input, { now: mondayMorning });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe('outside_time_window');
-    }
-  });
-
-  it('rejects check-in when user coordinates are outside the geofence radius', async () => {
-    const mockDb: DatabaseExecutor = {
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes('FROM core.practice_fields')) {
-          return { rows: [mockFieldRow], rowCount: 1 };
-        }
-        return { rows: [], rowCount: 0 };
-      })
-    };
-
-    const input: FieldCheckinInput = {
-      personId: randomUUID(),
-      fieldCode: 'DAAN_PARK',
-      checkinMethod: 'nfc_gps',
-      userLatitude: 25.033961, // Taipei 101 (~2.88 km away)
-      userLongitude: 121.564472
-    };
-
-    const result = await processFieldCheckin(mockDb, input, { now: validSaturdayMorning });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe('outside_geofence');
-      expect(result.distanceMeters).toBeGreaterThan(50);
-    }
-  });
-
-  it('rejects duplicate check-in on the same day for the same member and field', async () => {
-    const existingAttendance = {
-      id: randomUUID(),
-      checkin_at: validSaturdayMorning.toISOString()
-    };
-
-    const mockDb: DatabaseExecutor = {
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes('FROM core.practice_fields')) {
-          return { rows: [mockFieldRow], rowCount: 1 };
-        }
-        if (sql.includes('FROM core.field_attendance') && sql.includes('SELECT id')) {
-          return { rows: [existingAttendance], rowCount: 1 };
-        }
-        return { rows: [], rowCount: 0 };
-      })
-    };
-
-    const input: FieldCheckinInput = {
-      personId: randomUUID(),
-      fieldCode: 'DAAN_PARK',
-      checkinMethod: 'nfc_gps',
-      userLatitude: 25.029659,
-      userLongitude: 121.536284
-    };
-
-    const result = await processFieldCheckin(mockDb, input, { now: validSaturdayMorning });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe('already_checked_in');
-    }
-  });
-
-  it('gracefully handles database unique constraint violation (code 23505) as duplicate check-in', async () => {
-    const mockDb: DatabaseExecutor = {
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes('FROM core.practice_fields')) {
-          return { rows: [mockFieldRow], rowCount: 1 };
-        }
-        if (sql.includes('FROM core.field_attendance') && sql.includes('SELECT id')) {
-          return { rows: [], rowCount: 0 };
-        }
-        if (sql.includes('INSERT INTO core.field_attendance')) {
-          const conflictError = new Error('duplicate key value violates unique constraint');
-          Object.assign(conflictError, { code: '23505' });
-          throw conflictError;
-        }
-        return { rows: [], rowCount: 0 };
-      })
-    };
-
-    const input: FieldCheckinInput = {
-      personId: randomUUID(),
-      fieldCode: 'DAAN_PARK',
-      checkinMethod: 'nfc_gps',
-      userLatitude: 25.029659,
-      userLongitude: 121.536284
-    };
-
-    const result = await processFieldCheckin(mockDb, input, { now: validSaturdayMorning });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe('already_checked_in');
-    }
-  });
-
-  it('rejects nfc_gps check-in when coordinates are missing', async () => {
-    const mockDb: DatabaseExecutor = {
-      query: vi.fn(async () => ({ rows: [], rowCount: 0 }))
-    };
-
-    const input: FieldCheckinInput = {
-      personId: randomUUID(),
-      fieldCode: 'DAAN_PARK',
-      checkinMethod: 'nfc_gps'
-      // userLatitude and userLongitude omitted
-    };
-
-    const result = await processFieldCheckin(mockDb, input, { now: validSaturdayMorning });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe('missing_coordinates');
-    }
-  });
-
-  it('rejects volunteer_manual check-in when volunteerPersonId is missing', async () => {
-    const mockDb: DatabaseExecutor = {
-      query: vi.fn(async () => ({ rows: [], rowCount: 0 }))
-    };
-
-    const input: FieldCheckinInput = {
-      personId: randomUUID(),
-      fieldCode: 'DAAN_PARK',
-      checkinMethod: 'volunteer_manual'
-      // volunteerPersonId omitted
-    };
-
-    const result = await processFieldCheckin(mockDb, input, { now: validSaturdayMorning });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe('missing_volunteer');
-    }
-  });
-});
-
-describe('Active Practice Fields Listing', () => {
-  it('retrieves active fields with properly parsed numeric coordinates', async () => {
-    const rows = [
-      {
-        id: randomUUID(),
-        region_id: randomUUID(),
-        code: 'FIELD_01',
-        name_zh_tw: '台北大安團練場',
-        name_en: 'Taipei Daan Field',
-        latitude: '25.029659',
-        longitude: '121.536284',
-        radius_meters: '50',
-        active_time_rules: '{"day_of_week": [0, 6], "start_time": "06:30", "end_time": "09:00"}',
-        is_active: true
-      }
-    ];
-
-    const mockDb: DatabaseExecutor = {
-      query: vi.fn(async () => ({ rows, rowCount: 1 }))
-    };
-
-    const fields = await getActivePracticeFields(mockDb);
-
-    expect(fields).toHaveLength(1);
-    expect(fields[0]?.code).toBe('FIELD_01');
-    expect(fields[0]?.latitude).toBe(25.029659);
-    expect(fields[0]?.longitude).toBe(121.536284);
-    expect(fields[0]?.radius_meters).toBe(50);
-    expect(fields[0]?.active_time_rules.day_of_week).toEqual([0, 6]);
-  });
-});
-
-describe('Field Check-in Routes HTTP Validation & Endpoints', () => {
-  it('validates request payload schema using Zod', () => {
-    const validPayload = {
-      personId: randomUUID(),
-      fieldCode: 'DAAN_PARK',
-      checkinMethod: 'nfc_gps',
-      userLatitude: 25.029659,
-      userLongitude: 121.536284
-    };
-    expect(fieldCheckinSchema.safeParse(validPayload).success).toBe(true);
-
-    // Missing coordinates for nfc_gps
-    expect(
-      fieldCheckinSchema.safeParse({
-        personId: randomUUID(),
-        fieldCode: 'DAAN_PARK',
-        checkinMethod: 'nfc_gps'
-      }).success
-    ).toBe(false);
-
-    // Missing volunteerPersonId for volunteer_manual
-    expect(
-      fieldCheckinSchema.safeParse({
-        personId: randomUUID(),
-        fieldCode: 'DAAN_PARK',
-        checkinMethod: 'volunteer_manual'
-      }).success
-    ).toBe(false);
-
-    // Missing both fieldId and fieldCode
-    expect(
-      fieldCheckinSchema.safeParse({
-        personId: randomUUID(),
-        checkinMethod: 'nfc_gps',
-        userLatitude: 25.029659,
-        userLongitude: 121.536284
-      }).success
-    ).toBe(false);
-  });
-
-  it('maps domain error codes to corresponding HTTP status codes', () => {
-    expect(mapCheckinErrorStatus('already_checked_in')).toBe(409);
-    expect(mapCheckinErrorStatus('field_not_found')).toBe(404);
-    expect(mapCheckinErrorStatus('outside_geofence')).toBe(403);
-    expect(mapCheckinErrorStatus('outside_time_window')).toBe(403);
-    expect(mapCheckinErrorStatus('invalid_input')).toBe(400);
-    expect(mapCheckinErrorStatus('missing_coordinates')).toBe(400);
-    expect(mapCheckinErrorStatus('missing_volunteer')).toBe(400);
-    expect(mapCheckinErrorStatus('field_inactive')).toBe(400);
-    expect(mapCheckinErrorStatus('unexpected_error')).toBe(500);
-  });
-
-  it('GET /api/v1/fields/active returns 200 with list of active fields', async () => {
-    const app = Fastify();
-    const mockFields: PracticeFieldRecord[] = [
-      {
-        id: randomUUID(),
-        region_id: randomUUID(),
-        code: 'DAAN',
-        name_zh_tw: '大安團練場',
-        name_en: 'Daan Field',
-        latitude: 25.029659,
-        longitude: 121.536284,
-        radius_meters: 50,
-        active_time_rules: { day_of_week: [0, 6], start_time: '06:30', end_time: '09:00' },
-        is_active: true
-      }
-    ];
-
-    const mockPool = {
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes('FROM core.practice_fields')) {
-          return { rows: mockFields, rowCount: 1 };
-        }
-        return { rows: [], rowCount: 0 };
-      })
-    } as unknown as Pool;
-
-    registerFieldCheckinRoutes(app, mockPool);
-
-    const response = await app.inject({
-      method: 'GET',
-      url: '/api/v1/fields/active'
+describe('Field check-in application quarantine', () => {
+  it('rejects all writes at the service boundary without accepting a DB executor', () => {
+    expect(processFieldCheckin(gpsPayload)).toMatchObject({
+      ok: false,
+      error: 'nfc_authorization_unavailable'
     });
-
-    expect(response.statusCode).toBe(200);
-    const body = response.json<{ ok: boolean; fields: PracticeFieldRecord[] }>();
-    expect(body.ok).toBe(true);
-    expect(body.fields).toHaveLength(1);
-    expect(body.fields[0]?.code).toBe('DAAN');
-
-    await app.close();
-  });
-
-  it('POST /api/v1/field-checkin returns 400 when input validation fails', async () => {
-    const app = Fastify();
-    const mockPool = { query: vi.fn() } as unknown as Pool;
-    registerFieldCheckinRoutes(app, mockPool);
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/field-checkin',
-      payload: { invalid: 'body' }
+    expect(processFieldCheckin({ ...gpsPayload, checkinMethod: 'volunteer_manual' })).toMatchObject(
+      { ok: false, error: 'volunteer_authorization_unavailable' }
+    );
+    expect(getActivePracticeFields()).toMatchObject({
+      ok: false,
+      error: 'nfc_authorization_unavailable'
     });
-
-    expect(response.statusCode).toBe(400);
-    const body = response.json<{ ok: boolean; error: string }>();
-    expect(body.ok).toBe(false);
-    expect(body.error).toBe('invalid_input');
-
-    await app.close();
   });
 
-  it('integrates with explicitly enabled buildApp to handle POST /api/v1/field-checkin success', async () => {
+  it('accepts only metadata, never client identity or checkin links', () => {
+    expect(fieldCheckinSchema.safeParse(gpsPayload).success).toBe(true);
+    for (const key of [
+      'personId',
+      'volunteerPersonId',
+      'checkinId',
+      'subject',
+      'idToken',
+      'principalId'
+    ]) {
+      expect(fieldCheckinSchema.safeParse({ ...gpsPayload, [key]: randomUUID() }).success).toBe(
+        false
+      );
+    }
+    expect(
+      fieldCheckinSchema.safeParse({ fieldCode: 'DAAN_PARK', checkinMethod: 'nfc_gps' }).success
+    ).toBe(false);
+    expect(fieldCheckinSchema.safeParse({ ...gpsPayload, fieldCode: undefined }).success).toBe(
+      false
+    );
+  });
+
+  it('maps explicit quarantine failures to unavailable / forbidden, not success', () => {
+    expect(mapCheckinErrorStatus('nfc_authorization_unavailable')).toBe(503);
+    expect(mapCheckinErrorStatus('volunteer_authorization_unavailable')).toBe(403);
+  });
+
+  it('rejects invalid payloads and field reads when registered directly', async () => {
+    const app = Fastify();
+    registerFieldCheckinRoutes(app);
+    try {
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/api/v1/field-checkin',
+            payload: { invalid: 'body' }
+          })
+        ).statusCode
+      ).toBe(400);
+      expect((await app.inject('/api/v1/fields/active')).statusCode).toBe(503);
+      expect(
+        (await app.inject({ method: 'POST', url: '/api/v1/field-checkin', payload: gpsPayload }))
+          .statusCode
+      ).toBe(503);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it.each(attacks)(
+    'production buildApp rejects $name without accessing the DB after startup',
+    async ({ payload, headers, query, status, error }) => {
+      vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
+      const client = createNfcSchemaClient();
+      const directQuery = vi.fn(() => {
+        throw new Error('Unexpected direct pool access');
+      });
+      const connect = vi.fn(async () => client);
+      const pool = { query: directQuery, connect } as unknown as Pool;
+      const app = buildApp({ pool, logger: false });
+      try {
+        // Only the existing mocked startup schema probe is allowed, not request-time access.
+        await app.ready();
+        expect(client.query).toHaveBeenCalledWith('SET LOCAL ROLE qigong_api_runtime');
+        connect.mockClear();
+        client.query.mockClear();
+        client.query.mockImplementation(() => {
+          throw new Error('Unexpected request DB access');
+        });
+        const response = await app.inject({
+          method: 'POST',
+          url: '/api/v1/field-checkin',
+          payload,
+          ...(headers ? { headers } : {}),
+          ...(query ? { query } : {})
+        });
+        expect(response.statusCode).toBe(status);
+        expect(response.json()).toMatchObject({ ok: false, error });
+        expect(response.headers['cache-control']).toBe('no-store');
+        expect(response.headers['referrer-policy']).toBe('no-referrer');
+        expect(response.headers['x-content-type-options']).toBe('nosniff');
+        expect(response.body).not.toContain(forgedToken);
+        expect(response.body).not.toContain(forgedSubject);
+        expect((await app.inject('/api/v1/fields/active')).statusCode).toBe(503);
+        expect(directQuery).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
+        expect(client.query).not.toHaveBeenCalled();
+        expect(fetch).not.toHaveBeenCalled();
+      } finally {
+        await app.close();
+      }
+    }
+  );
+
+  it('preserves the 0048 readiness deployment blocker even with the gate off', async () => {
+    const client = createNfcSchemaClient('0048_nfc_attendance_security_quarantine.sql');
+    const query = vi.fn(async () => ({ rows: [] }));
+    const app = buildApp({
+      pool: { query, connect: vi.fn(async () => client) } as unknown as Pool,
+      logger: false
+    });
+    try {
+      const response = await app.inject('/health/ready');
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toMatchObject({ ok: false, reason: 'schema_version_mismatch' });
+      expect(
+        (await app.inject({ method: 'POST', url: '/api/v1/field-checkin', payload: gpsPayload }))
+          .statusCode
+      ).toBe(404);
+      expect(query).toHaveBeenCalledExactlyOnceWith('SELECT 1');
+      expect(client.query).not.toHaveBeenCalledWith(
+        expect.stringContaining('core.practice_fields')
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('continues to reject 0048 at startup rather than relaxing quarantine', async () => {
     vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
-    const personId = randomUUID();
-    const attendanceId = randomUUID();
-    const mockField = {
-      id: randomUUID(),
-      region_id: randomUUID(),
-      code: 'DAAN_PARK',
-      name_zh_tw: '大安森林公園',
-      name_en: 'Daan Park',
-      latitude: '25.029659',
-      longitude: '121.536284',
-      radius_meters: '50',
-      active_time_rules: {
-        day_of_week: [0, 1, 2, 3, 4, 5, 6],
-        start_time: '00:00',
-        end_time: '23:59'
-      },
-      is_active: true
-    };
-
-    const mockPool = {
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes('FROM core.practice_fields')) {
-          return { rows: [mockField], rowCount: 1 };
-        }
-        if (sql.includes('FROM core.field_attendance') && sql.includes('SELECT id')) {
-          return { rows: [], rowCount: 0 };
-        }
-        if (sql.includes('INSERT INTO core.field_attendance')) {
-          return {
-            rows: [{ id: attendanceId, checkin_at: new Date().toISOString() }],
-            rowCount: 1
-          };
-        }
-        return { rows: [], rowCount: 0 };
-      }),
-      connect: vi.fn(async () => createNfcSchemaClient())
-    } as unknown as Pool;
-
-    const app = buildApp({ pool: mockPool, logger: false });
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/field-checkin',
-      payload: {
-        personId,
-        fieldCode: 'DAAN_PARK',
-        checkinMethod: 'nfc_gps',
-        userLatitude: 25.02966,
-        userLongitude: 121.536285
-      }
+    const client = createNfcSchemaClient('0048_nfc_attendance_security_quarantine.sql');
+    const query = vi.fn();
+    const app = buildApp({
+      pool: { query, connect: vi.fn(async () => client) } as unknown as Pool,
+      logger: false
     });
-
-    expect(response.statusCode).toBe(200);
-    const body = response.json<{ ok: boolean; attendanceId: string; fieldName: string }>();
-    expect(body.ok).toBe(true);
-    expect(body.attendanceId).toBe(attendanceId);
-    expect(body.fieldName).toBe('大安森林公園');
-
-    await app.close();
+    try {
+      await expect(app.ready()).rejects.toThrow('nfc_schema_not_ready');
+      expect(query).not.toHaveBeenCalled();
+      expect(app.hasRoute({ method: 'POST', url: '/api/v1/field-checkin' })).toBe(false);
+    } finally {
+      await app.close();
+    }
   });
 });

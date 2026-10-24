@@ -1,9 +1,87 @@
-# NFC 第二階段：第一批資料庫隔離
+# NFC 第二階段：資料庫與 API 隔離
 
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 
-## 狀態與邊界
+## 第二批：API 信任入口 fail-closed（基於 986fa80）
+
+本批單一代理在父 checkout 順序實作，共修改五檔：
+
+- `apps/public-api/src/field-checkin-routes.ts`
+- `apps/public-api/src/field-checkin-service.ts`
+- `apps/public-api/src/app.ts`
+- `apps/public-api/tests/field-checkin.test.ts`
+- `docs/operations/nfc-security-quarantine.md`
+
+### 實際防線與刻意停用
+
+- NFC 仍 default-off；沒有修改 opt-in gate、0048、GRANT / RLS、migration readiness 或環境設定。
+- POST 採 strict payload，拒絕 body 的 personId、volunteerPersonId、checkinId、subject、
+  principalId、idToken 等未支援欄位（400），不再把客戶端身分直接交給 service。
+  query / header / cookie 的自稱身分亦不能建立 context 或取得權限。
+- 合法形狀的 GPS payload 也回傳 503 / nfc_authorization_unavailable；
+  不含自選身分欄位的 volunteer_manual 回傳 403 / volunteer_authorization_unavailable。
+  帶偽造志工 ID 的 payload 先被 strict schema 拒絕（400）。
+  **匿名請求的 503 是功能尚未安全開放，不是已通過認證或已完成 401 認證流程。**
+- GET active fields 同樣回傳 503，不回傳假空清單，也不以 privileged pool 繞過隔離。
+- route 註冊與 service 均不再接受 pool / client；移除舊 SELECT / INSERT 實作與不安全的成功分支。
+  service 只回傳失敗，不能透過直接呼叫 service 恢復寫入。
+  未假造 request context；將來恢復 DB 存取必須另行審核並使用 withRequestContext。
+- 回應保留 no-store / no-referrer / nosniff；POST bodyLimit 為 4096；
+  validation error 不回顯 payload / credential / GPS / student note。
+- 保留距離、geofence、時間窗純函式與既有測試；移除舊匿名成功及未授權志工成功 mock，
+  改為正式 buildApp 的拒絕契約，沒有用 mock 成功冒充安全完成。
+- 沒有自動新增、連結或更新日課，也沒有選擇功法或改動既有資料。
+
+### 身分整合尚未完成
+
+已檢查 line-profile.ts 的 verifyLineIdentity / verifiedLineIdentitySchema、
+line-onboarding.ts 的伺服器端 verifier 介面、learner-privacy-routes.ts 的 privacy gate，
+以及既有 identity.platform_identities、person_interaction_channels、approved application 模型。
+LINE token 必須由伺服器驗證後取得 subject，再解析有效、未撤銷的 identity / channel 與學員資格；
+不能把 UUID / subject / token-shaped string 當成授權。
+
+本批**沒有接上 token verification、identity mapping、privacy 或志工 scoped authorization**。
+因此不接受 credential payload，也不從任何請求資料導出學員，選擇全面暫拒讀寫，
+而不是僅加入登入檢查後繼續舊 pool SQL。未呼叫 LINE 或其他外部 API。
+志工仍需從可信 admin session 導出 principal，檢查 action、有效 grant、場地 region；
+不能使用 self-read 的 can_access_person 代替寫入授權。
+
+### 第二批本地驗證
+
+所有測試均為隔離的 mock / 純函式 / 靜態檔案契約，沒有 DB 連線或 migration 執行。
+
+- `pnpm --filter @qigong/public-api exec vitest run tests/field-checkin.test.ts tests/health.test.ts tests/admin-attendance.test.ts`：81 passed（45 / 13 / 23）。
+  正式 buildApp 覆蓋 10 組匿名、任選 person / volunteer / checkin、偽造 subject / token / 志工、
+  header / cookie 與 query 攻擊；只允許 mocked startup schema probe，請求階段 pool.query、
+  pool.connect、client.query 與 fetch 均未被呼叫。另保留 default-off / 非精確 opt-in 的全部 NFC 路由
+  404、既有 admin / health / navigation 相容性測試。
+- `pnpm --filter @qigong/database exec vitest run tests/nfc-security-quarantine.test.ts tests/field-attendance-schema.test.ts`：54 passed（19 / 35）。
+- `pnpm typecheck`、`pnpm build`：四個 workspace package 通過。
+- 修改的 field-checkin.test.ts 額外使用 tsc --noEmit --strict --exactOptionalPropertyTypes
+  --noUncheckedIndexedAccess --target ES2022 --module NodeNext --moduleResolution NodeNext
+  --skipLibCheck 通過；四個修改的 TS 檔案 ESLint 通過，五個檔案由既有 Prettier 格式化／檢查。
+- 初次 typecheck 發現 Zod optional 與 exactOptionalPropertyTypes 不相容；
+  將拒絕 service 的輸入限為實際需要的 checkinMethod，沒有加 cast 放寬型別（1 輪修復）。
+- Node 仍為 v26.10.0，非專案要求的 Node 24；仍須於 Node 24 再驗證。
+
+### 上線限制與下一批
+
+**這是拒絕存取的安全批次，不是可用 NFC 或完整安全認證完成。**
+0048 deny-all 完整保留；現版 maximum migration / nfcMigrationVersion 仍為 0047。
+新增測試確認 0048 在 gate 關閉時仍回傳 schema_version_mismatch，gate 開啟則拒絕啟動。
+不得把本批直接當成 migration / 部署核准，也不得開啟 gate 讓端點工作。
+
+下一批仍需可信 credential → 有效 identity / channel → eligibility / privacy → request context，
+及逐操作 scoped authorization 的完整設計、0048-compatible readiness 與真實隔離 PostgreSQL 證據。
+管理場地、出席查詢與 CSV 端點不在本批修補範圍，仍依 gate 與 0048 隔離，不能視為已安全完成。
+沒有讀取 .env / 機密、連線正式或未知 DB、修改 package / lockfile、全域設定、開子代理、
+執行 migration、部署、push 或 merge。此介面沒有可呼叫的 allow_tool: false hook；
+本機 commit 不代替結構安全審核與部署核准。
+
+## 第一批歷史紀錄（986fa80；以下描述該批時點）
+
+### 狀態與邊界
 
 基於 `6ced05a`，本批只有 forward migration `0048`、靜態契約測試與本文件。
 **尚未執行 migration、連接資料庫、推送或部署；不是端到端完成。**
