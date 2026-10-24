@@ -12,6 +12,8 @@ import { registerAdminActivityRoutes } from './admin-activity-routes.js';
 import { registerAdminLearnerRoutes } from './admin-learner-routes.js';
 import { registerAdminLineInvites } from './admin-line-invite-routes.js';
 import { registerReviewNotificationRoutes } from './admin-review-notification-routes.js';
+import { registerAdminFieldRoutes } from './admin-field-routes.js';
+import { registerAdminAttendanceRoutes } from './admin-attendance-routes.js';
 import {
   adminLocaleCookie,
   adminNameColumn,
@@ -494,6 +496,25 @@ export const registerAdminRoutes = (
       timingSafeEqual(sha256(value), sha256(saved))
     );
   });
+
+  registerAdminFieldRoutes(
+    app,
+    pool,
+    principalFor,
+    (request) => {
+      const value = request.headers['x-csrf-token'],
+        saved = cookies(request)[csrfCookie];
+      return (
+        typeof value === 'string' &&
+        typeof saved === 'string' &&
+        saved.length > 0 &&
+        timingSafeEqual(sha256(value), sha256(saved))
+      );
+    },
+    lineLiffId
+  );
+
+  registerAdminAttendanceRoutes(app, pool, principalFor, lineLiffId);
 
   app.post('/admin/auth/logout', async (request, reply) => {
     const values = cookies(request);
