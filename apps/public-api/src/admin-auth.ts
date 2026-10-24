@@ -39,12 +39,14 @@ export interface AdminAuthProvider {
   callbackUrl: string;
 }
 
+// Schema introduction and quarantine are not evidence of trusted feature capability.
 export const nfcMigrationVersion = '0047_practice_fields_and_nfc_attendance.sql';
+export const nfcQuarantineMigrationVersion = '0048_nfc_attendance_security_quarantine.sql';
 
 // Deliberate opt-in only. This gate is not an identity or authorization boundary.
 export const isNfcEnabled = () => process.env.NFC_FIELD_CHECKIN_ENABLED === 'true';
 
-export const checkNfcSchemaReadiness = async (pool: Pool) => {
+export const checkNfcFeatureReadiness = async (pool: Pool) => {
   try {
     return await withRequestContext(
       pool,
@@ -54,31 +56,19 @@ export const checkNfcSchemaReadiness = async (pool: Pool) => {
         const migration = await client.query<{ version: string }>(
           'SELECT version FROM public.schema_migrations ORDER BY version DESC LIMIT 1'
         );
-        if (migration.rows[0]?.version !== nfcMigrationVersion) return { ready: false as const };
-        // Resolve every NFC column under the runtime role without reading learner rows.
-        // This checks schema accessibility, not write privileges or complete RLS/authorization.
-        await client.query(`
-          SELECT pf.id, pf.region_id, pf.code, pf.name_zh_tw, pf.name_en,
-                 pf.latitude, pf.longitude, pf.radius_meters, pf.active_time_rules,
-                 pf.is_active, pf.created_at, pf.updated_at,
-                 fa.id, fa.checkin_id, fa.person_id, fa.field_id, fa.checkin_method,
-                 fa.volunteer_person_id, fa.user_latitude, fa.user_longitude,
-                 fa.distance_meters, fa.checkin_at, fa.student_note
-          FROM core.practice_fields pf CROSS JOIN core.field_attendance fa LIMIT 0
-        `);
-        const index = await client.query<{ ready: boolean }>(`
-          SELECT EXISTS (
-            SELECT 1 FROM pg_index
-            WHERE indexrelid = to_regclass('core.idx_field_attendance_unique_day')
-              AND indrelid = to_regclass('core.field_attendance')
-              AND indisunique AND indisvalid AND indisready
-          ) AS ready
-        `);
-        return { ready: index.rows[0]?.ready === true };
+        const version = migration.rows[0]?.version;
+        if (version === nfcQuarantineMigrationVersion)
+          return { ready: false as const, reason: 'nfc_security_quarantined' as const };
+        if (version !== nfcMigrationVersion)
+          return { ready: false as const, reason: 'nfc_schema_not_ready' as const };
+        // 0047 lacks trusted identity, privacy and per-operation scoped authorization.
+        // Never infer feature readiness from a version, SELECT privilege or index probe.
+        // No supported version can enable NFC until the complete trusted flow is reviewed.
+        return { ready: false as const, reason: 'nfc_authorization_unavailable' as const };
       }
     );
   } catch {
-    return { ready: false as const };
+    return { ready: false as const, reason: 'nfc_schema_not_ready' as const };
   }
 };
 
@@ -89,7 +79,8 @@ export const registerNfcFeature = (
 ) => {
   if (!isNfcEnabled()) return;
   app.register(async (scope) => {
-    if (!(await checkNfcSchemaReadiness(pool)).ready) throw new Error('nfc_schema_not_ready');
+    const readiness = await checkNfcFeatureReadiness(pool);
+    if (!readiness.ready) throw new Error(readiness.reason);
     register(scope);
   });
 };

@@ -7,8 +7,9 @@ import {
   registerAdminRoutes,
   type AdminAuthProvider,
   nfcMigrationVersion,
+  nfcQuarantineMigrationVersion,
   isNfcEnabled,
-  checkNfcSchemaReadiness,
+  checkNfcFeatureReadiness,
   registerNfcFeature
 } from './admin-auth.js';
 import { registerExternalJournalRoutes } from './journal-routes.js';
@@ -38,7 +39,8 @@ export const apiLogRedaction = Object.freeze({
 });
 
 export const minimumMigrationVersion = '0042_activity_consecutive_drafts.sql';
-export const maximumMigrationVersion = nfcMigrationVersion;
+// Compatibility with quarantine does not grant NFC capability.
+export const maximumMigrationVersion = nfcQuarantineMigrationVersion;
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -53,19 +55,31 @@ interface AppDependencies {
 }
 
 export const checkStartupReadiness = async (pool: Pool) => {
-  const migration = await getMigrationStatus(
+  const status = await getMigrationStatus(
     pool,
     minimumMigrationVersion,
     maximumMigrationVersion,
     'qigong_api_runtime'
   );
+  // Extend the historical compatibility range only for the known quarantine migration,
+  // not for arbitrary versions that happen to sort between 0047 and 0048.
+  const migration = {
+    ...status,
+    ready:
+      status.ready &&
+      (status.currentVersion === nfcQuarantineMigrationVersion ||
+        (status.currentVersion !== null &&
+          status.currentVersion.localeCompare(nfcMigrationVersion) <= 0))
+  };
   if (!migration.ready)
     return { ready: false as const, reason: 'schema_version_mismatch', migration };
   const runtime = await checkApiRuntimePreflight(pool);
   if (!runtime.ready)
     return { ready: false as const, reason: 'runtime_role_misconfigured', runtime };
-  if (isNfcEnabled() && !(await checkNfcSchemaReadiness(pool)).ready)
-    return { ready: false as const, reason: 'nfc_schema_not_ready', migration, runtime };
+  if (isNfcEnabled()) {
+    const nfc = await checkNfcFeatureReadiness(pool);
+    if (!nfc.ready) return { ready: false as const, reason: nfc.reason, migration, runtime };
+  }
   return { ready: true as const, migration, runtime };
 };
 

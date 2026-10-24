@@ -24,6 +24,8 @@ import { buildApp } from '../src/app.js';
 import type { Pool } from '@qigong/database';
 import {
   nfcMigrationVersion,
+  nfcQuarantineMigrationVersion,
+  checkNfcFeatureReadiness,
   registerAdminRoutes,
   type AdminAuthProvider
 } from '../src/admin-auth.js';
@@ -42,11 +44,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const createNfcSchemaClient = (version = nfcMigrationVersion, schemaReady = true) => ({
+const createNfcLedgerClient = (version: string | null = nfcMigrationVersion) => ({
   query: vi.fn(async (sql: string) => {
-    if (sql.includes('schema_migrations')) return { rows: [{ version }] };
-    if (sql.includes('LIMIT 0') && !schemaReady) throw new Error('NFC columns unavailable');
-    if (sql.includes('FROM pg_index')) return { rows: [{ ready: true }] };
+    if (/core\.(practice_fields|field_attendance)|pg_index/.test(sql)) {
+      throw new Error('NFC relation and index probes are forbidden');
+    }
+    if (sql.includes('schema_migrations')) return { rows: version ? [{ version }] : [] };
     return { rows: [] };
   }),
   release: vi.fn()
@@ -99,44 +102,68 @@ describe.each(['buildApp', 'registerAdminRoutes'] as const)('NFC isolation via %
     await app.close();
   });
 
-  it('registers NFC routes only after explicit opt-in and schema readiness', async () => {
+  it.each([
+    [null, 'nfc_schema_not_ready'],
+    ['0046_achievement_evaluation_and_readers.sql', 'nfc_schema_not_ready'],
+    [nfcMigrationVersion, 'nfc_authorization_unavailable'],
+    [nfcQuarantineMigrationVersion, 'nfc_security_quarantined'],
+    ['0048_future.sql', 'nfc_schema_not_ready'],
+    ['0049_future.sql', 'nfc_schema_not_ready']
+  ] as const)('refuses explicit opt-in on %s with %s', async (version, reason) => {
     vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
-    const client = createNfcSchemaClient();
+    const client = createNfcLedgerClient(version);
     const pool = { query: vi.fn(), connect: vi.fn(async () => client) } as unknown as Pool;
     const app = gatedApp(kind, pool);
-    await app.ready();
-    for (const route of nfcRoutes.filter(
-      (route) => kind === 'buildApp' || route.url.startsWith('/admin/')
-    )) {
-      expect(app.hasRoute(route)).toBe(true);
+    try {
+      await expect(app.ready()).rejects.toThrow(reason);
+      for (const route of nfcRoutes) expect(app.hasRoute(route)).toBe(false);
+      expect(Reflect.get(pool, 'query')).not.toHaveBeenCalled();
+      expect(client.query).toHaveBeenCalledWith('SET LOCAL ROLE qigong_api_runtime');
+      expect(client.query).toHaveBeenCalledWith(
+        'SELECT version FROM public.schema_migrations ORDER BY version DESC LIMIT 1'
+      );
+      for (const [sql] of client.query.mock.calls) {
+        expect(sql).not.toMatch(/core\.(practice_fields|field_attendance)|pg_index/);
+      }
+      expect(client.release).toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
     }
-    for (const url of ['/admin/api/fields/capabilities', '/admin/api/attendance/capabilities']) {
-      expect((await app.inject(url)).statusCode).toBe(401);
+  });
+
+  it('fails closed when the migration ledger is inaccessible without trying NFC tables', async () => {
+    vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
+    const client = createNfcLedgerClient();
+    client.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('schema_migrations')) throw new Error('ledger unavailable');
+      return { rows: [] };
+    });
+    const pool = { query: vi.fn(), connect: vi.fn(async () => client) } as unknown as Pool;
+    const app = gatedApp(kind, pool);
+    try {
+      await expect(app.ready()).rejects.toThrow('nfc_schema_not_ready');
+      for (const route of nfcRoutes) expect(app.hasRoute(route)).toBe(false);
+      for (const [sql] of client.query.mock.calls) {
+        expect(sql).not.toMatch(/core\.(practice_fields|field_attendance)|pg_index/);
+      }
+      expect(client.query).toHaveBeenCalledWith('ROLLBACK');
+      expect(client.release).toHaveBeenCalled();
+      expect(Reflect.get(pool, 'query')).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
     }
-    expect(client.query).toHaveBeenCalledWith('SET LOCAL ROLE qigong_api_runtime');
-    expect(client.release).toHaveBeenCalled();
-    expect(Reflect.get(pool, 'query')).not.toHaveBeenCalled();
-    await app.close();
   });
 
   it.each([
-    ['0046_achievement_evaluation_and_readers.sql', true],
-    [nfcMigrationVersion, false]
-  ])('refuses startup with version %s and schemaReady=%s', async (version, schemaReady) => {
-    vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
-    const client = createNfcSchemaClient(version, schemaReady);
-    const pool = { query: vi.fn(), connect: vi.fn(async () => client) } as unknown as Pool;
-    const app = gatedApp(kind, pool);
-    await expect(app.ready()).rejects.toThrow('nfc_schema_not_ready');
-    for (const route of nfcRoutes) expect(app.hasRoute(route)).toBe(false);
-    expect(Reflect.get(pool, 'query')).not.toHaveBeenCalled();
-    expect(client.release).toHaveBeenCalled();
-    await app.close();
-  });
-
-  it('keeps NFC navigation absent for an authenticated administrator while disabled', async () => {
+    '0046_achievement_evaluation_and_readers.sql',
+    nfcMigrationVersion,
+    nfcQuarantineMigrationVersion
+  ])('keeps existing admin routes and hides NFC navigation while off on %s', async (version) => {
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes('schema_migrations')) return { rows: [{ version }] };
         if (sql.includes('admin.session_principal'))
           return { rows: [{ principal_id: randomUUID() }] };
         return { rows: [{ allowed: true }] };
@@ -154,6 +181,14 @@ describe.each(['buildApp', 'registerAdminRoutes'] as const)('NFC isolation via %
     expect(response.body).not.toContain('href="/admin/attendance');
     expect(response.body).toContain('href="/admin/leaderboard');
     expect(response.body).toContain('href="/admin/applications');
+    for (const route of nfcRoutes) {
+      expect(app.hasRoute(route)).toBe(false);
+      expect((await app.inject(route)).statusCode).toBe(404);
+    }
+    for (const [sql] of client.query.mock.calls) {
+      expect(sql).not.toMatch(/core\.(practice_fields|field_attendance)|pg_index/);
+    }
+    expect(fetch).not.toHaveBeenCalled();
     await app.close();
   });
 });
@@ -436,25 +471,13 @@ describe('Field check-in application quarantine', () => {
   });
 
   it.each(attacks)(
-    'production buildApp rejects $name without accessing the DB after startup',
+    'direct route registration still rejects $name independently of the startup gate',
     async ({ payload, headers, query, status, error }) => {
-      vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
-      const client = createNfcSchemaClient();
-      const directQuery = vi.fn(() => {
-        throw new Error('Unexpected direct pool access');
-      });
-      const connect = vi.fn(async () => client);
-      const pool = { query: directQuery, connect } as unknown as Pool;
-      const app = buildApp({ pool, logger: false });
+      // Production buildApp cannot enable NFC. Keep the separate route/service rejection
+      // contracts covered without mocking feature readiness or creating an enabling bypass.
+      const app = Fastify();
+      registerFieldCheckinRoutes(app);
       try {
-        // Only the existing mocked startup schema probe is allowed, not request-time access.
-        await app.ready();
-        expect(client.query).toHaveBeenCalledWith('SET LOCAL ROLE qigong_api_runtime');
-        connect.mockClear();
-        client.query.mockClear();
-        client.query.mockImplementation(() => {
-          throw new Error('Unexpected request DB access');
-        });
         const response = await app.inject({
           method: 'POST',
           url: '/api/v1/field-checkin',
@@ -470,9 +493,6 @@ describe('Field check-in application quarantine', () => {
         expect(response.body).not.toContain(forgedToken);
         expect(response.body).not.toContain(forgedSubject);
         expect((await app.inject('/api/v1/fields/active')).statusCode).toBe(503);
-        expect(directQuery).not.toHaveBeenCalled();
-        expect(connect).not.toHaveBeenCalled();
-        expect(client.query).not.toHaveBeenCalled();
         expect(fetch).not.toHaveBeenCalled();
       } finally {
         await app.close();
@@ -480,45 +500,18 @@ describe('Field check-in application quarantine', () => {
     }
   );
 
-  it('preserves the 0048 readiness deployment blocker even with the gate off', async () => {
-    const client = createNfcSchemaClient('0048_nfc_attendance_security_quarantine.sql');
-    const query = vi.fn(async () => ({ rows: [] }));
-    const app = buildApp({
-      pool: { query, connect: vi.fn(async () => client) } as unknown as Pool,
-      logger: false
-    });
-    try {
-      const response = await app.inject('/health/ready');
-      expect(response.statusCode).toBe(503);
-      expect(response.json()).toMatchObject({ ok: false, reason: 'schema_version_mismatch' });
-      expect(
-        (await app.inject({ method: 'POST', url: '/api/v1/field-checkin', payload: gpsPayload }))
-          .statusCode
-      ).toBe(404);
-      expect(query).toHaveBeenCalledExactlyOnceWith('SELECT 1');
-      expect(client.query).not.toHaveBeenCalledWith(
-        expect.stringContaining('core.practice_fields')
-      );
-      expect(fetch).not.toHaveBeenCalled();
-    } finally {
-      await app.close();
-    }
-  });
-
-  it('continues to reject 0048 at startup rather than relaxing quarantine', async () => {
-    vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
-    const client = createNfcSchemaClient('0048_nfc_attendance_security_quarantine.sql');
+  it('reports feature quarantine independently of whether opt-in is configured', async () => {
+    const client = createNfcLedgerClient(nfcQuarantineMigrationVersion);
     const query = vi.fn();
-    const app = buildApp({
-      pool: { query, connect: vi.fn(async () => client) } as unknown as Pool,
-      logger: false
+    const pool = { query, connect: vi.fn(async () => client) } as unknown as Pool;
+    expect(await checkNfcFeatureReadiness(pool)).toEqual({
+      ready: false,
+      reason: 'nfc_security_quarantined'
     });
-    try {
-      await expect(app.ready()).rejects.toThrow('nfc_schema_not_ready');
-      expect(query).not.toHaveBeenCalled();
-      expect(app.hasRoute({ method: 'POST', url: '/api/v1/field-checkin' })).toBe(false);
-    } finally {
-      await app.close();
+    expect(query).not.toHaveBeenCalled();
+    for (const [sql] of client.query.mock.calls) {
+      expect(sql).not.toMatch(/core\.(practice_fields|field_attendance)|pg_index/);
     }
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

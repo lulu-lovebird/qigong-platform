@@ -3,7 +3,73 @@
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 
-## 第二批：API 信任入口 fail-closed（基於 986fa80）
+## 第三批：0048 啟動相容性與 NFC feature readiness（基於 cdbc3a5；目前狀態）
+
+本批單一代理在本地 checkout 順序修改五檔：`apps/public-api/src/app.ts`、
+`apps/public-api/src/admin-auth.ts`、`apps/public-api/tests/health.test.ts`、
+`apps/public-api/tests/field-checkin.test.ts` 及本文件。沒有開啟 NFC。
+
+### 一般服務相容性不等於 NFC 可用
+
+- minimum migration 仍為 `0042_activity_consecutive_drafts.sql`，保留既有 0042–0047
+  範圍政策；只額外接受已知的 `0048_nfc_attendance_security_quarantine.sql`。
+  不因提高 maximum 而接受排序落在 0047 與 0048 之間的未知版本。
+- NFC default-off 時，startup preflight 與 `/health/ready` 接受 0046／0047／0048，
+  前提仍是既有 runtime preflight 通過。NFC learner／admin／CSV 路由仍未註冊（404），
+  既有 health、admin 路由與非 NFC navigation 保留。
+- NFC feature readiness 改由 `checkNfcFeatureReadiness` 表達，與一般 migration 相容性分離。
+  只在 runtime role 下查 migration ledger；不 SELECT NFC 表、不做 LIMIT 0 或 index 探測，
+  不從 GRANT、schema 版本或表可讀性推論授權能力。
+- 0047 只有歷史 schema，沒有已審核的可信身份、privacy 與逐操作 scoped authorization，
+  **不是可以安全啟用的版本**。0048 明確代表 security quarantine，並非更新後即可啟用。
+  目前沒有任何支援版本能令 feature readiness 回傳 ready，也沒有新增環境設定或注入式繞過。
+
+| Schema                           | NFC 關閉：startup / health | 明確啟用：startup preflight 原因 |
+| -------------------------------- | -------------------------- | -------------------------------- |
+| 0042–0046                        | 相容（保留原最低版本政策） | `nfc_schema_not_ready`           |
+| 0047                             | 相容                       | `nfc_authorization_unavailable`  |
+| 已知 0048 quarantine             | 相容                       | `nfc_security_quarantined`       |
+| 缺失、低於最低版本、未知未來版本 | `schema_version_mismatch`  | `schema_version_mismatch`        |
+
+正式啟動沿用 `index.ts` 的 `checkStartupReadiness`，沒有啟動真實 listener 或讀取環境設定檔來測試。
+`buildApp().ready()` 在明確啟用時也於註冊任何 NFC 路由前拒絕；0047／0048 原因與上表相同。
+缺失／舊版／未知 ledger 在此 feature registration 層回報 `nfc_schema_not_ready`，
+無法取得 ledger 亦 fail-closed；一般 startup preflight 則優先拒絕 schema 不相容。
+若 default-off 建立 app 後設定才變為啟用，health 亦回報 503；不會補註冊 NFC 路由。
+
+cdbc3a5 的 strict payload、route／service 全面拒絕與 0048 deny-all 均保留。
+由於正式 app 現在無法啟用 NFC，原有攻擊 payload 測試改在直接註冊 route 的獨立邊界執行，
+不 mock feature readiness 來製造正式 app 成功。正式 buildApp 另測啟動拒絕與所有 NFC 路由未註冊。
+
+### 第三批本地驗證與限制
+
+所有執行的測試均為 mock／純函式／靜態契約；沒有連 DB、外部 API 或執行 migration。
+
+- public API 的 health／field-checkin／admin-attendance：100 passed（21／56／23）。
+  含正式 buildApp、startup preflight、0042–0048 default-off、0047／0048 明確啟用拒絕、
+  未知 `0048_future.sql`／`0048_z_future.sql`／`0049_future.sql` 拒絕；
+  mock query 記錄斷言沒有 NFC 表／index 探測，fetch 禁止外部呼叫。
+- 既有 admin-navigation／line-checkin-nfc mock 回歸：27 passed（17／10）。
+  加上 database quarantine／field-attendance 靜態契約 54 passed（19／35），合計 181 passed；0048 未修改。
+- `pnpm typecheck`、`pnpm build`：四個 workspace package 通過；兩個修改的測試另以
+  strict、exactOptionalPropertyTypes、noUncheckedIndexedAccess 的 `tsc --noEmit` 通過。
+- 全專案 `pnpm lint` 未通過：未修改的 `admin-attendance-routes.ts` 有 1 項 unused-vars，
+  `line-checkin-nfc.test.ts` 有 7 項 unused-vars 與 1 項 no-base-to-string（共 9 項）。
+  不擴大五檔批次修復既有問題；本批四個 TS 檔 ESLint 通過、五檔 Prettier 檢查通過。
+- 每次修改後執行相關測試，沒有本批測試／型別修復重試；`git diff --check` 通過。
+- Node 仍為 v26.10.0，非專案要求的 Node 24；須於 Node 24 重驗。
+
+本批只交付程式端的 quarantine-compatible 啟動政策，**不是 NFC 功能完成或部署核准**。
+可信 credential → 有效 identity／channel → eligibility／privacy → request context，
+及 learner／volunteer／場地管理／出席查詢／CSV 各操作的 scoped authorization **仍未完成**。
+下一批需真正接入受信任流程與隔離 PostgreSQL 證據，不能僅提高版本或放寬 quarantine。
+沒有改寫 migration、放寬 GRANT／RLS、選擇功法或改動日課計算；沒有讀 .env／機密、
+連 DB／外部 API、部署／push／merge、改依賴／鎖檔／全域設定或開子代理。
+本介面沒有可呼叫的 `allow_tool: false` hook；本機 commit 不代替結構安全審核。
+
+## 第二批歷史紀錄：API 信任入口 fail-closed（cdbc3a5；基於 986fa80）
+
+以下為第二批時點紀錄；其中 0048 的程式相容性阻擋已由第三批修復，NFC 安全隔離仍保留。
 
 本批單一代理在父 checkout 順序實作，共修改五檔：
 
@@ -118,16 +184,16 @@ owner 固有的 DDL / TRUNCATE 權限並未消失。既有 FK referential action
 通過 `checkApiRuntimePreflight` 後以 `withRequestContext` 切換非 owner runtime。
 本批沒有證明任何實際環境符合上述角色條件。
 
-## 不可直接部署的相容性阻擋
+## 第一／二批時點的相容性阻擋（程式端已由第三批修復）
 
-目前 `apps/public-api/src/admin-auth.ts` 的 `nfcMigrationVersion` 及 app 的 maximum migration
-仍為 `0047_practice_fields_and_nfc_attendance.sql`。
-**執行 0048 後，現版 `/health/ready` 會以 `schema_version_mismatch` 拒絕，即使 NFC gate 關閉。**
-若 NFC gate 意外開啟，schema readiness 亦不能通過版本／SELECT 權限探測。
+第一／二批的 `nfcMigrationVersion` 及 app maximum migration 都是 0047；
+當時執行 0048 後，即使 NFC gate 關閉，`/health/ready` 也會以 `schema_version_mismatch` 拒絕。
+第三批保留 0047 作為 schema 引入版本，另外以已知 0048 擴充一般服務相容性，
+並以獨立 feature readiness 明確拒絕 0047 的未完成授權及 0048 quarantine。
+不再依賴 NFC 表 SELECT 權限探測來判定 feature readiness。
 
-這是刻意保留、尚未解除的發布阻擋，不代表可直接把 migration 發到現有服務。
-後續批次必須先完成安全 review、隔離 DB 證據及新版 readiness 的相容性處理；
-不得刪除 quarantine、放寬 GRANT 或單純把 gate 開啟以修復 readiness。
+這只解除新版程式的相容性矛盾，不代表可把 migration 直接發到舊版服務或核准部署。
+安全 review 與隔離 DB 證據仍未完成；不得刪除 quarantine、放寬 GRANT 或開啟 gate。
 本執行介面沒有可呼叫的 `allow_tool: false` hook；本機 commit 不代替結構安全審核或部署核准。
 
 ## 本地驗證結果
