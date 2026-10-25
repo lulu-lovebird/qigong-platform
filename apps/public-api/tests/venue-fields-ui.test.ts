@@ -3,7 +3,9 @@ import { runInNewContext } from 'node:vm';
 import { readFileSync } from 'node:fs';
 import Fastify from 'fastify';
 import type { Pool } from '@qigong/database';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { registerAdminRoutes, type AdminAuthProvider } from '../src/admin-auth.js';
+import { apiLogRedaction } from '../src/app.js';
 import {
   buildFieldUrls,
   generateFieldQrCodeUrl,
@@ -463,6 +465,284 @@ describe('venue fields rendered UI (mock transport only, not backend readiness)'
     expect(capable).toContain('團練場出席管理 · 場地設定');
     expect(capable).toContain('data-fields-nav hidden');
     expect(capable).not.toContain('href="/admin/administrators');
+  });
+});
+
+// Real HTTP registrations + private admin-auth factory + real DB runner. Only
+// the pool is mocked. NFC stays off: this is NOT a production-readiness bypass.
+describe('field routes → private cookie service → controlled runner', () => {
+  const session = 'S'.repeat(43);
+  const csrf = 'C'.repeat(43);
+  const region = row.region_id;
+  const otherRegion = '20000000-0000-4000-8000-000000000002';
+  const requestId = '30000000-0000-4000-8000-000000000001';
+  const principalId = '40000000-0000-4000-8000-000000000001';
+  const metadata = { name_zh_tw: ' 公園 ', is_active: false };
+  const readUrl = `/admin/api/fields?regionId=${region}`;
+  const writeUrl = `/admin/api/fields/${row.id}?regionId=${region}`;
+  const headers = {
+    cookie: `__Host-qigong-admin=${session}; __Host-qigong-admin-csrf=${csrf}`,
+    'x-csrf-token': csrf
+  };
+  const createFixture = () => {
+    vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'false');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => {
+        throw new Error('external API forbidden');
+      })
+    );
+    const state: {
+      principal: string | null;
+      failure: 'quarantine' | 'diagnostic' | 'success';
+      denyWrite: boolean;
+    } = {
+      principal: principalId,
+      failure: 'quarantine',
+      denyWrite: false
+    };
+    const query = vi.fn(async (sql: string, values?: readonly unknown[]) => {
+      if (sql === 'SELECT admin.session_principal($1) AS principal_id')
+        return { rows: [{ principal_id: values?.[0] === session ? state.principal : null }] };
+      if (sql.startsWith('SELECT admin.venue_attendance_')) {
+        if (values?.[1] === otherRegion || (state.denyWrite && sql.includes('write_field')))
+          throw Object.assign(new Error('venue_attendance_forbidden'), { code: '42501' });
+        if (state.failure === 'diagnostic') throw new Error(`SECRET_DB ${session} private learner`);
+        if (state.failure === 'success')
+          return { rows: [{ data: { session, phone: 'SECRET_PHONE' } }] };
+        throw Object.assign(new Error('venue_attendance_quarantined'), { code: '55000' });
+      }
+      if (
+        !['BEGIN', 'ROLLBACK', 'COMMIT', 'SET LOCAL ROLE qigong_api_runtime'].includes(sql) &&
+        !sql.startsWith("SELECT set_config('qigong.")
+      )
+        throw new Error('unexpected SQL');
+      return { rows: [] };
+    });
+    const release = vi.fn();
+    const connect = vi.fn(async () => ({ query, release }));
+    const rawQuery = vi.fn(() => {
+      throw new Error('raw pool query forbidden');
+    });
+    const pool = { connect, query: rawQuery } as unknown as Pool;
+    const logs: string[] = [];
+    const app = Fastify({
+      genReqId: () => requestId,
+      logger: {
+        level: 'info',
+        redact: apiLogRedaction,
+        stream: { write: (line: string) => logs.push(line) }
+      }
+    });
+    const forbiddenIdentity = vi.fn(async (): Promise<string | null> => {
+      throw new Error('API must use session-bound runner');
+    });
+    const provider: AdminAuthProvider = {
+      callbackUrl: 'https://admin.example.test/admin/auth/callback',
+      begin: async () => {
+        throw new Error('external auth forbidden');
+      },
+      complete: async () => {
+        throw new Error('external auth forbidden');
+      }
+    };
+    const { venueAdminServiceFor } = registerAdminRoutes(app, pool, provider);
+    registerAdminFieldRoutes(
+      app,
+      pool,
+      forbiddenIdentity,
+      () => {
+        throw new Error('use private CSRF boundary');
+      },
+      undefined,
+      venueAdminServiceFor
+    );
+    const h = { app, state, query, connect, release, rawQuery, forbiddenIdentity, logs };
+    return h;
+  };
+  const fixtures: ReturnType<typeof createFixture>[] = [];
+  const fixture = () => {
+    const h = createFixture();
+    fixtures.push(h);
+    return h;
+  };
+  afterEach(async () => {
+    for (const h of fixtures.splice(0)) {
+      await h.app.close();
+      expect(h.rawQuery).not.toHaveBeenCalled();
+      expect(h.forbiddenIdentity).not.toHaveBeenCalled();
+      expect(h.release).toHaveBeenCalledTimes(h.connect.mock.calls.length);
+      expect(h.logs.join('')).not.toMatch(
+        new RegExp(`${session}|${csrf}|SECRET_DB|SECRET_PHONE|private learner`)
+      );
+    }
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+  it.each(['GET', 'PUT', 'PATCH'] as const)(
+    'runs %s through the actual session transaction and metadata-only operation',
+    async (method) => {
+      const h = fixture();
+      const response = await h.app.inject({
+        method,
+        url: method === 'GET' ? readUrl : writeUrl,
+        headers,
+        ...(method === 'GET' ? {} : { payload: metadata })
+      });
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toEqual({ error: 'quarantined' });
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(h.query.mock.calls).toEqual([
+        ['BEGIN'],
+        ['SET LOCAL ROLE qigong_api_runtime'],
+        ["SELECT set_config('qigong.request_id', $1, TRUE)", [requestId]],
+        ["SELECT set_config('qigong.person_id', $1, TRUE)", ['']],
+        ["SELECT set_config('qigong.principal_id', $1, TRUE)", ['']],
+        ['SELECT admin.session_principal($1) AS principal_id', [session]],
+        ["SELECT set_config('qigong.principal_id', $1, TRUE)", [principalId]],
+        method === 'GET'
+          ? ['SELECT admin.venue_attendance_read_fields($1, $2) AS data', [session, region]]
+          : [
+              'SELECT admin.venue_attendance_write_field($1, $2, $3, $4) AS data',
+              [session, region, row.id, JSON.stringify({ nameZhTw: '公園', isActive: false })]
+            ],
+        ['ROLLBACK']
+      ]);
+    }
+  );
+  it.each([
+    '',
+    `__Host-qigong-admin=${principalId}`,
+    `__Host-qigong-admin-access=${session}`,
+    `__Host-qigong-admin=${session}; __Host-qigong-admin=${session}`
+  ])(
+    'rejects missing/ambiguous/non-session cookies %s without identity fallback',
+    async (cookie) => {
+      const h = fixture();
+      const response = await h.app.inject({
+        url: readUrl,
+        headers: {
+          cookie,
+          authorization: `Bearer ${session}`,
+          'x-principal-id': principalId,
+          'x-session-token': session
+        }
+      });
+      expect(response.statusCode).toBe(401);
+      expect(response.json()).toEqual({ error: 'unauthenticated' });
+      expect(h.connect).not.toHaveBeenCalled();
+    }
+  );
+  it.each([
+    { cookie: headers.cookie },
+    { ...headers, 'x-csrf-token': 'X'.repeat(43) },
+    { ...headers, cookie: `${headers.cookie}; __Host-qigong-admin-csrf=${csrf}` }
+  ])('rejects CSRF before acquiring a runtime connection %j', async (badHeaders) => {
+    const h = fixture();
+    const response = await h.app.inject({
+      method: 'PATCH',
+      url: writeUrl,
+      headers: badHeaders,
+      payload: metadata
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({ error: 'invalid_csrf' });
+    expect(h.connect).not.toHaveBeenCalled();
+  });
+  it.each([
+    { ...metadata, principalId },
+    { ...metadata, sessionToken: session },
+    { ...metadata, region_id: otherRegion },
+    { ...metadata, latitude: 25 },
+    { ...metadata, active_time_rules: row.active_time_rules },
+    { ...row },
+    { name_zh_tw: '公園' },
+    { ...metadata, name_zh_tw: 'x'.repeat(121) }
+  ])('does not strip unknown fields or the full legacy UI payload %j', async (payload) => {
+    const h = fixture();
+    const response = await h.app.inject({ method: 'PATCH', url: writeUrl, headers, payload });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: 'invalid_request' });
+    expect(h.connect).not.toHaveBeenCalled();
+  });
+  it.each([
+    '/admin/api/fields',
+    `${readUrl}&principalId=${principalId}`,
+    `${readUrl}&regionId=${otherRegion}`,
+    '/admin/api/fields?regionId=invalid'
+  ])('requires one explicit region and rejects unknown query identity: %s', async (url) => {
+    const h = fixture();
+    expect((await h.app.inject({ url, headers })).statusCode).toBe(400);
+    expect(h.connect).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['GET', writeUrl],
+    ['POST', readUrl]
+  ] as const)('explicitly rejects unsupported %s %s', async (method, url) => {
+    const h = fixture();
+    const response = await h.app.inject({
+      method,
+      url,
+      headers,
+      ...(method === 'POST' ? { payload: row } : {})
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: 'unsupported_operation' });
+    expect(h.connect).not.toHaveBeenCalled();
+  });
+  it('rechecks action and region after capabilities; revocation never becomes an empty list', async () => {
+    const h = fixture();
+    const capability = await h.app.inject({
+      url: `/admin/api/fields/capabilities?regionId=${region}`,
+      headers
+    });
+    expect(capability.statusCode).toBe(503);
+    h.state.denyWrite = true;
+    const write = await h.app.inject({
+      method: 'PATCH',
+      url: writeUrl,
+      headers,
+      payload: metadata
+    });
+    expect(write.statusCode).toBe(403);
+    expect(write.json()).toEqual({ error: 'forbidden' });
+    const cross = await h.app.inject({ url: `/admin/api/fields?regionId=${otherRegion}`, headers });
+    expect(cross.statusCode).toBe(403);
+    expect(cross.json()).toEqual({ error: 'forbidden' });
+    h.state.principal = null;
+    const revoked = await h.app.inject({ url: readUrl, headers });
+    expect(revoked.statusCode).toBe(401);
+    expect(revoked.json()).toEqual({ error: 'unauthenticated' });
+    expect(
+      h.query.mock.calls.filter(([sql]) => sql.includes('admin.session_principal'))
+    ).toHaveLength(4);
+    expect(
+      h.query.mock.calls.filter(([sql]) => sql.startsWith('SELECT admin.venue_attendance_'))
+    ).toHaveLength(3);
+    expect(h.query.mock.calls.at(-1)).toEqual(['COMMIT']);
+  });
+  it.each(['diagnostic', 'success'] as const)(
+    'does not disclose DB diagnostics or unexpected SQL %s',
+    async (failure) => {
+      const h = fixture();
+      h.state.failure = failure;
+      const response = await h.app.inject({ url: readUrl, headers });
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toEqual({ error: 'unavailable' });
+      expect(response.headers['content-disposition']).toBeUndefined();
+      expect(h.query.mock.calls.at(-1)).toEqual(['ROLLBACK']);
+    }
+  );
+  it('keeps the formal factory injection inside the unchanged production gate', () => {
+    fixture();
+    const source = readFileSync(new URL('../src/admin-auth.ts', import.meta.url), 'utf8');
+    expect(source).toMatch(
+      /registerNfcFeature\(app, pool, \(scope\) => \{[\s\S]*registerAdminFieldRoutes\([\s\S]*lineLiffId,\s*venueAdminServiceFor/
+    );
+    expect(source).toContain(
+      'registerAdminAttendanceRoutes(scope, pool, principalFor, lineLiffId, venueAdminServiceFor)'
+    );
   });
 });
 

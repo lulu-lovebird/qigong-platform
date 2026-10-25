@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { adminContentSecurityPolicy } from './admin-branding.js';
 import { resolveAdminLocale } from './admin-locale.js';
 import { renderVenueFieldsPage, venueEntryUrl } from './admin-venue-fields-page.js';
+import type { VenueAdminService } from './venue-admin-service.js';
 
 export interface ActiveTimeRules {
   readonly day_of_week: readonly number[];
@@ -116,7 +117,8 @@ export const registerAdminFieldRoutes = (
   _pool: Pool,
   principalFor: (request: FastifyRequest) => Promise<string | null>,
   validCsrf: (request: FastifyRequest) => boolean,
-  liffId?: string
+  liffId?: string,
+  serviceFor?: (request: FastifyRequest) => VenueAdminService
 ) => {
   const headers = (reply: FastifyReply) =>
     reply
@@ -124,10 +126,43 @@ export const registerAdminFieldRoutes = (
       .header('pragma', 'no-cache')
       .header('referrer-policy', 'no-referrer')
       .header('x-content-type-options', 'nosniff');
-  // No permission probe, table access or privileged fallback: field.manage is not an
-  // implemented scoped DB contract. checkin.read/admin-access management are NOT substitutes.
+  // No-service registrations remain explicitly unavailable; production injects the
+  // request-bound service inside the unchanged NFC gate. UI capabilities grant nothing.
+  const regionQuery = z.object({ regionId: z.uuid() }).strict();
+  const metadata = z.object({ name_zh_tw: z.string(), is_active: z.boolean() }).strict();
+  const controlled = async (request: FastifyRequest, reply: FastifyReply) => {
+    headers(reply);
+    if (!serviceFor) return unavailable(request, reply);
+    const query = regionQuery.safeParse(request.query);
+    if (!query.success) return reply.code(400).send({ error: 'invalid_request' });
+    let operation: unknown;
+    if (request.method === 'GET') {
+      // 0049 only has a region list selector, not a single-field read contract.
+      if (Object.hasOwn(request.params as object, 'id'))
+        return reply.code(400).send({ error: 'unsupported_operation' });
+      operation = { operation: 'field.read', regionId: query.data.regionId };
+    } else {
+      // Create, region moves, coordinates and schedules cannot be silently dropped
+      // from the legacy UI's full payload. Only these two metadata keys are supported.
+      if (request.method === 'POST')
+        return reply.code(400).send({ error: 'unsupported_operation' });
+      const body = metadata.safeParse(request.body);
+      const params = z.object({ id: z.uuid() }).strict().safeParse(request.params);
+      if (!body.success || !params.success)
+        return reply.code(400).send({ error: 'invalid_request' });
+      operation = {
+        operation: 'field.write',
+        regionId: query.data.regionId,
+        fieldId: params.data.id,
+        change: { nameZhTw: body.data.name_zh_tw, isActive: body.data.is_active }
+      };
+    }
+    const result = await serviceFor(request).execute(operation);
+    return reply.code(result.status).send(result.body);
+  };
   const principal = (request: FastifyRequest) => principalFor(request).catch(() => null);
   app.get('/admin/api/fields/capabilities', async (request, reply) => {
+    if (serviceFor) return controlled(request, reply);
     headers(reply);
     if (!(await principal(request))) return reply.code(401).send({ error: 'unauthenticated' });
     return { canManage: false, reason: 'field_authorization_unavailable' };
@@ -139,11 +174,11 @@ export const registerAdminFieldRoutes = (
       return reply.code(403).send({ error: 'invalid_csrf' });
     return reply.code(503).send({ error: 'field_authorization_unavailable' });
   };
-  app.get('/admin/api/fields', unavailable);
-  app.get('/admin/api/fields/:id', unavailable);
-  app.post('/admin/api/fields', unavailable);
-  app.put('/admin/api/fields/:id', unavailable);
-  app.patch('/admin/api/fields/:id', unavailable);
+  app.get('/admin/api/fields', controlled);
+  app.get('/admin/api/fields/:id', controlled);
+  app.post('/admin/api/fields', controlled);
+  app.put('/admin/api/fields/:id', controlled);
+  app.patch('/admin/api/fields/:id', controlled);
   app.get('/admin/fields', async (request, reply) => {
     headers(reply);
     if (!(await principal(request))) return reply.redirect('/admin/auth/login');

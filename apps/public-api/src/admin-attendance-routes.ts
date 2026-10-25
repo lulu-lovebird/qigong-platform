@@ -7,6 +7,7 @@ import type { Pool } from '@qigong/database';
 import { adminContentSecurityPolicy } from './admin-branding.js';
 import { resolveAdminLocale } from './admin-locale.js';
 import { renderVenueAttendanceReportPage } from './venue-attendance-report-page.js';
+import type { VenueAdminService } from './venue-admin-service.js';
 import {
   attendanceExportQuerySchema,
   attendanceRange,
@@ -35,12 +36,12 @@ export const registerAdminAttendanceRoutes = (
   app: FastifyInstance,
   pool: Pool,
   principalFor: (request: FastifyRequest) => Promise<string | null>,
-  liffId?: string
+  liffId?: string,
+  serviceFor?: (request: FastifyRequest) => VenueAdminService
 ): void => {
-  // Signature compatibility only: neither pool nor LIFF identity grants attendance access.
-  // 0048 denies the tables and no reviewed attendance read/export function exists.
-  // Do NOT probe tables, fall back to broad SQL, infer capabilities from login, or
-  // reuse admin.can_manage_admin_access()/self-read as scoped operation authorization.
+  // Neither pool nor LIFF identity grants attendance access. Production injects
+  // the session-bound service; no-service registrations remain unavailable.
+  // 0049 is denial-only, never a reason to query quarantined tables directly.
   void pool;
   void liffId;
   const headers = (reply: FastifyReply): FastifyReply =>
@@ -63,7 +64,63 @@ export const registerAdminAttendanceRoutes = (
     }
   };
 
+  const controlledRead = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    html = false
+  ): Promise<FastifyReply> => {
+    headers(reply);
+    if (!serviceFor) return reply.code(503).send({ error: 'unavailable' });
+    const parsed = attendanceExportQuerySchema.safeParse(request.query);
+    if (!parsed.success || !parsed.data.regionId)
+      return reply.code(400).send({ error: 'invalid_attendance_parameters' });
+    // 0049 cannot filter by field/method or paginate. Even valid legacy filters
+    // must be rejected, not silently converted into an unfiltered operation.
+    if (
+      ['fieldId', 'field_id', 'method', 'page', 'limit'].some((key) =>
+        Object.hasOwn(request.query as object, key)
+      )
+    )
+      return reply.code(400).send({ error: 'unsupported_filters' });
+    let range: AttendanceRange;
+    try {
+      range = attendanceRange(parsed.data);
+    } catch {
+      return reply.code(400).send({ error: 'invalid_attendance_parameters' });
+    }
+    const result = await serviceFor(request).execute({
+      operation:
+        request.routeOptions.url === '/admin/attendance/export.csv'
+          ? 'attendance.export'
+          : 'attendance.read',
+      regionId: parsed.data.regionId,
+      from: range.startDate,
+      // UI endDate is inclusive; the runner requires half-open Taipei dates and
+      // enforces <=366 days. Do not convert to UTC or add a day twice.
+      until: range.endExclusive.slice(0, 10)
+    });
+    if (html && result.status !== 401) {
+      return reply
+        .code(result.status)
+        .type('text/html; charset=utf-8')
+        .send(
+          renderVenueAttendanceReportPage(
+            parsed.data,
+            range,
+            {
+              status:
+                result.status === 400 ? 'invalid' : result.status === 403 ? 'denied' : 'unavailable'
+            },
+            resolveAdminLocale(request.query, request.headers.cookie)
+          )
+        );
+    }
+    // Denials never produce rows, success CSV headers or an attachment.
+    return reply.code(result.status).send(result.body);
+  };
+
   app.get('/admin/api/attendance/capabilities', async (request, reply) => {
+    if (serviceFor) return controlledRead(request, reply);
     headers(reply);
     const principalId = await authenticate(request, reply);
     if (principalId === undefined) return reply;
@@ -78,6 +135,7 @@ export const registerAdminAttendanceRoutes = (
     request: FastifyRequest,
     reply: FastifyReply
   ): Promise<FastifyReply> => {
+    if (serviceFor) return controlledRead(request, reply);
     headers(reply);
     const principalId = await authenticate(request, reply);
     if (principalId === undefined) return reply;
@@ -97,6 +155,7 @@ export const registerAdminAttendanceRoutes = (
 
   app.get('/admin/attendance', async (request, reply) => {
     headers(reply).header('content-security-policy', adminContentSecurityPolicy);
+    if (serviceFor) return controlledRead(request, reply, true);
     const principalId = await authenticate(request, reply);
     if (principalId === undefined) return reply;
     if (!principalId) return reply.redirect('/admin/auth/login');

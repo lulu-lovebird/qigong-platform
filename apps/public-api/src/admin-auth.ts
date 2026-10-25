@@ -544,6 +544,38 @@ export const registerAdminRoutes = (
     );
   });
 
+  // Credentials never leave this private cookie boundary. Every supported route
+  // operation revalidates session + action + region through the controlled runner.
+  const venueAdminServiceFor = (request: FastifyRequest): VenueAdminService =>
+    createVenueAdminService(async (operation) => {
+      const values = cookies(request);
+      const session = values[sessionCookie];
+      // Match token()'s 32-byte base64url output, not a caller-supplied UUID.
+      // Ambiguous duplicate cookies must not choose an identity by ordering.
+      const count = (name: string) =>
+        (request.headers.cookie ?? '')
+          .split(';')
+          .filter((item) => item.trim().startsWith(`${name}=`)).length;
+      if (!session || !/^[A-Za-z0-9_-]{43}$/.test(session) || count(sessionCookie) !== 1)
+        return { ok: false, error: 'unauthenticated' };
+      if (operation.operation === 'field.write') {
+        const csrf = request.headers['x-csrf-token'];
+        const saved = values[csrfCookie];
+        if (
+          !['POST', 'PUT', 'PATCH'].includes(request.method) ||
+          typeof csrf !== 'string' ||
+          !/^[A-Za-z0-9_-]{43}$/.test(csrf) ||
+          !saved ||
+          count(csrfCookie) !== 1 ||
+          !timingSafeEqual(sha256(csrf), sha256(saved))
+        )
+          return { ok: false, error: 'invalid_csrf' };
+      }
+      // No prior principal/capability is trusted or cached. The runner resolves
+      // the session and 0049 rechecks the operation + region in each transaction.
+      return runVenueAttendanceAdminOperation(pool, request.id, session, operation);
+    });
+
   registerNfcFeature(app, pool, (scope) => {
     registerAdminFieldRoutes(
       scope,
@@ -559,10 +591,11 @@ export const registerAdminRoutes = (
           timingSafeEqual(sha256(value), sha256(saved))
         );
       },
-      lineLiffId
+      lineLiffId,
+      venueAdminServiceFor
     );
 
-    registerAdminAttendanceRoutes(scope, pool, principalFor, lineLiffId);
+    registerAdminAttendanceRoutes(scope, pool, principalFor, lineLiffId, venueAdminServiceFor);
   });
 
   app.post('/admin/auth/logout', async (request, reply) => {
@@ -594,38 +627,5 @@ export const registerAdminRoutes = (
       .send({ ok: true });
   });
 
-  // Server-only handoff for a later reviewed route adapter. Existing routes/gates
-  // deliberately do not consume this service yet. Credentials never leave this
-  // private cookie boundary; principalFor's UUID is NOT a session credential.
-  return Object.freeze({
-    venueAdminServiceFor: (request: FastifyRequest): VenueAdminService =>
-      createVenueAdminService(async (operation) => {
-        const values = cookies(request);
-        const session = values[sessionCookie];
-        // Match token()'s 32-byte base64url output, not a caller-supplied UUID.
-        // Ambiguous duplicate cookies must not choose an identity by ordering.
-        const count = (name: string) =>
-          (request.headers.cookie ?? '')
-            .split(';')
-            .filter((item) => item.trim().startsWith(`${name}=`)).length;
-        if (!session || !/^[A-Za-z0-9_-]{43}$/.test(session) || count(sessionCookie) !== 1)
-          return { ok: false, error: 'unauthenticated' };
-        if (operation.operation === 'field.write') {
-          const csrf = request.headers['x-csrf-token'];
-          const saved = values[csrfCookie];
-          if (
-            !['POST', 'PUT', 'PATCH'].includes(request.method) ||
-            typeof csrf !== 'string' ||
-            !/^[A-Za-z0-9_-]{43}$/.test(csrf) ||
-            !saved ||
-            count(csrfCookie) !== 1 ||
-            !timingSafeEqual(sha256(csrf), sha256(saved))
-          )
-            return { ok: false, error: 'invalid_csrf' };
-        }
-        // No prior principal/capability is trusted or cached. The runner resolves
-        // the session and 0049 rechecks the operation + region in each transaction.
-        return runVenueAttendanceAdminOperation(pool, request.id, session, operation);
-      })
-  });
+  return Object.freeze({ venueAdminServiceFor });
 };

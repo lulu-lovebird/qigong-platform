@@ -3,7 +3,11 @@
  * Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import Fastify from 'fastify';
+import type { Pool } from '@qigong/database';
+import { apiLogRedaction, buildApp } from '../src/app.js';
+import { registerAdminRoutes, type AdminAuthProvider } from '../src/admin-auth.js';
 import {
   activeTimeRulesSchema,
   createFieldInputSchema,
@@ -14,6 +18,7 @@ import {
   buildFieldUrls
 } from '../src/admin-field-routes.js';
 import {
+  registerAdminAttendanceRoutes,
   encodeAttendanceCsv,
   formatCheckinMethod,
   formatAttendanceDate,
@@ -23,6 +28,331 @@ import {
   type AttendanceExportRecord
 } from '../src/admin-attendance-routes.js';
 import { renderAdminShell } from '../src/admin-dashboard.js';
+
+// Actual report routes consume the factory returned by real admin-auth. No
+// service/runner mock and no pg instance, credentials, migration or external API.
+describe('attendance routes → cookie-bound service → controlled runner', () => {
+  const session = 'S'.repeat(43);
+  const region = '20000000-0000-4000-8000-000000000001';
+  const otherRegion = '20000000-0000-4000-8000-000000000002';
+  const principal = '40000000-0000-4000-8000-000000000001';
+  const cookie = `__Host-qigong-admin=${session}`;
+  const filters = `regionId=${region}&startDate=2026-10-31&endDate=2026-10-31`;
+  const createFixture = () => {
+    vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'false');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => {
+        throw new Error('external API forbidden');
+      })
+    );
+    const state: {
+      principal: string | null;
+      failure: 'quarantine' | 'diagnostic' | 'success';
+      deniedOperation: 'read' | 'export' | undefined;
+      version: string;
+    } = {
+      principal,
+      failure: 'quarantine',
+      deniedOperation: undefined,
+      version: '0049_venue_attendance_security_contract.sql'
+    };
+    const query = vi.fn(async (sql: string, values?: readonly unknown[]) => {
+      if (sql === 'SELECT version FROM public.schema_migrations ORDER BY version DESC LIMIT 1')
+        return { rows: [{ version: state.version }] };
+      if (sql === 'SELECT admin.session_principal($1) AS principal_id')
+        return { rows: [{ principal_id: values?.[0] === session ? state.principal : null }] };
+      if (sql === 'SELECT admin.venue_attendance_read_attendance($1, $2, $3, $4, $5) AS data') {
+        if (
+          values?.[1] === otherRegion ||
+          state.deniedOperation === (values?.[4] === true ? 'export' : 'read')
+        )
+          throw Object.assign(new Error('venue_attendance_forbidden'), { code: '42501' });
+        if (state.failure === 'diagnostic') throw new Error(`SECRET_DB ${session} private learner`);
+        if (state.failure === 'success')
+          return { rows: [{ data: { token: session, phone: 'SECRET_PHONE' } }] };
+        throw Object.assign(new Error('venue_attendance_quarantined'), { code: '55000' });
+      }
+      if (
+        !['BEGIN', 'ROLLBACK', 'COMMIT', 'SET LOCAL ROLE qigong_api_runtime'].includes(sql) &&
+        !sql.startsWith("SELECT set_config('qigong.")
+      )
+        throw new Error('unexpected SQL');
+      return { rows: [] };
+    });
+    const release = vi.fn();
+    const connect = vi.fn(async () => ({ query, release }));
+    const rawQuery = vi.fn(() => {
+      throw new Error('raw pool query forbidden');
+    });
+    const pool = { connect, query: rawQuery } as unknown as Pool;
+    const logs: string[] = [];
+    const app = Fastify({
+      genReqId: () => '30000000-0000-4000-8000-000000000001',
+      logger: {
+        level: 'info',
+        redact: apiLogRedaction,
+        stream: { write: (line: string) => logs.push(line) }
+      }
+    });
+    const forbiddenIdentity = vi.fn(async (): Promise<string | null> => {
+      throw new Error('API must authenticate with real session');
+    });
+    const provider: AdminAuthProvider = {
+      callbackUrl: 'https://admin.example.test/admin/auth/callback',
+      begin: async () => {
+        throw new Error('external auth forbidden');
+      },
+      complete: async () => {
+        throw new Error('external auth forbidden');
+      }
+    };
+    const { venueAdminServiceFor } = registerAdminRoutes(app, pool, provider);
+    registerAdminAttendanceRoutes(app, pool, forbiddenIdentity, undefined, venueAdminServiceFor);
+    const h = {
+      app,
+      pool,
+      provider,
+      state,
+      query,
+      connect,
+      release,
+      rawQuery,
+      forbiddenIdentity,
+      logs
+    };
+    return h;
+  };
+  const fixtures: ReturnType<typeof createFixture>[] = [];
+  const fixture = () => {
+    const h = createFixture();
+    fixtures.push(h);
+    return h;
+  };
+  afterEach(async () => {
+    for (const h of fixtures.splice(0)) {
+      await h.app.close();
+      expect(h.rawQuery).not.toHaveBeenCalled();
+      expect(h.forbiddenIdentity).not.toHaveBeenCalled();
+      expect(h.release).toHaveBeenCalledTimes(h.connect.mock.calls.length);
+      expect(h.logs.join('')).not.toMatch(
+        new RegExp(`${session}|SECRET_DB|SECRET_PHONE|private learner`)
+      );
+    }
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+  it.each([
+    '/admin/api/attendance',
+    '/admin/attendance/export.csv',
+    '/admin/api/attendance/capabilities',
+    '/admin/attendance'
+  ])('executes real runner denial for %s without rows or CSV', async (path) => {
+    const h = fixture();
+    const response = await h.app.inject({ url: `${path}?${filters}`, headers: { cookie } });
+    expect(response.statusCode).toBe(503);
+    if (path === '/admin/attendance') {
+      expect(response.body).toContain('<dd>—</dd>');
+      expect(response.body).not.toContain('查無符合條件');
+    } else expect(response.json()).toEqual({ error: 'quarantined' });
+    expect(response.headers['content-disposition']).toBeUndefined();
+    expect(response.headers['content-type']).not.toContain('text/csv');
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(h.query).toHaveBeenCalledWith('SELECT admin.session_principal($1) AS principal_id', [
+      session
+    ]);
+    expect(h.query).toHaveBeenCalledWith(
+      'SELECT admin.venue_attendance_read_attendance($1, $2, $3, $4, $5) AS data',
+      [session, region, '2026-10-31', '2026-11-01', path.endsWith('export.csv')]
+    );
+    expect(h.query.mock.calls.at(-1)).toEqual(['ROLLBACK']);
+  });
+  it.each([
+    '',
+    `__Host-qigong-admin=${principal}`,
+    `__Host-qigong-admin-access=${session}`,
+    `__Host-qigong-admin=${session}; __Host-qigong-admin=${session}`
+  ])('does not use bearer/header/query identity as a session: %s', async (badCookie) => {
+    const h = fixture();
+    const response = await h.app.inject({
+      url: `/admin/attendance/export.csv?${filters}`,
+      headers: {
+        cookie: badCookie,
+        authorization: `Bearer ${session}`,
+        'x-principal-id': principal
+      }
+    });
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: 'unauthenticated' });
+    expect(response.headers['content-disposition']).toBeUndefined();
+    expect(h.connect).not.toHaveBeenCalled();
+  });
+  it.each([
+    'fieldId=10000000-0000-4000-8000-000000000001',
+    'field_id=10000000-0000-4000-8000-000000000001',
+    'method=nfc_gps',
+    'page=1',
+    'limit=20'
+  ])('rejects unsupported filter %s rather than issuing an unfiltered export', async (filter) => {
+    const h = fixture();
+    for (const path of [
+      '/admin/api/attendance',
+      '/admin/attendance/export.csv',
+      '/admin/attendance'
+    ]) {
+      const response = await h.app.inject({
+        url: `${path}?${filters}&${filter}`,
+        headers: { cookie }
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({ error: 'unsupported_filters' });
+      expect(response.headers['content-disposition']).toBeUndefined();
+    }
+    expect(h.connect).not.toHaveBeenCalled();
+  });
+  it.each([
+    '',
+    'regionId=invalid',
+    `${filters}&regionId=${otherRegion}`,
+    `${filters}&principalId=${principal}`,
+    `${filters}&sessionToken=${session}`,
+    `regionId=${region}&startDate=2026-02-29`,
+    `regionId=${region}&month=2026-10&endDate=2026-10-31`
+  ])('requires explicit unambiguous region and strict query %s', async (filter) => {
+    const h = fixture();
+    const response = await h.app.inject({
+      url: `/admin/attendance/export.csv?${filter}`,
+      headers: { cookie }
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: 'invalid_attendance_parameters' });
+    expect(h.connect).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['month=2024-02', '2024-02-01', '2024-03-01', 503],
+    ['start_date=2026-10-31&end_date=2026-10-31', '2026-10-31', '2026-11-01', 503],
+    ['startDate=2024-01-01&endDate=2024-12-31', '2024-01-01', '2025-01-01', 503],
+    ['startDate=2024-01-01&endDate=2025-01-01', '', '', 400]
+  ] as const)(
+    'maps inclusive UI dates to half-open Taipei dates within 366 days: %s',
+    async (dates, from, until, status) => {
+      const h = fixture();
+      const response = await h.app.inject({
+        url: `/admin/attendance/export.csv?regionId=${region}&${dates}`,
+        headers: { cookie }
+      });
+      expect(response.statusCode).toBe(status);
+      if (status === 503)
+        expect(h.query).toHaveBeenCalledWith(
+          'SELECT admin.venue_attendance_read_attendance($1, $2, $3, $4, $5) AS data',
+          [session, region, from, until, true]
+        );
+      else expect(h.connect).not.toHaveBeenCalled();
+    }
+  );
+  it('checks read/export separately on every call and never falls back after cross-region denial or revocation', async () => {
+    const h = fixture();
+    h.state.deniedOperation = 'export';
+    const read = await h.app.inject({
+      url: `/admin/api/attendance?${filters}`,
+      headers: { cookie }
+    });
+    expect(read.statusCode).toBe(503);
+    const deniedExport = await h.app.inject({
+      url: `/admin/attendance/export.csv?${filters}`,
+      headers: { cookie }
+    });
+    expect(deniedExport.statusCode).toBe(403);
+    expect(deniedExport.json()).toEqual({ error: 'forbidden' });
+    h.state.deniedOperation = 'read';
+    expect(
+      (await h.app.inject({ url: `/admin/api/attendance?${filters}`, headers: { cookie } }))
+        .statusCode
+    ).toBe(403);
+    const cross = await h.app.inject({
+      url: `/admin/attendance/export.csv?${filters.replace(region, otherRegion)}`,
+      headers: { cookie }
+    });
+    expect(cross.statusCode).toBe(403);
+    h.state.principal = null;
+    const revoked = await h.app.inject({
+      url: `/admin/attendance/export.csv?${filters}`,
+      headers: { cookie }
+    });
+    expect(revoked.statusCode).toBe(401);
+    expect(revoked.json()).toEqual({ error: 'unauthenticated' });
+    expect(
+      h.query.mock.calls.filter(([sql]) => sql.includes('admin.session_principal'))
+    ).toHaveLength(5);
+    expect(
+      h.query.mock.calls
+        .filter(([sql]) => sql.includes('admin.venue_attendance_read_attendance'))
+        .map(([, values]) => values?.[4])
+    ).toEqual([false, true, false, true]);
+  });
+  it.each(['diagnostic', 'success'] as const)(
+    'quarantines unexpected DB %s without private output or attachment',
+    async (failure) => {
+      const h = fixture();
+      h.state.failure = failure;
+      const response = await h.app.inject({
+        url: `/admin/attendance/export.csv?${filters}`,
+        headers: { cookie }
+      });
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toEqual({ error: 'unavailable' });
+      expect(response.headers['content-disposition']).toBeUndefined();
+      expect(response.headers['content-type']).not.toContain('text/csv');
+      expect(h.query.mock.calls.at(-1)).toEqual(['ROLLBACK']);
+    }
+  );
+  it('keeps actual buildApp routes and manual writes unmounted while NFC is off', async () => {
+    const h = fixture();
+    vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', undefined);
+    const app = buildApp({ pool: h.pool, adminAuth: h.provider, logger: false });
+    try {
+      for (const url of [
+        '/admin/api/fields',
+        '/admin/api/attendance',
+        '/admin/attendance/export.csv',
+        '/admin/attendance/manual'
+      ])
+        expect((await app.inject({ url, headers: { cookie } })).statusCode).toBe(404);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/admin/api/attendance',
+            payload: { personId: principal }
+          })
+        ).statusCode
+      ).toBe(404);
+      expect(h.connect).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+  it.each([
+    ['0048_nfc_attendance_security_quarantine.sql', 'nfc_security_quarantined'],
+    ['0049_venue_attendance_security_contract.sql', 'nfc_schema_not_ready']
+  ])('actual buildApp still refuses opt-in on %s', async (version, reason) => {
+    const h = fixture();
+    h.state.version = version;
+    vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
+    const app = buildApp({ pool: h.pool, adminAuth: h.provider, logger: false });
+    try {
+      await expect(app.ready()).rejects.toThrow(reason);
+      expect(app.hasRoute({ method: 'GET', url: '/admin/api/fields' })).toBe(false);
+      expect(app.hasRoute({ method: 'GET', url: '/admin/api/attendance' })).toBe(false);
+      expect(h.query.mock.calls.some(([sql]) => sql.includes('admin.venue_attendance_'))).toBe(
+        false
+      );
+    } finally {
+      await app.close();
+    }
+  });
+});
 
 describe('Admin Field & Attendance Management', () => {
   describe('Field Management Data Structures & Validation', () => {
