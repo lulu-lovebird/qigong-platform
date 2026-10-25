@@ -2,6 +2,19 @@ export { attachPoolErrorHandler, createPool } from './pool.js';
 export { getMigrationStatus, isMigrationVersionCompatible, runMigrations } from './migrations.js';
 export { checkApiRuntimePreflight, withRequestContext } from './request-context.js';
 export {
+  VENUE_ATTENDANCE_PERMISSIONS,
+  VENUE_ATTENDANCE_TIME_ZONE,
+  countVenueAttendanceDays,
+  parseVenueAttendanceAdminOperation,
+  resolveLineLearnerIdentity,
+  runVenueAttendanceAdminOperation
+} from './venue-attendance-contract.js';
+export type {
+  LineLearnerIdentityMapping,
+  VenueAttendanceAdminDenied,
+  VenueAttendanceAdminOperation
+} from './venue-attendance-contract.js';
+export {
   CHECKIN_METHODS,
   calculateDistanceMeters,
   isActiveTimeRules,
