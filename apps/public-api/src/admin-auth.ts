@@ -4,6 +4,8 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { runVenueAttendanceAdminOperation, withRequestContext, type Pool } from '@qigong/database';
 import { createVenueAdminService, type VenueAdminService } from './venue-admin-service.js';
+import { registerVenueQrAdminRoutes } from './venue-qr-admin.js';
+import type { VenueQrConfig } from './venue-qr.js';
 import { z } from 'zod';
 import { accessCookie, registerAdminAccessRoutes } from './admin-access.js';
 import { renderReviewPage } from './admin-pages.js';
@@ -115,7 +117,8 @@ export const registerAdminRoutes = (
   app: FastifyInstance,
   pool: Pool,
   provider: AdminAuthProvider,
-  lineLiffId?: string
+  lineLiffId?: string,
+  venueQr?: VenueQrConfig
 ) => {
   app.get('/admin/auth/login', async (request, reply) => {
     const state = token();
@@ -575,6 +578,37 @@ export const registerAdminRoutes = (
       // the session and 0049 rechecks the operation + region in each transaction.
       return runVenueAttendanceAdminOperation(pool, request.id, session, operation);
     });
+
+  if (venueQr?.enabled) {
+    registerVenueQrAdminRoutes(
+      app,
+      pool,
+      (request) => {
+        const values = cookies(request);
+        const session = values[sessionCookie];
+        const saved = values[csrfCookie];
+        const csrf = request.headers['x-csrf-token'];
+        const count = (name: string) =>
+          (request.headers.cookie ?? '')
+            .split(';')
+            .filter((part) => part.trim().startsWith(name + '=')).length;
+        if (
+          request.headers.origin !== venueQr.publicOrigin ||
+          !session ||
+          !/^[A-Za-z0-9_-]{43}$/.test(session) ||
+          count(sessionCookie) !== 1 ||
+          !saved ||
+          count(csrfCookie) !== 1 ||
+          typeof csrf !== 'string' ||
+          !/^[A-Za-z0-9_-]{43}$/.test(csrf) ||
+          !timingSafeEqual(sha256(csrf), sha256(saved))
+        )
+          return null;
+        return session;
+      },
+      principalFor
+    );
+  }
 
   registerNfcFeature(app, pool, (scope) => {
     registerAdminFieldRoutes(

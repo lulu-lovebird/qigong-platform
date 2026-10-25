@@ -192,7 +192,7 @@ export const buildApp = ({
   registerLearnerPrivacyRoutes(app, pool);
   registerExternalJournalRoutes(app, pool);
   registerNfcFeature(app, pool, registerFieldCheckinRoutes);
-  if (adminAuth) registerAdminRoutes(app, pool, adminAuth, line?.liffId);
+  if (adminAuth) registerAdminRoutes(app, pool, adminAuth, line?.liffId, qr);
   if (telegramOnboarding) registerTelegramOnboarding(app, pool, telegramOnboarding);
   if (line) {
     registerLineOnboarding(app, pool, line, qr?.enabled === true);
