@@ -3,8 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   decodeVenueReadResult,
   parseVenueReadRequest,
-  venueExportMaximumRows,
-  venueReadMinimumLearners
+  venueExportMaximumRows
 } from '../src/venue-admin-read-contract.js';
 import { createVenueAdminService, type VenueAdminDenial } from '../src/venue-admin-service.js';
 
@@ -21,7 +20,7 @@ const exporting = parseVenueReadRequest({ operation: 'attendance.export', ...sel
 const unavailable = { version: 1, state: 'unavailable' };
 const entry = () => ({
   date: '2026-10-25',
-  learnerName: null as string | null,
+  learnerName: '學員' as string | null,
   field: { fieldId, code: 'TPE-01', nameZhTw: '團練場' },
   method: 'nfc_gps',
   distanceMeters: 12.34 as number | null
@@ -31,8 +30,8 @@ const attendance = () => ({
   state: 'available',
   operation: 'attendance.read',
   ...selector,
-  timezone: 'Asia/Taipei',
-  nameVisibility: 'redacted',
+  timezone: 'venue-local',
+  nameVisibility: 'visible',
   totals: { attendanceCount: 5, attendanceDays: 1, learnerCount: 5 },
   page: 1,
   limit: 20,
@@ -121,23 +120,24 @@ describe('strict successful DTO decoding, not authorization', () => {
   it('accepts complete bounded export, never arbitrary CSV/JSON', () => {
     expect(decodeVenueReadResult(exported(), exporting)).toEqual(exported());
     expect(venueExportMaximumRows).toBe(1000);
-    expect(venueReadMinimumLearners).toBe(5);
     expect(decodeVenueReadResult(attendance(), exporting)).toEqual(unavailable);
     expect(decodeVenueReadResult(exported(), read)).toEqual(unavailable);
   });
-  it('requires a server-owned name release decision; redacted is the default', () => {
-    const named = {
+  it('includes names under existing scoped view access, even for one learner', () => {
+    const single = {
       ...attendance(),
-      nameVisibility: 'visible',
-      rows: attendance().rows.map((item) => ({ ...item, learnerName: '學員' }))
+      totals: { attendanceCount: 1, attendanceDays: 1, learnerCount: 1 },
+      rows: [entry()]
     };
-    rejects(named);
-    expect(decodeVenueReadResult(named, read, 'visible')).toEqual(named);
-    expect(decodeVenueReadResult(attendance(), read, 'visible')).toEqual(unavailable);
-    rejects({
-      ...attendance(),
-      rows: attendance().rows.map((item) => ({ ...item, learnerName: '姓名' }))
-    });
+    expect(decodeVenueReadResult(single, read)).toEqual(single);
+    expect(decodeVenueReadResult(single, read, 'redacted')).toEqual(unavailable);
+    const redacted = {
+      ...single,
+      nameVisibility: 'redacted',
+      rows: [{ ...entry(), learnerName: null }]
+    };
+    expect(decodeVenueReadResult(redacted, read, 'redacted')).toEqual(redacted);
+    expect(decodeVenueReadResult(redacted, read)).toEqual(unavailable);
   });
   it('supports actual authorized empty sets, but never manufactures them on failure', () => {
     const empty = {
@@ -224,7 +224,6 @@ describe('strict successful DTO decoding, not authorization', () => {
     { ...attendance(), totals: { attendanceCount: 5, attendanceDays: 0, learnerCount: 5 } },
     { ...attendance(), totals: { attendanceCount: 5, attendanceDays: 6, learnerCount: 5 } },
     { ...attendance(), totals: { attendanceCount: 5, attendanceDays: 1, learnerCount: 6 } },
-    { ...attendance(), totals: { attendanceCount: 5, attendanceDays: 1, learnerCount: 4 } },
     { ...attendance(), totals: { attendanceCount: 5, attendanceDays: 1, learnerCount: 0 } },
     {
       ...attendance(),

@@ -1,12 +1,10 @@
 /**
- * Dormant forward read/export DTOs. NOT authorization or a production adapter.
+ * Scoped read/export DTOs. Shape validation is not authorization.
  * Developed with ❤️ by Bean, Bird & Badminton Tech Consulting
  * Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
  */
 import { z } from 'zod';
 
-/** Proposed floor, pending product/privacy approval; not an implemented privacy system. */
-export const venueReadMinimumLearners = 5;
 export const venueExportMaximumRows = 1000;
 const date = z.iso.date().refine((value) => value >= '0001-01-01' && value <= '9999-12-31');
 const count = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
@@ -18,7 +16,7 @@ const text = (maximum: number) =>
     .min(1)
     .max(maximum)
     .refine((value) => value.trim() === value && !/[\p{Cc}]/u.test(value));
-const method = z.enum(['nfc_gps', 'volunteer_manual']);
+const method = z.enum(['nfc_gps', 'qr_gps', 'volunteer_manual']);
 const filters = z
   .object({ fieldId: z.uuid().nullable(), method: method.nullable() })
   .strict()
@@ -79,7 +77,7 @@ const totals = z
   .readonly();
 const attendanceData = {
   ...attendanceSelector,
-  timezone: z.literal('Asia/Taipei'),
+  timezone: z.literal('venue-local'),
   nameVisibility: z.enum(['visible', 'redacted']),
   totals
 };
@@ -134,14 +132,14 @@ const unavailable = (): VenueReadResult => Object.freeze({ version: 1, state: 'u
 
 /**
  * Server-owned release decision; never take it from query/body/DB JSON.
- * 'visible' requires separately reviewed name permission + historical scope.
- * This decoder only validates shape/bindings. It cannot prove RLS, k-anonymity,
- * distinct-person totals, anti-differencing, audit or authority of these arguments.
+ * Existing scoped view access includes learner names. No extra name permission,
+ * minimum group size or anti-differencing policy is required by the product.
+ * This decoder cannot prove RLS, distinct-person totals, audit or authority.
  */
 export const decodeVenueReadResult = (
   input: unknown,
   expected: VenueReadRequest,
-  names: 'visible' | 'redacted' = 'redacted'
+  names: 'visible' | 'redacted' = 'visible'
 ): VenueReadResult => {
   try {
     const request = requestSchema.parse(expected);
@@ -182,8 +180,7 @@ export const decodeVenueReadResult = (
       attendanceDays > attendanceCount ||
       learnerCount > attendanceCount ||
       (attendanceCount === 0) !== (learnerCount === 0) ||
-      (attendanceCount === 0) !== (attendanceDays === 0) ||
-      (learnerCount > 0 && learnerCount < venueReadMinimumLearners)
+      (attendanceCount === 0) !== (attendanceDays === 0)
     )
       return unavailable();
     if (data.operation === 'attendance.read' && request.operation === 'attendance.read') {
