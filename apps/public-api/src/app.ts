@@ -22,6 +22,12 @@ import { registerLineOnboarding, type LineConfig } from './line-onboarding.js';
 import { registerWhatsAppOnboarding, type WhatsAppConfig } from './whatsapp-onboarding.js';
 import { registerLearnerHelpPages } from './learner-help-page.js';
 import { registerFieldCheckinRoutes } from './field-checkin-routes.js';
+import {
+  registerVenueQrCheckinRoutes,
+  validateVenueQrConfig,
+  venueQrMigrationVersion,
+  type VenueQrConfig
+} from './venue-qr.js';
 
 // LIFF primary redirects can contain both SDK credentials and private application fragments in the query.
 export const apiLogRedaction = Object.freeze({
@@ -52,24 +58,26 @@ interface AppDependencies {
   telegramOnboarding?: TelegramOnboardingConfig;
   line?: LineConfig;
   whatsapp?: WhatsAppConfig;
+  venueQr?: VenueQrConfig;
 }
 
-export const checkStartupReadiness = async (pool: Pool) => {
+export const checkStartupReadiness = async (pool: Pool, venueQrEnabled = false) => {
   const status = await getMigrationStatus(
     pool,
     minimumMigrationVersion,
-    maximumMigrationVersion,
+    venueQrEnabled ? venueQrMigrationVersion : maximumMigrationVersion,
     'qigong_api_runtime'
   );
   // Extend the historical compatibility range only for the known quarantine migration,
   // not for arbitrary versions that happen to sort between 0047 and 0048.
   const migration = {
     ...status,
-    ready:
-      status.ready &&
-      (status.currentVersion === nfcQuarantineMigrationVersion ||
-        (status.currentVersion !== null &&
-          status.currentVersion.localeCompare(nfcMigrationVersion) <= 0))
+    ready: venueQrEnabled
+      ? status.ready && status.currentVersion === venueQrMigrationVersion
+      : status.ready &&
+        (status.currentVersion === nfcQuarantineMigrationVersion ||
+          (status.currentVersion !== null &&
+            status.currentVersion.localeCompare(nfcMigrationVersion) <= 0))
   };
   if (!migration.ready)
     return { ready: false as const, reason: 'schema_version_mismatch', migration };
@@ -90,8 +98,11 @@ export const buildApp = ({
   adminAuth,
   telegramOnboarding,
   line,
-  whatsapp
+  whatsapp,
+  venueQr
 }: AppDependencies) => {
+  const qr = venueQr ? validateVenueQrConfig(venueQr) : undefined;
+  if (qr && !line) throw new Error('venue QR requires LINE configuration');
   const app = Fastify({
     logger:
       logger === false
@@ -168,7 +179,7 @@ export const buildApp = ({
   app.get('/health/ready', async (_request, reply) => {
     try {
       await pool.query('SELECT 1');
-      const readiness = await checkStartupReadiness(pool);
+      const readiness = await checkStartupReadiness(pool, qr?.enabled === true);
       if (!readiness.ready) return reply.code(503).send({ ok: false, ...readiness });
       return { ok: true, ...readiness };
     } catch (error) {
@@ -183,7 +194,10 @@ export const buildApp = ({
   registerNfcFeature(app, pool, registerFieldCheckinRoutes);
   if (adminAuth) registerAdminRoutes(app, pool, adminAuth, line?.liffId);
   if (telegramOnboarding) registerTelegramOnboarding(app, pool, telegramOnboarding);
-  if (line) registerLineOnboarding(app, pool, line);
+  if (line) {
+    registerLineOnboarding(app, pool, line);
+    if (qr) registerVenueQrCheckinRoutes(app, pool, line, qr);
+  }
   if (whatsapp) registerWhatsAppOnboarding(app, pool, whatsapp);
 
   return app;

@@ -1,4 +1,9 @@
-import { withRequestContext, type Pool, type PoolClient } from '@qigong/database';
+import {
+  withRequestContext,
+  resolveLineLearnerIdentity,
+  type Pool,
+  type PoolClient
+} from '@qigong/database';
 import { z } from 'zod';
 import {
   verifiedLineIdentitySchema,
@@ -36,14 +41,14 @@ const privacySchema = z.discriminatedUnion('active', [
 /**
  * Server-owned DB boundary, not request data. Must use an audited controlled
  * function on this runtime client, returning null for unknown subjects. There is
- * deliberately no production resolver: existing mapping helpers lack runtime
- * EXECUTE. Do not substitute privileged SQL, a report, or a new broad GRANT.
+ * production resolver is the minimal 0049 controlled function. Do not substitute
+ * privileged SQL, a report, or a new broad GRANT.
  */
 export type LineLearnerResolver = (client: PoolClient, verifiedSubject: string) => Promise<unknown>;
 
 export interface LineLearnerIdentityOptions {
   loginChannelId: string;
-  resolveLearner: LineLearnerResolver;
+  resolveLearner?: LineLearnerResolver;
   verifyIdentity?: (idToken: string, channelId: string) => Promise<VerifiedLineIdentity>;
 }
 
@@ -98,7 +103,9 @@ export const createLineLearnerIdentityAdapter = (
         'qigong_api_runtime',
         { requestId },
         async (client): Promise<LineLearnerIdentityResult> => {
-          const mapping = learnerMappingSchema.parse(await options.resolveLearner(client, subject));
+          const mapping = learnerMappingSchema.parse(
+            await (options.resolveLearner ?? resolveLineLearnerIdentity)(client, subject)
+          );
           if (
             !mapping ||
             mapping.subject !== subject ||
