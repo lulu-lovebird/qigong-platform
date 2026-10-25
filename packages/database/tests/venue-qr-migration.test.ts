@@ -23,6 +23,11 @@ describe('0050 QR forward SQL shape (not PostgreSQL execution)', () => {
     expect(sql).toContain("'venue.attendance_export'");
     expect(sql).toContain('aclexplode(p.proacl)');
     expect(sql).toContain('SET row_security = on');
+    expect(sql).toContain('i.verified_at<=clock_timestamp()');
+    expect(sql).toContain('c.valid_to>clock_timestamp()');
+    expect(sql).toContain('AS RESTRICTIVE FOR UPDATE TO PUBLIC USING(FALSE)');
+    expect(sql).toContain('AS RESTRICTIVE FOR DELETE TO PUBLIC USING(FALSE)');
+    expect(sql).toContain('immutable after first attendance');
   });
   it('writes only independent local-date attendance without raw GPS', () => {
     expect(sql).toContain('ON core.field_attendance(person_id, field_id, attendance_date)');

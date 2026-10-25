@@ -26,16 +26,22 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_timezone_names WHERE name = NEW.timezone)
     OR NEW.latitude NOT BETWEEN -90 AND 90 OR NEW.longitude NOT BETWEEN -180 AND 180
     OR NEW.radius_meters NOT BETWEEN 1 AND 5000
+    OR length(NEW.name_zh_tw) NOT BETWEEN 1 AND 120 OR NEW.name_zh_tw ~ '[[:cntrl:]]'
+    OR length(NEW.code)>64 OR NEW.code !~ '^[a-z][a-z0-9]*(-[a-z0-9]+)+$'
     OR pg_catalog.jsonb_typeof(NEW.active_time_rules) IS DISTINCT FROM 'object'
     OR NOT (NEW.active_time_rules ?& ARRAY['day_of_week','start_time','end_time'])
     OR pg_catalog.jsonb_typeof(NEW.active_time_rules->'day_of_week') IS DISTINCT FROM 'array'
     OR pg_catalog.jsonb_array_length(NEW.active_time_rules->'day_of_week') NOT BETWEEN 1 AND 7
     OR NOT (NEW.active_time_rules->>'start_time' ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$')
-    OR NOT (NEW.active_time_rules->>'end_time' ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$')
+    OR NOT (NEW.active_time_rules->>'end_time' ~ '^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$')
     OR NEW.active_time_rules->>'start_time' >= NEW.active_time_rules->>'end_time'
     OR EXISTS (SELECT 1 FROM pg_catalog.jsonb_array_elements(NEW.active_time_rules->'day_of_week') d
       WHERE d::text !~ '^[0-6]$') THEN
     RAISE EXCEPTION 'invalid venue configuration' USING ERRCODE = '22023';
+  END IF;
+  IF TG_OP='UPDATE' AND (NEW.region_id IS DISTINCT FROM OLD.region_id OR NEW.timezone IS DISTINCT FROM OLD.timezone)
+    AND EXISTS (SELECT 1 FROM core.field_attendance WHERE field_id=OLD.id) THEN
+    RAISE EXCEPTION 'venue region/timezone is immutable after first attendance';
   END IF;
   RETURN NEW;
 END $$;
@@ -80,10 +86,31 @@ GRANT EXECUTE ON FUNCTION platform.resolve_line_learner_identity(TEXT), platform
 GRANT EXECUTE ON FUNCTION admin.session_principal(TEXT), admin.can_access_region(UUID,TEXT)
   TO qigong_venue_qr_reader;
 
+-- Retain 0049's minimal nonowner resolver, but check wall-clock validity after waits.
+-- Existing RLS may conservatively deny identities activated after transaction start.
+CREATE OR REPLACE FUNCTION platform.resolve_line_learner_identity(input_subject TEXT)
+RETURNS JSONB LANGUAGE sql VOLATILE SECURITY DEFINER
+SET search_path = pg_catalog SET row_security = on AS $$
+  SELECT jsonb_build_object('subject',i.external_subject_id,'identityId',i.id,'personId',p.id,
+    'revoked',FALSE,'learnerActive',TRUE,'channelActive',TRUE,'applicationApproved',TRUE)
+  FROM identity.platform_identities i JOIN identity.people p ON p.id=i.person_id AND p.status='active'
+  JOIN identity.onboarding_applications a ON a.person_id=p.id AND a.platform='line'
+    AND a.external_subject_id=input_subject AND a.status='approved'
+  WHERE input_subject ~ '^U[0-9a-f]{32}$' AND i.platform='line' AND i.external_subject_id=input_subject
+    AND i.revoked_at IS NULL AND i.verified_at<=clock_timestamp()
+    AND EXISTS(SELECT 1 FROM identity.person_interaction_channels c WHERE c.person_id=p.id
+      AND c.platform_identity_id=i.id AND c.valid_from<=clock_timestamp()
+      AND (c.valid_to IS NULL OR c.valid_to>clock_timestamp()))
+$$;
+
 -- No runtime/session membership, ownership change, BYPASSRLS, UPDATE or DELETE grants.
 -- Only these inaccessible function owners can satisfy the new policies.
 DROP POLICY practice_fields_security_quarantine ON core.practice_fields;
 DROP POLICY field_attendance_security_quarantine ON core.field_attendance;
+CREATE POLICY venue_fields_no_update ON core.practice_fields AS RESTRICTIVE FOR UPDATE TO PUBLIC USING(FALSE) WITH CHECK(FALSE);
+CREATE POLICY venue_fields_no_delete ON core.practice_fields AS RESTRICTIVE FOR DELETE TO PUBLIC USING(FALSE);
+CREATE POLICY venue_attendance_no_update ON core.field_attendance AS RESTRICTIVE FOR UPDATE TO PUBLIC USING(FALSE) WITH CHECK(FALSE);
+CREATE POLICY venue_attendance_no_delete ON core.field_attendance AS RESTRICTIVE FOR DELETE TO PUBLIC USING(FALSE);
 CREATE POLICY venue_fields_reader ON core.practice_fields FOR SELECT TO qigong_venue_qr_reader
   USING (admin.can_access_region(region_id,'checkin.read') OR admin.can_access_region(region_id,'stats.export'));
 CREATE POLICY venue_fields_writer ON core.practice_fields FOR SELECT TO qigong_venue_qr_writer
