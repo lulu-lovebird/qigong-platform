@@ -157,12 +157,13 @@ export const venueQrRouteErrorHandler = (
   error: FastifyError,
   _request: FastifyRequest,
   reply: FastifyReply
-) =>
-  reply
+): void => {
+  void reply
     .header('cache-control', 'no-store')
     .header('referrer-policy', 'no-referrer')
     .code(error.statusCode === 413 ? 413 : error.statusCode && error.statusCode < 500 ? 400 : 503)
     .send({ ok: false, error: 'invalid_or_unavailable_request' });
+};
 
 export const registerVenueQrCheckinRoutes = (
   app: FastifyInstance,
