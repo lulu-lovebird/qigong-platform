@@ -135,43 +135,70 @@ describe('Admin Field & Attendance Management', () => {
   });
 
   describe('NFC & QR Code URL Generation', () => {
-    it('generates standard check-in URL without LIFF configuration', () => {
-      const url = generateFieldNfcUrl('TW-TPE-DAAN');
-      expect(url).toBe('https://checkin.baiyinqigong.org/checkin?field=TW-TPE-DAAN');
+    // Entry previews now match line-venue-checkin-page.ts; these are not attendance credentials.
+    it('does not generate an entry URL without LIFF configuration', () => {
+      expect(generateFieldNfcUrl('tw-tpe-daan')).toBe('');
+      expect(generateFieldQrCodeUrl('tw-tpe-daan')).toBe('');
     });
 
-    it('generates check-in URL with custom base URL', () => {
-      const url = generateFieldNfcUrl('TW-KHH-ARENA', {
-        baseUrl: 'https://staging.baiyinqigong.org/'
-      });
-      expect(url).toBe('https://staging.baiyinqigong.org/checkin?field=TW-KHH-ARENA');
-    });
-
-    it('generates LIFF URL when liffId is provided', () => {
-      const url = generateFieldNfcUrl('TW-TXG-PARK', {
-        liffId: '2001234567-AbCdEfG'
-      });
-      expect(url).toBe('https://liff.line.me/2001234567-AbCdEfG?field=TW-TXG-PARK');
-    });
-
-    it('properly encodes special characters in field codes', () => {
-      const url = generateFieldNfcUrl('TW TPE+SPECIAL#1');
-      expect(url).toBe('https://checkin.baiyinqigong.org/checkin?field=TW%20TPE%2BSPECIAL%231');
-    });
-
-    it('generates QR Code image URL pointing to target checkin URL', () => {
-      const qrUrl = generateFieldQrCodeUrl('TW-TPE-DAAN', { qrCodeSize: 400 });
-      expect(qrUrl).toContain('https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=');
-      expect(qrUrl).toContain(
-        encodeURIComponent('https://checkin.baiyinqigong.org/checkin?field=TW-TPE-DAAN')
+    it('ignores the legacy custom base URL rather than providing an unsafe fallback', () => {
+      const options = { baseUrl: 'https://staging.baiyinqigong.org/' };
+      expect(generateFieldNfcUrl('tw-khh-arena', options)).toBe('');
+      expect(generateFieldNfcUrl('tw-khh-arena', { ...options, liffId: '123-liff' })).toBe(
+        'https://liff.line.me/123-liff/venue-checkin?venue=tw-khh-arena&source=nfc'
       );
     });
 
-    it('buildFieldUrls returns comprehensive URL bundle', () => {
-      const bundle = buildFieldUrls('TW-TPE-DAAN', { liffId: '123-liff' });
-      expect(bundle.nfc_url).toBe('https://liff.line.me/123-liff?field=TW-TPE-DAAN');
-      expect(bundle.target_url).toBe('https://liff.line.me/123-liff?field=TW-TPE-DAAN');
-      expect(bundle.qrcode_url).toContain('https://api.qrserver.com/v1/create-qr-code/');
+    it('generates a venue/source LIFF preview URL when liffId is provided', () => {
+      const url = generateFieldNfcUrl('tw-txg-park', {
+        liffId: '2001234567-AbCdEfG'
+      });
+      expect(url).toBe(
+        'https://liff.line.me/2001234567-AbCdEfG/venue-checkin?venue=tw-txg-park&source=nfc'
+      );
+    });
+
+    it('rejects special characters and legacy field codes without silently rewriting them', () => {
+      for (const code of ['TW TPE+SPECIAL#1', 'TW-TPE-DAAN', 'tw_tpe_daan']) {
+        expect(generateFieldNfcUrl(code, { liffId: '123-liff' })).toBe('');
+        expect(generateFieldQrCodeUrl(code, { liffId: '123-liff' })).toBe('');
+      }
+    });
+
+    it('returns only a QR target URL, never a third-party image URL', () => {
+      const qrUrl = generateFieldQrCodeUrl('tw-tpe-daan', {
+        liffId: '123-liff',
+        qrCodeSize: 400,
+        baseUrl: 'https://untrusted.invalid'
+      });
+      expect(qrUrl).toBe('https://liff.line.me/123-liff/venue-checkin?venue=tw-tpe-daan&source=qr');
+      expect(qrUrl).not.toMatch(/qrserver|untrusted|size=|data=/);
+    });
+
+    it('buildFieldUrls distinguishes NFC, QR and link preview sources', () => {
+      const bundle = buildFieldUrls('tw-tpe-daan', { liffId: '123-liff' });
+      const target = 'https://liff.line.me/123-liff/venue-checkin?venue=tw-tpe-daan&source=';
+      expect(bundle).toEqual({
+        nfc_url: target + 'nfc',
+        qrcode_url: target + 'qr',
+        target_url: target + 'link'
+      });
+      expect(Object.isFrozen(bundle)).toBe(true);
+    });
+
+    it('rejects unsafe LIFF configuration for every preview source', () => {
+      for (const liffId of [
+        '../bad',
+        'https://untrusted.invalid',
+        '123?redirect=bad',
+        '<script>'
+      ]) {
+        expect(buildFieldUrls('tw-tpe-daan', { liffId })).toEqual({
+          nfc_url: '',
+          qrcode_url: '',
+          target_url: ''
+        });
+      }
     });
   });
 
@@ -206,7 +233,9 @@ describe('Admin Field & Attendance Management', () => {
 
       // Header verification
       const lines = csv.replace('\uFEFF', '').split('\r\n');
-      expect(lines[0]).toBe('"簽到日期時間","學員姓名","場地代碼","場地名稱","簽到方式","核實志工"');
+      expect(lines[0]).toBe(
+        '"簽到日期時間","學員姓名","場地代碼","場地名稱","簽到方式","核實志工"'
+      );
 
       // Row 1 verification: NFC GPS
       expect(lines[1]).toContain('"陳小明"');
@@ -304,31 +333,39 @@ describe('Admin Field & Attendance Management', () => {
     });
   });
 
-  describe('Admin Dashboard Navigation & RBAC Integration', () => {
-    it('mounts field schedule and attendance export in admin shell when canManageFields is true', () => {
+  describe('Admin Dashboard Navigation (not server authorization)', () => {
+    it('includes capability-hidden venue navigation when the feature shell is requested', () => {
       const html = renderAdminShell('overview', '', '', 'zh_TW', false, true);
 
       expect(html).toContain('/admin/attendance?lang=zh_TW');
       expect(html).toContain('/admin/fields?lang=zh_TW');
-      expect(html).toContain('團練出席報表');
-      expect(html).toContain('團練場地排班');
+      expect(html).toContain('團練場出席管理 · 出席報表');
+      expect(html).toContain('團練場出席管理 · 場地設定');
+      expect(html).toContain('data-fields-nav hidden');
+      expect(html).toContain('data-attendance-nav hidden');
       expect(html).toContain('Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting');
     });
 
     it('renders fieldSchedule page shell with proper page title and active page marker', () => {
       const html = renderAdminShell('fieldSchedule', '<div id="test">Content</div>', '', 'zh_TW');
 
-      expect(html).toContain('<title>團練場地排班｜白雁氣功管理平台</title>');
-      expect(html).toContain('<h1>團練場地排班</h1>');
-      expect(html).toContain('href="/admin/fields?lang=zh_TW" class="journal-nav" data-fields-nav hidden aria-current="page"');
+      expect(html).toContain('<title>團練場出席管理｜白雁氣功管理平台</title>');
+      expect(html).toContain('<h1>團練場出席管理</h1>');
+      expect(html).toContain(
+        'href="/admin/fields?lang=zh_TW" class="journal-nav" data-fields-nav hidden aria-current="page"'
+      );
     });
 
     it('renders attendance page shell with proper English localization', () => {
       const html = renderAdminShell('attendance', '<div id="test">Content</div>', '', 'en');
 
-      expect(html).toContain('<title>Attendance Report｜Qigong Admin Dashboard</title>');
-      expect(html).toContain('<h1>Attendance Report</h1>');
-      expect(html).toContain('href="/admin/attendance?lang=en" class="journal-nav" data-attendance-nav hidden aria-current="page"');
+      expect(html).toContain(
+        '<title>Group Practice Attendance · Reports｜Qigong Admin Dashboard</title>'
+      );
+      expect(html).toContain('<h1>Group Practice Attendance · Reports</h1>');
+      expect(html).toContain(
+        'href="/admin/attendance?lang=en" class="journal-nav" data-attendance-nav hidden aria-current="page"'
+      );
     });
   });
 });
