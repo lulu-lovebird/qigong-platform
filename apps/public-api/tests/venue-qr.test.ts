@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Script } from 'node:vm';
 import { setImmediate } from 'node:timers/promises';
 import type { Pool } from '@qigong/database';
-import { buildApp, checkStartupReadiness } from '../src/app.js';
+import { apiLogRedaction, buildApp, checkStartupReadiness } from '../src/app.js';
 import { createVenueQrCheckin, venueQrMigrationVersion } from '../src/venue-qr.js';
 import type { LineConfig } from '../src/line-onboarding.js';
 
@@ -207,6 +207,29 @@ describe('live LIFF UI and exact schema readiness (mock, not real browser/PG)', 
 });
 
 describe('reviewed QR path through actual buildApp (mock LINE and SQL)', () => {
+  it.each(['{"latitude":25.1234567,"idToken":"private-parser-token",', 'x'.repeat(7000)])(
+    'sanitizes malformed/oversized input without echoing GPS or token fragments',
+    async (payload) => {
+      const m = mock();
+      const app = buildApp({ pool: m.pool, logger: false, line: m.line, venueQr: config });
+      try {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/api/line/venue-checkin',
+          headers: { ...headers, 'content-type': 'application/json' },
+          payload
+        });
+        expect([400, 413]).toContain(response.statusCode);
+        expect(response.body).not.toMatch(/25\.1234567|private-parser-token|JSON|Unexpected/);
+        expect(response.headers['cache-control']).toBe('no-store');
+        expect(m.query).not.toHaveBeenCalled();
+        expect(m.verifyIdentity).not.toHaveBeenCalled();
+        expect(apiLogRedaction.paths).toContain('req.body');
+      } finally {
+        await app.close();
+      }
+    }
+  );
   it('default-off remains preview, QR API and old NFC API are unavailable', async () => {
     const m = mock();
     const app = buildApp({ pool: m.pool, logger: false, line: m.line });

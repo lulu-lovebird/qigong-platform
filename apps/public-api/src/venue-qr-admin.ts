@@ -2,7 +2,7 @@
 import type { Pool } from '@qigong/database';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { parseVenueReadRequest } from './venue-admin-read-contract.js';
-import { readVenueQrAttendance } from './venue-qr.js';
+import { readVenueQrAttendance, venueQrRouteErrorHandler } from './venue-qr.js';
 import { csvCell } from './venue-attendance-report.js';
 
 /** Credential accessor exists only inside admin-auth's private cookie boundary. */
@@ -26,7 +26,7 @@ export const registerVenueQrAdminRoutes = (
   for (const exporting of [false, true]) {
     app.post(
       '/admin/venue-qr/api/' + (exporting ? 'export' : 'read'),
-      { bodyLimit: 4096 },
+      { bodyLimit: 4096, errorHandler: venueQrRouteErrorHandler },
       async (request, reply) => {
         reply
           .header('cache-control', 'no-store')

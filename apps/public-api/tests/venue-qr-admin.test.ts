@@ -69,6 +69,23 @@ const setup = (enabled = true) => {
   return { app, query, readSql, release };
 };
 describe('new admin QR reporting through buildApp and private cookie → real runner (mock DB)', () => {
+  it('sanitizes parser failures without logging/echoing private body fragments', async () => {
+    const m = setup();
+    try {
+      const result = await m.app.inject({
+        method: 'POST',
+        url: '/admin/venue-qr/api/read',
+        headers: { ...headers, 'content-type': 'application/json' },
+        payload: '{"private":"do-not-echo",'
+      });
+      expect(result.statusCode).toBe(400);
+      expect(result.body).not.toContain('do-not-echo');
+      expect(result.headers['cache-control']).toBe('no-store');
+      expect(m.query).not.toHaveBeenCalled();
+    } finally {
+      await m.app.close();
+    }
+  });
   it('is default-off without re-opening any NFC routes', async () => {
     const m = setup(false);
     try {

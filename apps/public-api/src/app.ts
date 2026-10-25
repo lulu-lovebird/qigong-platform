@@ -33,6 +33,7 @@ import {
 export const apiLogRedaction = Object.freeze({
   paths: [
     'req.url',
+    'req.body',
     'req.headers.authorization',
     'req.headers.cookie',
     'req.headers.x-line-access-token',

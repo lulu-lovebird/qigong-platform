@@ -1,6 +1,6 @@
 /** Developed with ❤️ by Bean, Bird & Badminton Tech Consulting */
 import { withRequestContext, type Pool } from '@qigong/database';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { createLineLearnerIdentityAdapter } from './line-learner-identity.js';
 import type { LineConfig } from './line-onboarding.js';
@@ -152,6 +152,18 @@ export const readVenueQrAttendance = async (
   });
 };
 
+/** Parser/body-limit exceptions must not echo request fragments or reach diagnostic logs. */
+export const venueQrRouteErrorHandler = (
+  error: FastifyError,
+  _request: FastifyRequest,
+  reply: FastifyReply
+) =>
+  reply
+    .header('cache-control', 'no-store')
+    .header('referrer-policy', 'no-referrer')
+    .code(error.statusCode === 413 ? 413 : error.statusCode && error.statusCode < 500 ? 400 : 503)
+    .send({ ok: false, error: 'invalid_or_unavailable_request' });
+
 export const registerVenueQrCheckinRoutes = (
   app: FastifyInstance,
   pool: Pool,
@@ -159,18 +171,22 @@ export const registerVenueQrCheckinRoutes = (
   config: VenueQrConfig
 ): void => {
   const checkin = createVenueQrCheckin(pool, line);
-  app.post('/api/line/venue-checkin', { bodyLimit: 6144 }, async (request, reply) => {
-    reply
-      .header('cache-control', 'no-store')
-      .header('referrer-policy', 'no-referrer')
-      .header('x-content-type-options', 'nosniff');
-    if (
-      request.headers.origin !== config.publicOrigin ||
-      request.headers['x-venue-checkin'] !== '1' ||
-      !request.headers['content-type']?.startsWith('application/json')
-    )
-      return reply.code(403).send({ ok: false, error: 'invalid_origin' });
-    const result = await checkin(request.id, request.body);
-    return reply.code(result.status).send(result.body);
-  });
+  app.post(
+    '/api/line/venue-checkin',
+    { bodyLimit: 6144, errorHandler: venueQrRouteErrorHandler },
+    async (request, reply) => {
+      reply
+        .header('cache-control', 'no-store')
+        .header('referrer-policy', 'no-referrer')
+        .header('x-content-type-options', 'nosniff');
+      if (
+        request.headers.origin !== config.publicOrigin ||
+        request.headers['x-venue-checkin'] !== '1' ||
+        !request.headers['content-type']?.startsWith('application/json')
+      )
+        return reply.code(403).send({ ok: false, error: 'invalid_origin' });
+      const result = await checkin(request.id, request.body);
+      return reply.code(result.status).send(result.body);
+    }
+  );
 };
