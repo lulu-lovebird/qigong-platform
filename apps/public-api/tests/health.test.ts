@@ -192,7 +192,12 @@ describe('health endpoints', () => {
     'rejects unknown future schema versions with NFC setting %s',
     async (setting) => {
       vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', setting);
-      for (const version of ['0048_future.sql', '0048_z_future.sql', '0049_future.sql']) {
+      for (const version of [
+        '0048_future.sql',
+        '0048_z_future.sql',
+        '0049_future.sql',
+        '0049_venue_attendance_security_contract.sql'
+      ]) {
         const mock = createPoolMock(version);
         expect(await checkStartupReadiness(mock.pool)).toMatchObject({
           ready: false,
