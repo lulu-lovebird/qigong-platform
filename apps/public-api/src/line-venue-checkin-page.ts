@@ -167,9 +167,67 @@ const texts = {
   }
 } as const;
 
-export const renderVenuePreview = (liffId: string, entry: VenuePreviewEntry | null): string => {
+const checkinTexts = {
+  zh_TW: {
+    title: '團練場簽到',
+    notice: '正式出席簽到：送出後由後端驗證並記錄',
+    unknown:
+      '請在場地開放時段、定位半徑內簽到。簽到獨立於日課，同人同場當地日期一次，跨場正常累計。',
+    privacy:
+      '按下按鈕才取得並傳送本次位置供後端驗證；不保存原始 GPS、不寫入網址或紀錄。QR 可轉傳，GPS 不是防偽證明。',
+    button: '確認位置並簽到',
+    ready: 'LINE 初始化完成；後端仍會驗證身份、同意、場地與位置。',
+    sending: '正在驗證並記錄出席，請稍候。',
+    success: '出席已記錄',
+    retry: '無法確認結果，可能已記錄。請重試；同人同場同日不會重複計次。',
+    outside_radius: '位置不在場地半徑內，請在現場重試。',
+    outside_window: '目前不是場地開放時段。',
+    rejected: '簽到未完成。請確認學員資格及最新隱私同意，或回 LINE 聊天辦理。'
+  },
+  zh_CN: {
+    title: '团练场签到',
+    notice: '正式出席签到：提交后由后端验证并记录',
+    unknown:
+      '请在场地开放时段、定位半径内签到。签到独立于日课，同人同场当地日期一次，跨场正常累计。',
+    privacy:
+      '按下按钮才获取并传送本次位置供后端验证；不保存原始 GPS、不写入网址或日志。QR 可转发，GPS 不是防伪证明。',
+    button: '确认位置并签到',
+    ready: 'LINE 初始化完成；后端仍会验证身份、同意、场地与位置。',
+    sending: '正在验证并记录出席，请稍候。',
+    success: '出席已记录',
+    retry: '无法确认结果，可能已记录。请重试；同人同场同日不会重复计次。',
+    outside_radius: '位置不在场地半径内，请在现场重试。',
+    outside_window: '目前不是场地开放时段。',
+    rejected: '签到未完成。请确认学员资格及最新隐私同意，或回 LINE 聊天办理。'
+  },
+  en: {
+    title: 'Venue attendance',
+    notice: 'Live check-in: the server verifies and records attendance',
+    unknown:
+      'Check in within the venue radius and opening hours. Attendance is separate from daily practice: once per person, venue and local date; visits to other venues count normally.',
+    privacy:
+      'Pressing the button sends this attempt’s location for server validation. Raw GPS is not stored, logged or put in URLs. QR links can be forwarded; GPS is not proof against impersonation.',
+    button: 'Confirm location and check in',
+    ready: 'LINE initialized. The server still checks identity, consent, venue and location.',
+    sending: 'Verifying and recording attendance. Please wait.',
+    success: 'Attendance recorded',
+    retry:
+      'Result unknown; attendance may already be recorded. Retry safely: the same venue and local date will not count twice.',
+    outside_radius: 'Outside the venue radius. Retry on site.',
+    outside_window: 'The venue is outside its opening hours.',
+    rejected:
+      'Check-in was not completed. Confirm learner eligibility and current privacy consent, or return to LINE chat.'
+  }
+} as const;
+
+export const renderVenuePreview = (
+  liffId: string,
+  entry: VenuePreviewEntry | null,
+  mode: 'preview' | 'checkin' = 'preview'
+): string => {
   const lang = entry?.lang ?? 'zh_TW';
-  const t = texts[lang];
+  const live = mode === 'checkin';
+  const t = live ? { ...texts[lang], ...checkinTexts[lang] } : texts[lang];
   const canonical = entry ? venuePreviewUrl(entry) : '';
   return `<!doctype html><html lang="${htmlLocale(lang)}"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -196,7 +254,28 @@ button.onclick=()=>{
   button.disabled=true;language.disabled=true;status.textContent=previewText.locating;
   const finish=message=>{status.textContent=message;button.disabled=false;language.disabled=false;};
   try{navigator.geolocation.getCurrentPosition(
-    ()=>finish(previewText.located),
+    ${
+      live
+        ? `async position=>{
+      status.textContent=previewText.sending;
+      try {
+        const response=await fetch('/api/line/venue-checkin',{
+          method:'POST',cache:'no-store',credentials:'omit',
+          headers:{'content-type':'application/json','x-venue-checkin':'1'},
+          body:JSON.stringify({idToken,venue:${scriptJson(entry?.venue)},latitude:position.coords.latitude,longitude:position.coords.longitude})
+        });
+        const data=await response.json();
+        if(!response.ok||data.ok!==true){
+          finish(response.status>=500?previewText.retry:data.error==='outside_radius'?previewText.outside_radius:data.error==='outside_window'?previewText.outside_window:previewText.rejected);return;
+        }
+        if(!data.venue||typeof data.venue.name!=='string'||typeof data.checkedInAt!=='string'||typeof data.venue.timezone!=='string')throw new Error('invalid result');
+        const time=new Intl.DateTimeFormat(${scriptJson(htmlLocale(lang))},{timeZone:data.venue.timezone,dateStyle:'medium',timeStyle:'short'}).format(new Date(data.checkedInAt));
+        status.textContent=previewText.success+' — '+data.venue.name+' / '+time+' ('+data.venue.timezone+'). '+previewText.daily;
+        button.disabled=true;language.disabled=false;
+      }catch{finish(previewText.retry);}
+    }`
+        : '()=>finish(previewText.located)'
+    },
     error=>finish(error.code===1?previewText.denied:error.code===3?previewText.timeout:previewText.unavailable),
     {enableHighAccuracy:false,timeout:10000,maximumAge:0}
   );}catch{finish(previewText.unavailable);}

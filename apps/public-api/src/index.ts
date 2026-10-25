@@ -51,6 +51,11 @@ const line = lineValues.every(Boolean)
         liffId: process.env.LINE_LIFF_ID
       })
   : undefined;
+const venueQrEnabled =
+  z.enum(['true', 'false']).default('false').parse(process.env.VENUE_QR_CHECKIN_ENABLED) === 'true';
+const venueQr = venueQrEnabled
+  ? { enabled: true as const, publicOrigin: z.url().parse(process.env.VENUE_QR_PUBLIC_ORIGIN) }
+  : undefined;
 const whatsapp = loadWhatsAppConfig(process.env);
 const pool = createPool(environment);
 let adminAuth: Awaited<ReturnType<typeof createAdminOidcProvider>>;
@@ -66,6 +71,7 @@ const app = buildApp({
   adminAuth,
   ...(telegramOnboarding ? { telegramOnboarding } : {}),
   ...(line ? { line } : {}),
+  ...(venueQr ? { venueQr } : {}),
   ...(whatsapp ? { whatsapp } : {}),
   serviceVersion: process.env.SERVICE_VERSION || 'development'
 });
@@ -92,7 +98,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 }
 
 try {
-  const readiness = await checkStartupReadiness(pool);
+  const readiness = await checkStartupReadiness(pool, venueQrEnabled);
   if (!readiness.ready) throw new Error(`startup readiness failed: ${readiness.reason}`);
   await app.listen({ host: environment.HOST, port: environment.PORT });
 } catch (error) {

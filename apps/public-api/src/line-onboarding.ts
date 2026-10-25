@@ -60,7 +60,12 @@ const details = z.object({
   region: z.enum(['tw-general', 'my-general', 'sg-general', 'hk-general', 'other-general'])
 });
 
-export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config: LineConfig) => {
+export const registerLineOnboarding = (
+  app: FastifyInstance,
+  pool: Pool,
+  config: LineConfig,
+  venueCheckinEnabled = false
+) => {
   const liffBase = `https://liff.line.me/${encodeURIComponent(config.liffId)}`;
   const replyHelp = createHelpReplyGuard();
   const legacyVerify = config.verifyIdToken;
@@ -139,10 +144,16 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
       .header('permissions-policy', 'geolocation=(self)')
       .header(
         'content-security-policy',
-        "default-src 'none'; script-src 'unsafe-inline' https://static.line-scdn.net; style-src 'unsafe-inline'; connect-src https://api.line.me; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        `default-src 'none'; script-src 'unsafe-inline' https://static.line-scdn.net; style-src 'unsafe-inline'; connect-src ${venueCheckinEnabled ? "'self' " : ''}https://api.line.me; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`
       )
       .type('text/html; charset=utf-8')
-      .send(renderVenuePreview(config.liffId, preview.kind === 'preview' ? preview.entry : null));
+      .send(
+        renderVenuePreview(
+          config.liffId,
+          preview.kind === 'preview' ? preview.entry : null,
+          venueCheckinEnabled ? 'checkin' : 'preview'
+        )
+      );
   };
   // Primary state selects a preview only; SDK init still owns the redirect.
   // No NFC gate, verifier, legacy renderer, DB or attendance service is involved.

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Script } from 'node:vm';
+import { setImmediate } from 'node:timers/promises';
 import type { Pool } from '@qigong/database';
-import { buildApp } from '../src/app.js';
+import { buildApp, checkStartupReadiness } from '../src/app.js';
 import { createVenueQrCheckin, venueQrMigrationVersion } from '../src/venue-qr.js';
 import type { LineConfig } from '../src/line-onboarding.js';
 
@@ -53,6 +55,157 @@ const mock = () => {
   return { pool, query, release, write, line, verifyIdentity };
 };
 afterEach(() => vi.unstubAllEnvs());
+interface BrowserNode {
+  textContent: string;
+  disabled: boolean;
+  value: string;
+  onclick?: () => void;
+}
+const browser = (html: string, fetchMock: ReturnType<typeof vi.fn>, primary = false) => {
+  const nodes = new Map<string, BrowserNode>();
+  const get = (id: string) => {
+    if (!nodes.has(id)) nodes.set(id, { textContent: '', disabled: true, value: 'zh_TW' });
+    return nodes.get(id)!;
+  };
+  const geo = vi.fn();
+  const location = new URL('https://app.test/line/venue-checkin?venue=tw-test-venue&source=qr');
+  if (primary)
+    location.search =
+      '?liff.state=' + encodeURIComponent('/venue-checkin?venue=tw-test-venue&source=qr');
+  new Script(
+    [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]).join('\n')
+  ).runInNewContext({
+    URL,
+    URLSearchParams,
+    Intl,
+    Date,
+    location,
+    history: { replaceState: vi.fn() },
+    document: { cookie: '', getElementById: get },
+    fetch: fetchMock,
+    navigator: { geolocation: { getCurrentPosition: geo } },
+    liff: {
+      init: async () => {},
+      isLoggedIn: () => true,
+      isInClient: () => true,
+      getIDToken: () => 'mock-token'
+    }
+  });
+  return { get, geo };
+};
+
+describe('live LIFF UI and exact schema readiness (mock, not real browser/PG)', () => {
+  it('sends location only after the click, shows confirmed venue/time and daily reminder', async () => {
+    const m = mock();
+    const app = buildApp({ pool: m.pool, logger: false, line: m.line, venueQr: config });
+    try {
+      const response = await app.inject('/line/venue-checkin?venue=tw-test-venue&source=qr');
+      expect(response.body).toContain('正式出席簽到');
+      expect(response.headers['content-security-policy']).toContain("connect-src 'self'");
+      const fetchMock = vi.fn(async () => ({ ok: true, json: async () => success }));
+      const ui = browser(response.body, fetchMock);
+      await setImmediate();
+      expect(ui.get('preview-test').disabled).toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
+      ui.get('preview-test').onclick!();
+      expect(ui.geo).toHaveBeenCalledOnce();
+      const callback = ui.geo.mock.calls[0]![0] as (position: unknown) => Promise<void>;
+      await callback({ coords: { latitude: 25, longitude: 121 } });
+      const [url, options] = fetchMock.mock.calls[0]! as unknown as [
+        string,
+        { body: string; credentials: string }
+      ];
+      expect(url).toBe('/api/line/venue-checkin');
+      expect(JSON.parse(options.body)).toEqual(input);
+      expect(options.credentials).toBe('omit');
+      expect(ui.get('preview-status').textContent).toContain('出席已記錄 — 合成場地');
+      expect(ui.get('preview-status').textContent).toContain('記錄今天功法與感受');
+      expect(ui.get('preview-test').disabled).toBe(true);
+      expect(response.body).toContain('/line/checkin?lang=zh_TW');
+    } finally {
+      await app.close();
+    }
+  });
+  it('primary liff.state initializes but does not collect location or submit early', async () => {
+    const m = mock();
+    const app = buildApp({ pool: m.pool, logger: false, line: m.line, venueQr: config });
+    try {
+      const response = await app.inject(
+        '/line/?liff.state=' + encodeURIComponent('/venue-checkin?venue=tw-test-venue&source=qr')
+      );
+      expect(response.body).toContain('正式出席簽到');
+      const fetchMock = vi.fn();
+      const ui = browser(response.body, fetchMock, true);
+      await setImmediate();
+      expect(ui.get('preview-test').disabled).toBe(true);
+      expect(ui.geo).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+  it('does not invent success on network ambiguity, supports retry', async () => {
+    const m = mock();
+    const app = buildApp({ pool: m.pool, logger: false, line: m.line, venueQr: config });
+    try {
+      const response = await app.inject('/line/venue-checkin?venue=tw-test-venue&source=qr');
+      const ui = browser(
+        response.body,
+        vi.fn(async () => {
+          throw new Error('offline');
+        })
+      );
+      await setImmediate();
+      ui.get('preview-test').onclick!();
+      await (ui.geo.mock.calls[0]![0] as (position: unknown) => Promise<void>)({
+        coords: { latitude: 25, longitude: 121 }
+      });
+      expect(ui.get('preview-status').textContent).toContain('可能已記錄');
+      expect(ui.get('preview-test').disabled).toBe(false);
+    } finally {
+      await app.close();
+    }
+  });
+  it.each(['0049_venue_attendance_security_contract.sql', '0050_other.sql', '0051_future.sql'])(
+    'enabled readiness rejects %s',
+    async (version) => {
+      const query = vi.fn(async () => ({ rows: [{ version }] }));
+      const pool = { connect: async () => ({ query, release: vi.fn() }) } as unknown as Pool;
+      expect(await checkStartupReadiness(pool, true)).toMatchObject({
+        ready: false,
+        reason: 'schema_version_mismatch'
+      });
+    }
+  );
+  it('enabled readiness accepts only 0050, after existing runtime preflight; default-off rejects it', async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('schema_migrations'))
+        return { rows: [{ version: venueQrMigrationVersion }] };
+      if (sql.includes('FROM pg_roles'))
+        return {
+          rows: [
+            {
+              session_user: 'synthetic_login',
+              rolsuper: false,
+              rolbypassrls: false,
+              rolcreatedb: false,
+              rolcreaterole: false,
+              rolreplication: false,
+              rolinherit: false
+            }
+          ]
+        };
+      if (sql.includes('FROM pg_shdepend')) return { rows: [{ unsafe: false }] };
+      if (sql.includes('FROM pg_auth_members'))
+        return { rows: [{ role_name: 'qigong_api_runtime' }] };
+      return { rows: [], rowCount: 0 };
+    });
+    const pool = { connect: async () => ({ query, release: vi.fn() }) } as unknown as Pool;
+    expect(await checkStartupReadiness(pool, true)).toMatchObject({ ready: true });
+    expect(await checkStartupReadiness(pool)).toMatchObject({ ready: false });
+  });
+});
+
 describe('reviewed QR path through actual buildApp (mock LINE and SQL)', () => {
   it('default-off remains preview, QR API and old NFC API are unavailable', async () => {
     const m = mock();

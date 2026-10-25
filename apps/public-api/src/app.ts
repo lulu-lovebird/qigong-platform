@@ -195,7 +195,7 @@ export const buildApp = ({
   if (adminAuth) registerAdminRoutes(app, pool, adminAuth, line?.liffId);
   if (telegramOnboarding) registerTelegramOnboarding(app, pool, telegramOnboarding);
   if (line) {
-    registerLineOnboarding(app, pool, line);
+    registerLineOnboarding(app, pool, line, qr?.enabled === true);
     if (qr) registerVenueQrCheckinRoutes(app, pool, line, qr);
   }
   if (whatsapp) registerWhatsAppOnboarding(app, pool, whatsapp);
