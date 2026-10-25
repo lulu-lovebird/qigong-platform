@@ -28,7 +28,7 @@ const checksum = (sql: string) => createHash('sha256').update(sql).digest('hex')
 
 const ensureLedger = (client: PoolClient) =>
   client.query(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
+    CREATE TABLE IF NOT EXISTS public.schema_migrations (
       version TEXT PRIMARY KEY,
       checksum TEXT NOT NULL,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -39,7 +39,7 @@ const ensureLedger = (client: PoolClient) =>
 
 const loadApplied = async (client: PoolClient) => {
   const result = await client.query<AppliedMigration>(
-    'SELECT version, checksum FROM schema_migrations ORDER BY version'
+    'SELECT version, checksum FROM public.schema_migrations ORDER BY version'
   );
   return new Map(result.rows.map((row) => [row.version, row.checksum]));
 };
@@ -84,7 +84,7 @@ export const runMigrations = async (
       try {
         await client.query(sql);
         await client.query(
-          `INSERT INTO schema_migrations (version, checksum, duration_ms, deployed_by)
+          `INSERT INTO public.schema_migrations (version, checksum, duration_ms, deployed_by)
            VALUES ($1, $2, $3, $4)`,
           [file, fileChecksum, Date.now() - startedAt, deployedBy]
         );

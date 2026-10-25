@@ -3,7 +3,7 @@
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 
-## 狀態：成功路徑已實作，真 PostgreSQL／手機尚未驗證
+## 狀態：Node 24／隔離 PostgreSQL 已通過，真 LINE／手機尚未驗證
 
 開始於乾淨 `b3a61bc`，唯一實作者為父 checkout；沒有開代理、部署、push、讀 .env／機密、連正式或未知 DB／外部 API、修改依賴／lockfile／global config、刪 worktree。
 
@@ -18,7 +18,7 @@ Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 - LIFF 成功畫面顯示可信場地名稱／時間／時區，提醒「記錄今天功法與感受」，提供 `/line/checkin?lang=…`。不自動建立日課。網路結果不明時明說可能已記錄、可冪等重試。
 - 新後台 `/admin/venue-qr` 有可用的 region/date/page 查詢與 CSV；每次私有 cookie → DB session → scoped function，POST 使用同源 Origin、既有 double-cookie CSRF。read 用既有 `checkin.read`，export 用 `stats.export`；無 k5／額外姓名 permission／anti-differencing／legacy scope ledger。
 
-這些是程式接線與本地 mock／VM 證據，**不是 SQL 已成功編譯、真實 RLS 或 LINE／手機驗收證據**。本機沒有可呼叫的 `allow_tool:false` hook，仍須父代理獨立結構安全審查。
+成功路徑另已通過下述 Node 24／隔離 PostgreSQL 測試；這些證據仍不代表真 LINE／手機或正式環境驗收。跨家族程式審查已完成，後續 runner／fixture 修補仍需檢視；本機沒有可呼叫的 `allow_tool:false` hook。
 
 ## 功能開關與啟動前提（未執行部署）
 
@@ -94,9 +94,17 @@ bash scripts/test-venue-qr-local-pg.sh
 
 ### 本機實際結果
 
-- Node `v26.10.0`，不是要求的 Node24；唯讀 PATH／既有常見安裝目錄未找到 Node24，不下載或改 global config。
-- 未找到 `initdb`／`pg_ctl`／`psql`／Docker。腳本實跑 **exit 77**：`SKIP: existing initdb is required; nothing installed or connected.`
-- 新 PG suite **10 skipped**；沒有任何真 PG 連線／SQL 執行／RLS 成功證據，這是發布 blocker。
+- 經用戶核准準備測試環境，已安裝 keg-only Node `24.22.1` 與 PostgreSQL `17.11`，不切換全域 Node、不啟動 Homebrew 常駐服務。
+- 使用一次性 Unix-socket cluster 實跑完整遷移鏈；修正 runner 在 migration 設定 `search_path=pg_catalog` 後找不到 ledger 的問題，將 ledger 操作完整限定為 `public.schema_migrations`。
+- 合成 fixture 補齊獨立地區樹、role grant 的必填原因及 onboarding 的姓名／合成 email／合成電話，沒有放寬業務驗證或停用 trigger。
+- **10 tests passed、0 skipped**；腳本退出時停止並刪除自己的 cluster，沒有連正式或既有資料庫。LINE verifier 仍為 mock。
+
+```sh
+PATH="/opt/homebrew/opt/node@24/bin:/opt/homebrew/opt/postgresql@17/bin:$PATH" \
+  bash scripts/test-venue-qr-local-pg.sh
+```
+
+遷移身份須具備建立隔離角色、設定 owner 及取代既有專用角色所擁函式的能力；一般 API login 不適用。正式環境需由 DBA 確認授權，不能僅假定資料庫 owner 即有跨角色權限。不要預先建立 `qigong_venue_qr_writer`／`qigong_venue_qr_reader`；0050 刻意拒絕重用未知角色。
 
 ## 批次提交及實際測試
 
@@ -133,7 +141,7 @@ env -u TEST_DATABASE_URL -u DATABASE_URL pnpm lint
 
 ## 待完成：發布與真人驗收
 
-1. 在已證明隔離、工具已存在的 Node24／PG 環境跑上述 harness；若 SQL／ACL 出錯，最多三輪修復後停，不連共享 DB 找答案。
+1. Node24／PG 一次性 harness 已通過；正式環境仍需核對版本、遷移身份、備份及 logging，不以隔離成功替代部署驗收。
 2. 父代理另做安全審查：新 definer/ACL/RLS、現有 privacy/session helpers、並行撤權語意、場地配置變更與外部 logging 設定。沒有宣稱本輪完成獨立 review。
 3. 經另行核准才執行 migration、server flag、部署／LINE Console 調整；不能直接開舊 NFC gate。
 4. 真人 Android/iOS LINE、外部登入回跳、實際 Endpoint/scopes、GPS 拒絕／timeout／離場／重試、QR 掃描與文字縮放／讀屏、成功回日課入口及後台 CSV。
