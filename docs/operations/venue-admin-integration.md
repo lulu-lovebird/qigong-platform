@@ -289,3 +289,90 @@ region、防移區 TOCTOU、歷史 scope、最小投影、分頁、export 稽核
 來開 NFC。後續成功實作與任何啟用還依賴明確可拋棄隔離 PostgreSQL 的 ACL／RLS／撤權／
 並行驗證、Node 24 重驗、結構安全審查及獨立啟用核准；目前 DB 驗證仍未實作／未執行。
 介面仍無可呼叫的 `allow_tool: false` hook，此交付不替代該結構安全 veto 或發布核准。
+
+## 後續批次：forward scoped read/export 設計及 DTO（base `5bca01b`）
+
+本節更新目前狀態，前節為當時的歷史紀錄。base `5bca01b829cc2c7ef1525e678d83cc85d27fb156`
+已完成 gated routes → request-bound deny-only service 的接線；不再是前節所述「尚未 consume service」。
+接線不是啟用：runner 意外成功仍 rollback／503，0048／0049、default-off gate 及 readiness 限制未變。
+
+本次用戶已授權自主完成的單代理批次限 **4 檔**，沒有開代理：
+
+- `docs/architecture/venue-attendance-read-export-v1.md`：forward RLS 拆分、scope 證據、最小角色／ACL、
+  私有 session permit、privacy／audit／撤權釋出順序及一次性隔離 PostgreSQL 驗證方案。
+- `apps/public-api/src/venue-admin-read-contract.ts`：未接線的嚴格 request parser／success decoder。
+- `apps/public-api/tests/venue-admin-read-contract.test.ts`：84 項純函式／負向 dependency mock。
+- 本文件：具體契約、驗證證據與 parent／產品審核點。
+
+### 實作契約與模型缺口
+
+新契約分離 field.read、attendance.read、attendance.export；明確單一 operational region、
+Taipei 半開日期（最多 366 日），allowlist field／method filters。read page 1–10000、limit 1–100；
+export 無分頁且最多完整 1000 列，超量／部分結果一律 unavailable。total 是完整授權集合，
+不是本頁；attendanceCount／attendanceDays／learnerCount 分別依人場日／日期／人去重。
+
+available DTO 只回最小場地 metadata，以及必要出席日期／姓名（預設 null）／場地／方法／
+儲存距離；無 GPS、心得、電話、volunteer／person／checkin ID、session 或任意 DB JSON。
+所有層級 strict、深 clone／freeze、request 與 rows 綁定驗證、未知欄位不靜默剝除；
+suppressed／unavailable 無 rows／count／原因。已有 deny-only service 不引用新 decoder，
+新增負向 mock 證明即使 dependency 回未來成功 DTO 仍 503，不把成功 fixture 當 production adapter。
+
+0047 attendance 無 historical assignment／event field region，field 也沒有歷史 region。
+不能以目前 region、can_access_person 的 CURRENT_DATE、或舊 checkin link 假造歷史 scope。
+方案要求另經核准的不可變 provenance ledger／完整覆蓋證據，不能盲回填；未知時不產生假空集合。
+跨區出席未核准，一律不進 rows／totals／export，包含 global grant；場地／person 歷史區必須一致。
+
+未來 migration 只可將 0048 FOR ALL restrictive policy 拆成永久三項 write deny 與 scoped SELECT
+fence，另配專用非 owner／NOBYPASSRLS／無 membership reader 的 permissive SELECT；FORCE RLS 保留。
+精確 column grants／function EXECUTE allowlist、PUBLIC／defaultACL／columnACL 清理與 catalog
+assertions 需同一交易驗證，不能僅刪 quarantine 或盲 GRANT。0049 write 繼續拒絕。
+本輪沒有建立／修改／執行任何 migration 或連接 PostgreSQL。
+
+### 本輪實際驗證（本地、無 DB）
+
+未載入 .env／secrets；所有測試與 typecheck／build／lint 命令均移除 TEST_DATABASE_URL、
+DATABASE_URL，沒有 DB／API／外網操作、安裝工具／依賴、deploy／push／merge 或 global config 修改。
+使用既有 Node `v26.10.0`、pnpm `10.15.1`、Vitest `3.2.7`，engine warning 保留；**未在 Node 24 驗證**。
+
+每檔修改後立即跑相關本地測試，formatter 也由現有 Prettier 執行。新 suite 首跑 83 passed；
+自審再加完整 export distinct-date 總計一致性檢查，最終 84 passed。
+未出現需修復的測試失敗，未使用三輪失敗修復預算。最終相關命令：
+
+```sh
+env -u TEST_DATABASE_URL -u DATABASE_URL pnpm --filter @qigong/public-api exec vitest run tests/venue-admin-read-contract.test.ts tests/venue-admin-service.test.ts tests/venue-attendance-report.test.ts tests/venue-fields-ui.test.ts tests/admin-attendance.test.ts tests/health.test.ts tests/field-checkin.test.ts
+env -u TEST_DATABASE_URL -u DATABASE_URL pnpm --filter @qigong/database exec vitest run tests/venue-attendance-security.test.ts tests/nfc-security-quarantine.test.ts tests/field-attendance-schema.test.ts
+env -u TEST_DATABASE_URL -u DATABASE_URL pnpm exec eslint apps/public-api/src/venue-admin-read-contract.ts apps/public-api/tests/venue-admin-read-contract.test.ts
+env -u TEST_DATABASE_URL -u DATABASE_URL pnpm exec tsc --noEmit --strict --exactOptionalPropertyTypes --noUncheckedIndexedAccess --target ES2023 --module NodeNext --moduleResolution NodeNext --skipLibCheck --esModuleInterop apps/public-api/tests/venue-admin-read-contract.test.ts
+env -u TEST_DATABASE_URL -u DATABASE_URL pnpm typecheck
+env -u TEST_DATABASE_URL -u DATABASE_URL pnpm build
+env -u TEST_DATABASE_URL -u DATABASE_URL pnpm lint
+pnpm exec prettier --check apps/public-api/src/venue-admin-read-contract.ts apps/public-api/tests/venue-admin-read-contract.test.ts docs/architecture/venue-attendance-read-export-v1.md docs/operations/venue-admin-integration.md
+git diff --check
+```
+
+| 檢查                            | 結果                                                                                                                |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| 七個相關 API suites             | exit 0，412 passed（含新 84 項），0 skipped                                                                         |
+| 三個 database 靜態／mock suites | exit 0，170 passed、10 skipped；skip 是未實作 PG 驗證，不是已通過                                                   |
+| 新 TS lint／測試 strict tsc     | exit 0                                                                                                              |
+| 全 workspace typecheck／build   | 各 exit 0                                                                                                           |
+| 四檔 Prettier／diff check       | exit 0                                                                                                              |
+| 全倉 lint                       | exit 1，未變更 `apps/public-api/tests/line-checkin-nfc.test.ts` 既有 8 errors（7 unused-vars、1 no-base-to-string） |
+
+未跑全倉 tests／全倉 format:check，不宣稱全綠。純函式只能驗 DTO 與拒絕，不證明資料真實性、
+RLS、distinct-person k、scope、撤權、並行或 PostgreSQL 編譯／ACL。
+
+### Parent 獨立審查與用戶確認（成功資料面仍 NO-GO）
+
+1. parent 獨立檢查 forward policy 拆分、FORCE／role／ACL／definer／permit／audit 與歷史證據可行性；
+   本輪不開代理，沒有宣稱已完成獨立 review；也沒有可呼叫的 allow_tool:false hook。
+2. 產品／privacy owner 確認跨區可見性（預設拒絕）、legacy 歸屬證據與 field 移區規則、獨立 names
+   permission、姓名／逐列日期距離揭露、k=5、空集合是否也抑制、無小群體例外、差分 ledger、
+   scope-wide 跨帳號協作防護、20 次／24h budget、retention／audit 存取與 export／byte 上限。
+   這些是具體建議而非已核准／已實作政策。
+3. 另批實作 provenance、privacy／audit storage、所有 revoker 共用的 lock／wall-clock release 協定；
+   0049 STABLE session 驗證本身不足以聲稱沒有撤權 TOCTOU。
+4. 授權後才以 Node24、一次性無 TCP／外網／真資料／憑證的 local cluster，補 migration 鏈、
+   role／ACL、historical scope、並行／撤權／rollback tests。本輪不連 DB、不安裝系統工具。
+5. 真 PG 證據及政策核准先於新成功 runner／route／CSV adapter；readiness／gate／migration／
+   deploy 各另取核准。不得因本次交付 success decoder 就去掉任何既有拒絕。
