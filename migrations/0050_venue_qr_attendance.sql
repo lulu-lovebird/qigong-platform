@@ -26,10 +26,12 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_timezone_names WHERE name = NEW.timezone)
     OR NEW.latitude NOT BETWEEN -90 AND 90 OR NEW.longitude NOT BETWEEN -180 AND 180
     OR NEW.radius_meters NOT BETWEEN 1 AND 5000
-    OR length(NEW.name_zh_tw) NOT BETWEEN 1 AND 120 OR NEW.name_zh_tw ~ '[[:cntrl:]]'
+    OR length(btrim(NEW.name_zh_tw)) NOT BETWEEN 1 AND 120 OR NEW.name_zh_tw ~ '[[:cntrl:]]'
     OR length(NEW.code)>64 OR NEW.code !~ '^[a-z][a-z0-9]*(-[a-z0-9]+)+$'
     OR pg_catalog.jsonb_typeof(NEW.active_time_rules) IS DISTINCT FROM 'object'
     OR NOT (NEW.active_time_rules ?& ARRAY['day_of_week','start_time','end_time'])
+    OR pg_catalog.jsonb_typeof(NEW.active_time_rules->'start_time') IS DISTINCT FROM 'string'
+    OR pg_catalog.jsonb_typeof(NEW.active_time_rules->'end_time') IS DISTINCT FROM 'string'
     OR pg_catalog.jsonb_typeof(NEW.active_time_rules->'day_of_week') IS DISTINCT FROM 'array'
     OR pg_catalog.jsonb_array_length(NEW.active_time_rules->'day_of_week') NOT BETWEEN 1 AND 7
     OR NOT (NEW.active_time_rules->>'start_time' ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$')

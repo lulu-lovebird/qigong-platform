@@ -28,6 +28,12 @@ describe('0050 QR forward SQL shape (not PostgreSQL execution)', () => {
     expect(sql).toContain('AS RESTRICTIVE FOR UPDATE TO PUBLIC USING(FALSE)');
     expect(sql).toContain('AS RESTRICTIVE FOR DELETE TO PUBLIC USING(FALSE)');
     expect(sql).toContain('immutable after first attendance');
+    expect(sql).toContain(
+      "jsonb_typeof(NEW.active_time_rules->'start_time') IS DISTINCT FROM 'string'"
+    );
+    expect(sql).toContain(
+      "jsonb_typeof(NEW.active_time_rules->'end_time') IS DISTINCT FROM 'string'"
+    );
   });
   it('writes only independent local-date attendance without raw GPS', () => {
     expect(sql).toContain('ON core.field_attendance(person_id, field_id, attendance_date)');

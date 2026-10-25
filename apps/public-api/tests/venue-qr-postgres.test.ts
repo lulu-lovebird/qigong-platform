@@ -275,6 +275,23 @@ describe.skipIf(!directory)('isolated real PG: full migrations + synthetic LINE/
     expect((await checkin(app)).statusCode).toBe(200);
     expect((await checkin(app, 'tw-test-one', 0, 0)).statusCode).toBe(409);
   });
+  it('rejects NULL schedule bypasses and moving an already-used venue timezone/region', async () => {
+    await expect(
+      owner.query(
+        `UPDATE core.practice_fields SET active_time_rules='{"day_of_week":[0,1,2,3,4,5,6],"start_time":null,"end_time":"24:00"}'::jsonb WHERE code='tw-test-one'`
+      )
+    ).rejects.toMatchObject({ code: '22023' });
+    const app = makeApp();
+    expect((await checkin(app)).statusCode).toBe(200);
+    await expect(
+      owner.query("UPDATE core.practice_fields SET timezone='UTC' WHERE code='tw-test-one'")
+    ).rejects.toMatchObject({ code: 'P0001' });
+    await expect(
+      owner.query("UPDATE core.practice_fields SET region_id=$1 WHERE code='tw-test-one'", [
+        otherRegionId
+      ])
+    ).rejects.toMatchObject({ code: 'P0001' });
+  });
   it('denies revoked consent and invalid LINE mock; no reflection consent is needed', async () => {
     const app = makeApp();
     await owner.query(
