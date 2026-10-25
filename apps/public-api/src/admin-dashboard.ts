@@ -29,22 +29,22 @@ export type AdminPage =
 
 const nfcNavLabels: Record<AdminLocale, Record<string, string>> = {
   zh_TW: {
-    navFieldSchedule: '團練場地排班',
-    navAttendance: '團練出席報表',
-    fieldSchedule: '團練場地排班',
-    attendance: '團練出席報表'
+    navFieldSchedule: '團練場出席管理 · 場地設定',
+    navAttendance: '團練場出席管理 · 出席報表',
+    fieldSchedule: '團練場出席管理',
+    attendance: '團練場出席管理 · 出席報表'
   },
   zh_CN: {
-    navFieldSchedule: '团练场地排班',
-    navAttendance: '团练出席报表',
-    fieldSchedule: '团练场地排班',
-    attendance: '团练出席报表'
+    navFieldSchedule: '团练场出席管理 · 场地设置',
+    navAttendance: '团练场出席管理 · 出席报表',
+    fieldSchedule: '团练场出席管理',
+    attendance: '团练场出席管理 · 出席报表'
   },
   en: {
-    navFieldSchedule: 'Field Schedule',
-    navAttendance: 'Attendance Report',
-    fieldSchedule: 'Field Schedule',
-    attendance: 'Attendance Report'
+    navFieldSchedule: 'Group Practice Attendance · Venues',
+    navAttendance: 'Group Practice Attendance · Reports',
+    fieldSchedule: 'Group Practice Attendance',
+    attendance: 'Group Practice Attendance · Reports'
   }
 };
 
