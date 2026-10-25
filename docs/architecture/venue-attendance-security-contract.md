@@ -1,5 +1,11 @@
 # 團練場出席管理：第一版安全資料庫契約
 
+> 以下為 0049 批次的歷史契約，不是目前 QR 成功路徑的全部狀態。
+> 最新 [已核准產品規則](venue-attendance-read-export-v1.md) 與
+> [0050／QR 演練](../operations/venue-qr-checkin.md) 已取代舊 Taipei-only、四個新增 read permission
+> 與尚無 production resolver 的限制；0047–0049 原檔不變，0050 forward 實作 scoped read／verified INSERT。
+> 舊 NFC 管理路由／metadata write／人工流程仍未開，真 PG 與父代理獨立安全審查尚未完成。
+
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 

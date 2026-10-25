@@ -1,5 +1,9 @@
 # LINE 團練入口：本地測試預覽規格
 
+> 以下保留 preview 批次的歷史紀錄。最新 QR 成功路徑與 server-only 開關見
+> [QR 隔離演練](venue-qr-checkin.md)。預設仍是本預覽；server 明確啟用後同一入口可真簽到，
+> 不再以本文件舊的「沒有成功 adapter」描述目前全部實作。真 PG／LINE／手機仍未驗證。
+
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 

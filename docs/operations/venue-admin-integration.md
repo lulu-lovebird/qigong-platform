@@ -1,5 +1,10 @@
 # 團練場出席管理：四分支本地整合紀錄
 
+> 本文件下方是先前批次的歷史紀錄。最新授權及交付見 [QR 完整流程／隔離演練](venue-qr-checkin.md)：
+> 已移除未核准的 k5／姓名額外權限／跨區拒絕提案，新增 0050 與獨立 QR／後台成功路徑。
+> 舊 NFC 路由及管理寫入仍未啟用；不再以本文件舊的 deny-only 狀態描述整個目前程式。
+> 真 PG／Node24／手機及父代理安全審查仍是待辦，沒有部署或 push。
+
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 
