@@ -46,8 +46,8 @@ export const apiLogRedaction = Object.freeze({
 });
 
 export const minimumMigrationVersion = '0042_activity_consecutive_drafts.sql';
-// Compatibility with quarantine does not grant NFC capability.
-export const maximumMigrationVersion = nfcQuarantineMigrationVersion;
+// Exact QR schema compatibility does not enable QR or the old NFC routes.
+export const maximumMigrationVersion = venueQrMigrationVersion;
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -66,17 +66,18 @@ export const checkStartupReadiness = async (pool: Pool, venueQrEnabled = false) 
   const status = await getMigrationStatus(
     pool,
     minimumMigrationVersion,
-    venueQrEnabled ? venueQrMigrationVersion : maximumMigrationVersion,
+    maximumMigrationVersion,
     'qigong_api_runtime'
   );
-  // Extend the historical compatibility range only for the known quarantine migration,
-  // not for arbitrary versions that happen to sort between 0047 and 0048.
+  // Admit only the exact reviewed forward versions above the old compatibility range.
+  // A disabled QR deployment can still run preview/daily practice after migration.
   const migration = {
     ...status,
     ready: venueQrEnabled
       ? status.ready && status.currentVersion === venueQrMigrationVersion
       : status.ready &&
-        (status.currentVersion === nfcQuarantineMigrationVersion ||
+        (status.currentVersion === venueQrMigrationVersion ||
+          status.currentVersion === nfcQuarantineMigrationVersion ||
           (status.currentVersion !== null &&
             status.currentVersion.localeCompare(nfcMigrationVersion) <= 0))
   };

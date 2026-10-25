@@ -33,7 +33,7 @@ NFC_FIELD_CHECKIN_ENABLED=false
 
 Origin 必須精確 HTTPS origin，不帶 path／尾斜線。原 LINE 四個設定 `LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、`LINE_LOGIN_CHANNEL_ID`、`LINE_LIFF_ID` 及既有 admin OIDC、`DATABASE_URL` 仍沿用現有安全配置，不在本文件填寫憑證。
 
-- QR enabled 的 startup／health 必須是精確 `0050_venue_qr_attendance.sql`，不是任意 0050／0049／future；並通過既有 NOINHERIT session role preflight。default-off readiness 維持原 0048 上限，不把 0050 偷塞進舊 NFC 相容範圍。
+- QR enabled 的 startup／health 必須是精確 `0050_venue_qr_attendance.sql`，不是任意 0050／0049／future；並通過既有 NOINHERIT session role preflight。default-off 也接受精確 0050（0049／任意 future 仍拒絕），使 migration 後仍可關閉功能、使用 preview／日課；這不授予 NFC capability。
 - `buildApp` 的 `venueQr: { enabled: true, publicOrigin }` 是同一 server-only dependency。production 無 mock verifier、假身份或 URL bypass。測試只在 test code 注入 LINE mock。
 - 正式啟動指令仍為既有 `pnpm build`、`pnpm --filter @qigong/public-api start`。**本次沒有執行 start、migration CLI、部署或網路代理。** 不要以本文件取代隔離 PG／Node24／安全審查。
 - 原始 GPS 只有 JSON POST 參數；API 不記 body，logger 亦 redacts `req.body`／URL，parser/size 錯誤固定回覆、不記診斷。運維還須保證 reverse proxy/APM 不擷取 request body，PG `log_parameter_max_length=0`、`log_parameter_max_length_on_error=0`，不開參數／封包／crash dump 收集；不能宣稱應用碼控制了外部服務記錄。
@@ -114,7 +114,7 @@ bash scripts/test-venue-qr-local-pg.sh
 | 8    | `160e0bf` | 3    | NULL 時段拒絕／PG 邊界；119 passed / 10 原有 DB skips，另新 PG 10 skips         |
 | 9    | `ccc1dc1` | 1    | final lint 發現新 handler thenable 型別，一輪修復；47 passed、changed lint 通過 |
 
-文件收尾為後續 <=5 檔提交，SHA 由 git log／最終回報取得，不在本檔自我引用。
+文件批次 10 為 `bbf9d57`（4 檔）。後續 readiness 安全收尾（3 檔）允許精確 0050 在功能關閉時繼續 preview／日課，enabled 仍只接受 0050、舊 NFC 仍拒絕；SHA 由最終回報取得，不在本檔自我引用。
 
 baseline 全 workspace tests 通過：API 1453 passed / 233 skipped、database 173 / 292、config 2、identity 6；已包含實際 buildApp integration suites。
 最終 source 回歸：API **1499 passed / 243 skipped**、database **176 passed / 292 skipped**、config **2 passed**、identity **6 passed**，合計 **1683 passed / 535 skipped**。

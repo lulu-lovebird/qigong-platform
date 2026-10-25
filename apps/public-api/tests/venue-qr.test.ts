@@ -177,7 +177,7 @@ describe('live LIFF UI and exact schema readiness (mock, not real browser/PG)', 
       });
     }
   );
-  it('enabled readiness accepts only 0050, after existing runtime preflight; default-off rejects it', async () => {
+  it('exact 0050 supports default-off preview, but never opens the old NFC gate', async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql.includes('schema_migrations'))
         return { rows: [{ version: venueQrMigrationVersion }] };
@@ -202,7 +202,12 @@ describe('live LIFF UI and exact schema readiness (mock, not real browser/PG)', 
     });
     const pool = { connect: async () => ({ query, release: vi.fn() }) } as unknown as Pool;
     expect(await checkStartupReadiness(pool, true)).toMatchObject({ ready: true });
-    expect(await checkStartupReadiness(pool)).toMatchObject({ ready: false });
+    expect(await checkStartupReadiness(pool)).toMatchObject({ ready: true });
+    vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
+    expect(await checkStartupReadiness(pool, true)).toMatchObject({
+      ready: false,
+      reason: 'nfc_schema_not_ready'
+    });
   });
 });
 
