@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 // Static contracts only: no pool, environment loading, migration execution or network.
 // These checks intentionally do NOT claim to prove PostgreSQL authorization behavior.
 const migration = readFileSync(
-  new URL('../../../migrations/0048_nfc_attendance_security_quarantine.sql', import.meta.url),
+  new URL('../../../migrations/0049_nfc_attendance_security_quarantine.sql', import.meta.url),
   'utf8'
 );
 const normalize = (sql: string) =>
@@ -71,16 +71,16 @@ describe('NFC security quarantine static contract (not a database authorization 
     assertQuarantine(migration);
   });
 
-  it('keeps the applied 0047 migration immutable', () => {
+  it('keeps the renumbered baseline SQL byte-identical', () => {
     const baseline = readFileSync(
-      new URL('../../../migrations/0047_practice_fields_and_nfc_attendance.sql', import.meta.url)
+      new URL('../../../migrations/0048_practice_fields_and_nfc_attendance.sql', import.meta.url)
     );
     expect(createHash('sha256').update(baseline).digest('hex')).toBe(
       'dc76f54c1815dd0fce115c0bf8f9ab2126ca18044cc35a26d237a1afee2974b4'
     );
   });
 
-  it('leaves the NFC opt-in gate and 0047 maximum-version deployment interlock unchanged', () => {
+  it('leaves the NFC opt-in gate and 0048 baseline-version deployment interlock unchanged', () => {
     const source = readFileSync(
       new URL('../../../apps/public-api/src/admin-auth.ts', import.meta.url),
       'utf8'
@@ -88,7 +88,7 @@ describe('NFC security quarantine static contract (not a database authorization 
     expect(source).toContain("process.env.NFC_FIELD_CHECKIN_ENABLED === 'true'");
     expect(source).toContain('if (!isNfcEnabled()) return;');
     expect(source).toContain(
-      "export const nfcMigrationVersion = '0047_practice_fields_and_nfc_attendance.sql';"
+      "export const nfcMigrationVersion = '0048_practice_fields_and_nfc_attendance.sql';"
     );
   });
 

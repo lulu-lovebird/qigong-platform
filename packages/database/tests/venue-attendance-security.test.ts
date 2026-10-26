@@ -14,7 +14,7 @@ import {
 
 // Pure/static/mock tests ONLY. No env loading, pool construction, migration or network.
 const migration = readFileSync(
-  new URL('../../../migrations/0049_venue_attendance_security_contract.sql', import.meta.url),
+  new URL('../../../migrations/0050_venue_attendance_security_contract.sql', import.meta.url),
   'utf8'
 );
 const normalize = (source: string) =>
@@ -174,21 +174,21 @@ const resolverClient = (rows: readonly { data: unknown }[]) => {
 };
 
 describe('團練場出席管理: static SQL contracts, NOT PostgreSQL evidence', () => {
-  it('uses the previously vacant 0049 number exactly once', () => {
+  it('uses the renumbered 0050 number exactly once', () => {
     expect(
       readdirSync(new URL('../../../migrations/', import.meta.url)).filter((file) =>
-        file.startsWith('0049_')
+        file.startsWith('0050_')
       )
-    ).toEqual(['0049_venue_attendance_security_contract.sql']);
+    ).toEqual(['0050_venue_attendance_security_contract.sql']);
   });
-  it('preserves 0047 and 0048 byte-for-byte', () => {
+  it('preserves renumbered baseline and quarantine SQL byte-for-byte', () => {
     for (const [file, hash] of [
       [
-        '0047_practice_fields_and_nfc_attendance.sql',
+        '0048_practice_fields_and_nfc_attendance.sql',
         'dc76f54c1815dd0fce115c0bf8f9ab2126ca18044cc35a26d237a1afee2974b4'
       ],
       [
-        '0048_nfc_attendance_security_quarantine.sql',
+        '0049_nfc_attendance_security_quarantine.sql',
         '2eda67d88dfb6655e92271592af7780954d93c59289becbf07de1f946465b251'
       ]
     ]) {
@@ -252,7 +252,7 @@ describe('團練場出席管理: static SQL contracts, NOT PostgreSQL evidence',
   it('retains atomic per-person/per-field/Taipei-day uniqueness, with no cross-field index', () => {
     const baseline = normalize(
       readFileSync(
-        new URL('../../../migrations/0047_practice_fields_and_nfc_attendance.sql', import.meta.url),
+        new URL('../../../migrations/0048_practice_fields_and_nfc_attendance.sql', import.meta.url),
         'utf8'
       )
     );

@@ -92,7 +92,7 @@ describe('ActiveTimeRules parsing & validation', () => {
     expect(parsed.end_time).toBe('09:00');
   });
 
-  it('parses valid JSON string rules matching migration 0047 default', () => {
+  it('parses valid JSON string rules matching migration 0048 default', () => {
     const jsonStr = '{"day_of_week": [0, 6], "start_time": "06:30", "end_time": "09:00"}';
     const parsed = parseActiveTimeRules(jsonStr);
     expect(parsed).toEqual(defaultRules);

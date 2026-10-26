@@ -6,7 +6,7 @@ SET LOCAL search_path = pg_catalog;
 -- New development only: never reinterpret existing attendance dates silently.
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM core.field_attendance) THEN
-    RAISE EXCEPTION '0050 requires empty attendance; legacy migration is not authorized';
+    RAISE EXCEPTION '0051 requires empty attendance; legacy migration is not authorized';
   END IF;
 END $$;
 
@@ -52,7 +52,7 @@ CREATE TRIGGER validate_venue_qr_configuration BEFORE INSERT OR UPDATE
 -- Validate existing field configuration too; no scope/date ledger or data rewrite.
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM core.practice_fields) THEN
-    RAISE EXCEPTION '0050 requires synthetic/new venue configuration after migration';
+    RAISE EXCEPTION '0051 requires synthetic/new venue configuration after migration';
   END IF;
 END $$;
 

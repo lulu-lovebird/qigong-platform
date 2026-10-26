@@ -2,12 +2,12 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const sql = readFileSync(
-  new URL('../../../migrations/0050_venue_qr_attendance.sql', import.meta.url),
+  new URL('../../../migrations/0051_venue_qr_attendance.sql', import.meta.url),
   'utf8'
 );
-describe('0050 QR forward SQL shape (not PostgreSQL execution)', () => {
+describe('0051 QR forward SQL shape (not PostgreSQL execution)', () => {
   it('refuses legacy data and replaces only the quarantined policies', () => {
-    expect(sql).toContain('0050 requires empty attendance');
+    expect(sql).toContain('0051 requires empty attendance');
     expect(sql).toContain('DROP POLICY practice_fields_security_quarantine');
     expect(sql).toContain('DROP POLICY field_attendance_security_quarantine');
     expect(sql).not.toMatch(/DISABLE ROW LEVEL|NO FORCE|BYPASSRLS;/);
