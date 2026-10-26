@@ -31,8 +31,8 @@ CREATE TABLE IF NOT EXISTS core.field_attendance (
     student_note TEXT
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_field_attendance_unique_day 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_field_attendance_unique_day
 ON core.field_attendance(person_id, field_id, ((checkin_at AT TIME ZONE 'Asia/Taipei')::date));
 
-CREATE INDEX IF NOT EXISTS idx_field_attendance_field_date 
+CREATE INDEX IF NOT EXISTS idx_field_attendance_field_date
 ON core.field_attendance(field_id, checkin_at);
