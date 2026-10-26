@@ -1,30 +1,18 @@
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
-import { loadEnvironment } from '@qigong/config';
-import { createPool } from '@qigong/database';
-import { z } from 'zod';
-import { createTelegramPracticeSender } from './telegram-practice-receipts.js';
-import { createLinePracticeSender } from './channel-practice-receipts.js';
-import {
-  realtimeReceiptsEnabled,
-  receiptDispatchSettings,
-  type ReceiptDispatchEvent
-} from './practice-receipt-dispatcher.js';
-import { runRealtimePracticeReceipts } from './practice-receipt-runtime.js';
-import {
-  createReceiptProgress,
-  updateReceiptProgress,
-  receiptProgressSnapshot
-} from './practice-receipt-health.js';
+import { logWorkerDiagnostic, sanitizeReceiptDispatchEvent } from './log-privacy.js';
 
 export const runPracticeReceiptWorker = async (
   source: NodeJS.ProcessEnv = process.env
 ): Promise<void> => {
+  const { realtimeReceiptsEnabled, receiptDispatchSettings } =
+    await import('./practice-receipt-dispatcher.js');
   if (!realtimeReceiptsEnabled(source.PRACTICE_RECEIPTS_REALTIME_ENABLED)) {
-    console.log(JSON.stringify({ event: 'practice_receipt_worker_disabled' }));
+    logWorkerDiagnostic({ event: 'practice_receipt_worker_disabled' });
     return;
   }
+  const { z } = await import('zod');
   const token = z
     .string()
     .regex(/^\d+:[A-Za-z0-9_-]{35,}$/)
@@ -32,43 +20,57 @@ export const runPracticeReceiptWorker = async (
   const lineToken = source.LINE_CHANNEL_ACCESS_TOKEN
     ? z.string().min(20).parse(source.LINE_CHANNEL_ACCESS_TOKEN)
     : undefined;
+  const { loadEnvironment } = await import('@qigong/config');
+  const { createPool } = await import('@qigong/database');
+  const { createTelegramPracticeSender } = await import('./telegram-practice-receipts.js');
+  const { createLinePracticeSender } = await import('./channel-practice-receipts.js');
+  const { runRealtimePracticeReceipts } = await import('./practice-receipt-runtime.js');
+  const { createReceiptProgress, updateReceiptProgress, receiptProgressSnapshot } =
+    await import('./practice-receipt-health.js');
   // Dedicated bounded pool, independent of API and the one-minute operational worker.
   const pool = createPool(loadEnvironment({ ...source, DATABASE_POOL_MAX: '4' }));
-  pool.on('error', () =>
-    console.error(JSON.stringify({ event: 'practice_receipt_worker_database_error' }))
-  );
-  const control = new AbortController(),
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let stop: (() => void) | undefined;
+  let cleanupFailure: { err: unknown } | undefined;
+  try {
+    pool.on('error', (err: unknown) =>
+      logWorkerDiagnostic({ event: 'practice_receipt_worker_database_error', err })
+    );
+    const control = new AbortController();
     stop = () => control.abort();
-  process.on('SIGTERM', stop);
-  process.on('SIGINT', stop);
-  const started = performance.now();
-  let progress = createReceiptProgress(!!lineToken);
-  const heartbeat = setInterval(() => {
-    const uptimeMs = performance.now() - started;
-    console.log(
-      JSON.stringify({
+    process.on('SIGTERM', stop);
+    process.on('SIGINT', stop);
+    const started = performance.now();
+    let progress = createReceiptProgress(!!lineToken);
+    heartbeat = setInterval(() => {
+      const uptimeMs = performance.now() - started;
+      logWorkerDiagnostic({
         event: 'practice_receipt_worker_heartbeat',
         uptimeSeconds: Math.round(uptimeMs / 1000),
         lanes: receiptProgressSnapshot(progress, uptimeMs)
-      })
-    );
-  }, 30000);
-  heartbeat.unref();
-  const report = (event: ReceiptDispatchEvent) => {
-    progress = updateReceiptProgress(progress, event, performance.now() - started);
-    // Successful idle polls update progress without a per-second log stream.
-    if (event.kind !== 'poll' || event.failures)
-      console.log(JSON.stringify({ event: 'practice_receipt_' + event.kind, ...event }));
-  };
-  try {
-    console.log(
-      JSON.stringify({
-        event: 'practice_receipt_worker_started',
-        pollMs: receiptDispatchSettings.pollMs,
-        batchSize: receiptDispatchSettings.batchSize,
-        lineEnabled: !!lineToken
-      })
-    );
+      });
+    }, 30000);
+    heartbeat.unref();
+    let invalidReportLogged = false;
+    const report = (input: unknown) => {
+      const event = sanitizeReceiptDispatchEvent(input);
+      if (!event) {
+        if (!invalidReportLogged)
+          logWorkerDiagnostic({ event: 'practice_receipt_worker_report_invalid' });
+        invalidReportLogged = true;
+        return;
+      }
+      progress = updateReceiptProgress(progress, event, performance.now() - started);
+      // Successful idle polls update progress without a per-second log stream.
+      if (event.kind !== 'poll' || event.failures)
+        logWorkerDiagnostic({ event: 'practice_receipt_' + event.kind, ...event });
+    };
+    logWorkerDiagnostic({
+      event: 'practice_receipt_worker_started',
+      pollMs: receiptDispatchSettings.pollMs,
+      batchSize: receiptDispatchSettings.batchSize,
+      lineEnabled: !!lineToken
+    });
     const result = await runRealtimePracticeReceipts({
       pool,
       signal: control.signal,
@@ -78,19 +80,32 @@ export const runPracticeReceiptWorker = async (
     });
     if (result.schemaMismatch) process.exitCode = 1;
   } finally {
-    clearInterval(heartbeat);
-    process.off('SIGTERM', stop);
-    process.off('SIGINT', stop);
-    await pool.end();
-    console.log(JSON.stringify({ event: 'practice_receipt_worker_stopped' }));
+    if (heartbeat) clearInterval(heartbeat);
+    if (stop) {
+      process.off('SIGTERM', stop);
+      process.off('SIGINT', stop);
+    }
+    try {
+      await pool.end();
+    } catch (err) {
+      logWorkerDiagnostic({ event: 'practice_receipt_worker_pool_end_failed', err });
+      cleanupFailure = { err };
+    } finally {
+      logWorkerDiagnostic({ event: 'practice_receipt_worker_stopped' });
+    }
   }
+  // This is reached only when the runtime succeeded: cleanup must never mask
+  // an original rejection (even undefined). Entry owns its safe diagnostic.
+  if (cleanupFailure) throw cleanupFailure.err;
 };
-const entry = process.argv[1];
-if (entry && realpathSync(entry) === fileURLToPath(import.meta.url)) {
+
+export const main = async (entry: string | undefined = process.argv[1]): Promise<void> => {
   try {
-    await runPracticeReceiptWorker();
-  } catch {
-    console.error(JSON.stringify({ event: 'practice_receipt_worker_failed' }));
+    if (entry && realpathSync(entry) === fileURLToPath(import.meta.url))
+      await runPracticeReceiptWorker();
+  } catch (err) {
+    logWorkerDiagnostic({ event: 'practice_receipt_worker_failed', err });
     process.exitCode = 1;
   }
-}
+};
+await main();
