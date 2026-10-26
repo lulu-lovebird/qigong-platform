@@ -128,6 +128,30 @@ describe('venue people strict selectors, bound results and CSV', () => {
     );
     expect(encodeVenuePeopleCsv(output)).toContain('"""\r\n=cmd"');
   });
+  it('rejects impossible day totals for a one-day range', () => {
+    const q = { ...query(), until: '2026-10-02' };
+    expect(() =>
+      decodeVenuePeopleResult(
+        {
+          ...data(),
+          until: q.until,
+          totals: { attendanceCount: 2, attendanceDays: 2, learnerCount: 1 },
+          rows: [{ ...data().rows[0]!, attendanceDays: 2 }]
+        },
+        q,
+        false
+      )
+    ).toThrow();
+  });
+  it('rejects page aggregates exceeding full-result attendance totals', () => {
+    const output = {
+      ...data(),
+      total: 2,
+      totals: { attendanceCount: 3, attendanceDays: 1, learnerCount: 2 },
+      rows: [data().rows[0]!, { ...data().rows[0]!, personId: regionId }]
+    };
+    expect(() => decodeVenuePeopleResult(output, query(), false)).toThrow();
+  });
   it('refuses partial/non-export CSV', () =>
     expect(() => encodeVenuePeopleCsv(decodeVenuePeopleResult(data(), query(), false))).toThrow());
 });

@@ -120,6 +120,8 @@ export const decodeVenuePeopleResult = (
   const limit = exporting ? 1000 : query.limit,
     page = exporting ? 1 : query.page;
   const { attendanceCount, attendanceDays, learnerCount } = result.totals;
+  const rangeDays =
+    (Date.parse(query.until + 'T00:00:00Z') - Date.parse(query.from + 'T00:00:00Z')) / 86400000;
   if (
     result.exporting !== exporting ||
     result.page !== page ||
@@ -128,6 +130,8 @@ export const decodeVenuePeopleResult = (
     (exporting && result.total > 1000) ||
     result.rows.length !== Math.min(limit, Math.max(0, result.total - (page - 1) * limit)) ||
     attendanceDays > attendanceCount ||
+    attendanceDays > rangeDays ||
+    (result.mode === 'detail' && learnerCount > 1) ||
     learnerCount > attendanceCount ||
     (attendanceCount === 0) !== (attendanceDays === 0) ||
     (attendanceCount === 0) !== (learnerCount === 0)
@@ -139,6 +143,8 @@ export const decodeVenuePeopleResult = (
       : result.rows.map((r) => r.recordId);
   if (new Set(ids).size !== ids.length) throw new Error('duplicate venue people rows');
   if (result.mode === 'people') {
+    if (result.rows.reduce((sum, row) => sum + row.attendanceCount, 0) > attendanceCount)
+      throw new Error('invalid venue people aggregate');
     for (const row of result.rows)
       if (
         row.latestDate < query.from ||

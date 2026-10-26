@@ -282,6 +282,52 @@ describe.skipIf(!directory)('venue people: isolated PG17 integrated 54 migration
         .total
     ).toBe(0);
   });
+  it('filters venue-local calendar labels across the date line, not a Taipei instant window', async () => {
+    await owner.query(
+      `INSERT INTO core.practice_fields(id,region_id,code,name_zh_tw,latitude,longitude,radius_meters,timezone,active_time_rules)
+      SELECT v.id,$1,v.code,'合成日期線場地',25,121,100,v.zone,'{"day_of_week":[0,1,2,3,4,5,6],"start_time":"00:00","end_time":"24:00"}'::jsonb
+      FROM (VALUES ('50000000-0000-4000-8000-000000000001'::uuid,'vp-test-east','Etc/GMT-14'),('50000000-0000-4000-8000-000000000002'::uuid,'vp-test-west','Etc/GMT+12')) v(id,code,zone)`,
+      [regionId]
+    );
+    try {
+      await owner.query(
+        `INSERT INTO core.field_attendance(person_id,field_id,checkin_method,checkin_at,attendance_date,attendance_timezone)
+        SELECT $1,id,'qr_gps','2026-09-30T12:00:00Z',('2026-09-30T12:00:00Z'::timestamptz AT TIME ZONE timezone)::date,timezone
+        FROM core.practice_fields WHERE code IN ('vp-test-east','vp-test-west')`,
+        [personId]
+      );
+      const east = await read(
+        query({
+          mode: 'detail',
+          personId,
+          fieldId: '50000000-0000-4000-8000-000000000001',
+          from: '2026-10-01',
+          until: '2026-10-02'
+        })
+      );
+      expect(east.total).toBe(1);
+      if (east.mode !== 'detail') throw new Error('wrong mode');
+      expect(east.rows[0]).toMatchObject({ date: '2026-10-01', timezone: 'Etc/GMT-14' });
+      const west = await read(
+        query({
+          mode: 'detail',
+          personId,
+          fieldId: '50000000-0000-4000-8000-000000000002',
+          from: '2026-10-01',
+          until: '2026-10-02'
+        })
+      );
+      expect(west.total).toBe(0);
+      const all = await read(
+        query({ mode: 'detail', personId, from: '2026-09-30', until: '2026-10-02' })
+      );
+      expect(all.totals.attendanceDays).toBe(2);
+    } finally {
+      await owner.query(
+        "DELETE FROM core.field_attendance WHERE field_id IN (SELECT id FROM core.practice_fields WHERE code IN ('vp-test-east','vp-test-west')); DELETE FROM core.practice_fields WHERE code IN ('vp-test-east','vp-test-west')"
+      );
+    }
+  });
   it('separates view and export permissions and their region scopes in both directions', async () => {
     await expect(read(query(), true, viewer)).rejects.toMatchObject({ code: '42501' });
     await expect(read(query(), false, exporter)).rejects.toMatchObject({ code: '42501' });
@@ -383,11 +429,18 @@ describe.skipIf(!directory)('venue people: isolated PG17 integrated 54 migration
       ).toBe(401);
       await owner.query('UPDATE admin.sessions SET revoked_at=NULL');
       await owner.query(
+        "UPDATE admin.sessions SET expires_at=clock_timestamp()-interval '1 second' WHERE token_hash=public.digest(repeat('v',43),'sha256')"
+      );
+      expect((await httpRead(app)).statusCode).toBe(401);
+      await owner.query("UPDATE admin.sessions SET expires_at=clock_timestamp()+interval '1 day'");
+      await owner.query(
         "DELETE FROM admin.role_permissions WHERE role_id=(SELECT id FROM admin.roles WHERE code='vp_view')"
       );
       expect((await httpRead(app)).statusCode).toBe(403);
     } finally {
-      await owner.query('UPDATE admin.sessions SET revoked_at=NULL');
+      await owner.query(
+        "UPDATE admin.sessions SET revoked_at=NULL,expires_at=clock_timestamp()+interval '1 day'"
+      );
       await owner.query(
         "INSERT INTO admin.role_permissions SELECT r.id,p.id FROM admin.roles r CROSS JOIN admin.permissions p WHERE r.code='vp_view' AND p.code='checkin.read' ON CONFLICT DO NOTHING"
       );
