@@ -15,6 +15,9 @@ import { renderAdminLineInvites } from '../src/admin-line-invite-pages.js';
 import { renderAdminAchievementsPage } from '../src/admin-achievement-page.js';
 import { renderAdminActivityPage } from '../src/admin-activity-page.js';
 import type { AdminLocale } from '../src/admin-locale.js';
+import { renderVenueFieldsPage } from '../src/admin-venue-fields-page.js';
+import { renderVenueAttendanceReportPage } from '../src/venue-attendance-report-page.js';
+import { attendanceExportQuerySchema, attendanceRange } from '../src/venue-attendance-report.js';
 
 const renderers: Readonly<Record<AdminPage, (locale: AdminLocale) => string>> = {
   overview: (locale) => renderAdminDashboard('overview', locale, true),
@@ -30,7 +33,17 @@ const renderers: Readonly<Record<AdminPage, (locale: AdminLocale) => string>> = 
   shared: (locale) => renderAdminLearnerPage('shared', locale, true),
   privacy: (locale) => renderAdminLearnerPage('privacy', locale, true),
   invites: renderAdminLineInvites,
-  notifications: (locale) => renderReviewNotificationPage(locale, true)
+  notifications: (locale) => renderReviewNotificationPage(locale, true),
+  fieldSchedule: renderVenueFieldsPage,
+  attendance: (locale) => {
+    const query = attendanceExportQuerySchema.parse({ month: '2026-10' });
+    return renderVenueAttendanceReportPage(
+      query,
+      attendanceRange(query),
+      { status: 'unavailable' },
+      locale
+    );
+  }
 };
 const oldColors = /#(?:285c3b|203027|193e2b|366448|62976e|61746b|edf3ee|82352f|a12c24)\b/i;
 const luminance = (hex: string) => {
@@ -51,11 +64,28 @@ const contrast = (a: string, b: string) => {
 describe('Admin brand consistency and image isolation', () => {
   it.each(Object.entries(renderers))(
     'brands both locales of %s without changing navigation or user content',
-    (_page, render) => {
+    (page, render) => {
       for (const locale of ['zh_TW', 'en'] as const) {
         const html = render(locale);
         for (const color of Object.values(adminBrandColors)) expect(html).toContain(color);
         expect(html).not.toMatch(oldColors);
+        if (page === 'attendance') {
+          // The real report route uses a standalone layout, not the admin sidebar shell.
+          expect(html).toContain(`<html lang="${locale === 'en' ? 'en' : 'zh-TW'}">`);
+          expect(html).toContain(`<a href="/admin?lang=${locale}">`);
+          expect(html).toContain('id="attendance-filters"');
+          expect(html).toContain('id="attendance-status" role="status" aria-live="polite"');
+          expect(html).toContain('name="month" type="month" value="2026-10"');
+          expect(html).toContain(
+            '<button type="button" disabled>下載 CSV（未授權或待接線）</button>'
+          );
+          expect(html).toContain('Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting');
+          expect(html).not.toContain('class="admin-logo"');
+          expect(html).not.toContain('<aside class="sidebar">');
+          expect(html).not.toContain('id="admin-navigation"');
+          expect(html).not.toContain('id="logout"');
+          continue;
+        }
         expect(html).toContain(renderAdminLogo(locale));
         expect(html).toContain(
           '<div class="brand-title">' + renderAdminLogo(locale) + '<span class="brand-title-text">'

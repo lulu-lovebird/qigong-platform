@@ -62,7 +62,8 @@ const nfcTexts = (locale: LearnerLocale) => {
       supplementMethods: 'Supplement Today’s Practice Methods',
       manualCheckin: 'Daily Personal Practice Check-in (Methods & Journal)',
       failed: 'Group practice check-in failed. Please contact on-site volunteers.',
-      gpsUnavailable: 'GPS location is currently unavailable. Please move to an open area and try again.',
+      gpsUnavailable:
+        'GPS location is currently unavailable. Please move to an open area and try again.',
       gpsTimeout: 'Location acquisition timed out. Please tap retry.'
     };
   }
@@ -77,7 +78,10 @@ const nfcTexts = (locale: LearnerLocale) => {
     gpsGuide: uiText(locale, '請允許瀏覽器定位授權，系統將自動比對團練場地距離以確認您的出席。'),
     gpsButton: uiText(locale, '允許定位並自動打卡'),
     retryButton: uiText(locale, '重新授權並簽到'),
-    gpsDenied: uiText(locale, '定位授權已被拒絕。請至手機或瀏覽器設定允許存取位置，方可完成現場打卡。'),
+    gpsDenied: uiText(
+      locale,
+      '定位授權已被拒絕。請至手機或瀏覽器設定允許存取位置，方可完成現場打卡。'
+    ),
     locating: uiText(locale, '正在獲取 GPS 定位…'),
     submitting: uiText(locale, '定位成功，正在進行團練打卡…'),
     successHeading: uiText(locale, '團練簽到成功！'),
@@ -91,14 +95,10 @@ const nfcTexts = (locale: LearnerLocale) => {
   };
 };
 
-export const renderNfcCheckinPage = (
-  channel: LearnerPageChannel,
-  options: CheckinPageOptions
-) => {
+export const renderNfcCheckinPage = (channel: LearnerPageChannel, options: CheckinPageOptions) => {
   const locale = channel.locale ?? 'zh_TW';
   const texts = nfcTexts(locale);
-  const supplementHref =
-    channel.platform === 'line' ? '/line/checkin' : '/telegram/checkin';
+  const supplementHref = channel.platform === 'line' ? '/line/checkin' : '/telegram/checkin';
   const fieldCodeDisplay = options.field || texts.generalField;
 
   return uiTemplate(locale)`<!doctype html>
