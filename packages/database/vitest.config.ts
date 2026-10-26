@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    fileParallelism: false
+    fileParallelism: false,
+    setupFiles: ['./tests/isolated-venue-roles.setup.ts']
   }
 });
