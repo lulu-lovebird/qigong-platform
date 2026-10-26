@@ -55,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0047_channel_invitations.sql'
+      '0051_venue_qr_attendance.sql'
     );
 
     expect(first.applied).toEqual([
@@ -105,13 +105,17 @@ describeWithDatabase('repository migrations', () => {
       '0044_achievement_publication_candidates.sql',
       '0045_versioned_achievement_runtime.sql',
       '0046_achievement_evaluation_and_readers.sql',
-      '0047_channel_invitations.sql'
+      '0047_channel_invitations.sql',
+      '0048_practice_fields_and_nfc_attendance.sql',
+      '0049_nfc_attendance_security_quarantine.sql',
+      '0050_venue_attendance_security_contract.sql',
+      '0051_venue_qr_attendance.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0047_channel_invitations.sql',
+      currentVersion: '0051_venue_qr_attendance.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0047_channel_invitations.sql',
+      maximumVersion: '0051_venue_qr_attendance.sql',
       ready: true
     });
   });

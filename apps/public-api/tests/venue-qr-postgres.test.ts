@@ -1,5 +1,5 @@
 /** Real PostgreSQL tests ONLY via scripts/test-venue-qr-local-pg.sh. Never TEST_DATABASE_URL. */
-import { readFile, realpath, stat } from 'node:fs/promises';
+import { readFile, readdir, realpath, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -146,6 +146,28 @@ describe.skipIf(!directory)('isolated real PG: full migrations + synthetic LINE/
       'synthetic-local-qr'
     );
     expect(result.currentVersion).toBe(venueQrMigrationVersion);
+    const migrationFiles = (await readdir(resolve(process.cwd(), '../../migrations')))
+      .filter((file) => /^\d{4}_[a-z0-9_]+\.sql$/.test(file))
+      .sort();
+    expect(result.applied).toEqual(migrationFiles);
+    expect(migrationFiles).toHaveLength(51);
+    expect(
+      (await runMigrations(owner, resolve(process.cwd(), '../../migrations'))).applied
+    ).toEqual([]);
+    // Assert fresh-chain properties BEFORE fixtures; migrations must not seed a deployment.
+    expect((await owner.query('SELECT 1 FROM core.regions')).rowCount).toBe(0);
+    expect((await owner.query('SELECT 1 FROM core.practice_fields')).rowCount).toBe(0);
+    expect((await owner.query('SELECT 1 FROM platform.learner_privacy_acceptances')).rowCount).toBe(
+      0
+    );
+    const invitations = await owner.query(
+      "SELECT relname,relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid IN ('platform.channel_invites'::regclass,'platform.channel_invite_continuations'::regclass,'platform.channel_invite_redemptions'::regclass)"
+    );
+    expect(invitations.rows).toHaveLength(3);
+    for (const table of invitations.rows) {
+      expect(table.relrowsecurity).toBe(true);
+      expect(table.relforcerowsecurity).toBe(true);
+    }
     await owner.query(
       await readFile(new URL('./fixtures/venue-qr-synthetic.sql', import.meta.url), 'utf8')
     );
