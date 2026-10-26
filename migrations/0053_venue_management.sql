@@ -20,12 +20,21 @@ GRANT SELECT(id,code,name_zh_tw,is_active,timezone) ON core.practice_fields TO q
 -- 0051's invoker validation trigger also needs existence-only visibility.
 GRANT SELECT(field_id) ON core.field_attendance TO qigong_venue_config_guard, qigong_venue_manager;
 GRANT SELECT(token_hash,principal_id,expires_at,revoked_at) ON admin.sessions TO qigong_venue_manager;
+GRANT SELECT(principal_id,role_id,scope_type,region_id,valid_from,valid_to) ON admin.role_grants TO qigong_venue_manager;
+GRANT SELECT(role_id,permission_id) ON admin.role_permissions TO qigong_venue_manager;
+GRANT SELECT(id,code) ON admin.permissions TO qigong_venue_manager;
 GRANT EXECUTE ON FUNCTION admin.request_id(),admin.request_person_id(),admin.request_principal_id(),
   admin.session_principal(TEXT),admin.can_access_region(UUID,TEXT),admin.venue_attendance_authorized(TEXT,UUID,TEXT)
   TO qigong_venue_manager;
 GRANT EXECUTE ON FUNCTION admin.request_principal_id() TO qigong_venue_config_guard;
 GRANT INSERT(request_id,actor_principal_id,action,target_type,target_id,scope_type,scope_id,outcome,metadata)
   ON audit.events TO qigong_venue_manager;
+CREATE POLICY venue_management_grants ON admin.role_grants FOR SELECT TO qigong_venue_manager
+  USING(principal_id=admin.request_principal_id());
+CREATE POLICY venue_management_permission ON admin.permissions FOR SELECT TO qigong_venue_manager
+  USING(code='venue_attendance.field.manage');
+CREATE POLICY venue_management_role_permissions ON admin.role_permissions FOR SELECT TO qigong_venue_manager
+  USING(EXISTS(SELECT 1 FROM admin.permissions p WHERE p.id=permission_id));
 CREATE POLICY venue_management_session ON admin.sessions FOR SELECT TO qigong_venue_manager
   USING(principal_id=admin.request_principal_id());
 CREATE POLICY venue_management_read ON core.practice_fields FOR SELECT TO qigong_venue_manager
@@ -130,7 +139,15 @@ BEGIN
       OR NOT EXISTS(SELECT 1 FROM admin.sessions WHERE token_hash=public.digest(input_session,'sha256')
         AND principal_id=principal AND revoked_at IS NULL AND expires_at>clock_timestamp())
       OR NOT admin.venue_attendance_authorized(input_session,input_region,'field.write')
-      OR NOT admin.venue_attendance_authorized(input_session,target_region,'field.write') THEN
+      OR NOT admin.venue_attendance_authorized(input_session,target_region,'field.write')
+      OR EXISTS(SELECT 1 FROM core.regions target WHERE target.id IN (input_region,target_region)
+        AND NOT EXISTS(SELECT 1 FROM admin.role_grants g
+          JOIN admin.role_permissions rp ON rp.role_id=g.role_id
+          JOIN admin.permissions p ON p.id=rp.permission_id AND p.code='venue_attendance.field.manage'
+          WHERE g.principal_id=principal AND g.valid_from<=clock_timestamp()
+            AND (g.valid_to IS NULL OR g.valid_to>clock_timestamp())
+            AND (g.scope_type='global' OR (g.scope_type='region' AND g.region_id=target.id)
+              OR (g.scope_type='country' AND g.region_id=target.parent_region_id)))) THEN
       RAISE EXCEPTION 'venue_forbidden' USING ERRCODE='42501'; END IF;
     IF input_action='create' THEN
       INSERT INTO core.practice_fields(region_id,code,name_zh_tw,name_en,address,latitude,longitude,radius_meters,timezone,active_time_rules,is_active)

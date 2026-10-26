@@ -104,15 +104,18 @@ function venueManagementController() {
       const copy = document.createElement('button');
       copy.type = 'button';
       copy.textContent = '複製 ' + label;
+      const copyTarget = async () => {
+        try {
+          await navigator.clipboard.writeText(target.value);
+          say('網址已複製；source 不是出席證明。');
+        } catch {
+          target.focus();
+          target.select();
+          say('無法自動複製，請手動複製。');
+        }
+      };
       copy.addEventListener('click', () => {
-        void navigator.clipboard
-          .writeText(target.value)
-          .then(() => say('網址已複製；source 不是出席證明。'))
-          .catch(() => {
-            target.focus();
-            target.select();
-            say('無法自動複製，請手動複製。');
-          });
+        void copyTarget();
       });
       container.append(target, copy);
       links.append(container);

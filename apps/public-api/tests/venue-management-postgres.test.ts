@@ -1,6 +1,8 @@
 /** Developed with ❤️ by Bean, Bird & Badminton Tech Consulting */
-import { randomUUID } from 'node:crypto';
-import { readFile, stat } from 'node:fs/promises';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { readFile, readdir, stat } from 'node:fs/promises';
+import Fastify, { type FastifyRequest } from 'fastify';
+import { registerVenueManagementRoutes } from '../src/venue-management-routes.js';
 import { resolve } from 'node:path';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -62,6 +64,10 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
     expect(migrations.applied).toContain('0053_venue_management.sql');
     expect(migrations.applied).toContain('0052_venue_personal_history.sql');
     expect(migrations.applied).toHaveLength(53);
+    const visibleMigrations = (await readdir(resolve(process.cwd(), '../../migrations')))
+      .filter((file) => /^\d{4}_[a-z0-9_]+\.sql$/.test(file))
+      .sort();
+    expect(migrations.applied).toEqual(visibleMigrations);
     expect(
       (await runMigrations(owner, resolve(process.cwd(), '../../migrations'))).applied
     ).toEqual([]);
@@ -275,6 +281,248 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
         [row.id]
       )
     ).rejects.toMatchObject({ code: '40001' });
+  });
+  it('HTTP CRUD enforces credential/CSRF/origin/scope and returns real stable URLs', async () => {
+    const origin = 'https://venue.example.invalid';
+    const csrf = 'c'.repeat(43);
+    const cookie = `__Host-qigong-admin=${session}; __Host-qigong-admin-csrf=${csrf}`;
+    const privateCookie = (request: FastifyRequest, name: string) => {
+      const parts = (request.headers.cookie ?? '')
+        .split(';')
+        .map((v) => v.trim())
+        .filter((v) => v.startsWith(name + '='));
+      return parts.length === 1 ? parts[0]!.slice(name.length + 1) : null;
+    };
+    const app = Fastify({ genReqId: () => randomUUID() });
+    registerVenueManagementRoutes(app, runtime, {
+      enabled: true,
+      publicOrigin: origin,
+      principalFor: async () => '10000000-0000-4000-8000-000000000003',
+      sessionFor: (request) => privateCookie(request, '__Host-qigong-admin'),
+      validCsrf: (request) => {
+        const saved = privateCookie(request, '__Host-qigong-admin-csrf');
+        const sent = request.headers['x-csrf-token'];
+        return (
+          typeof sent === 'string' &&
+          !!saved &&
+          saved.length === 43 &&
+          sent.length === 43 &&
+          timingSafeEqual(Buffer.from(saved), Buffer.from(sent))
+        );
+      }
+    });
+    const call = (action: string, payload: object, customHeaders: Record<string, string> = {}) =>
+      app.inject({
+        method: 'POST',
+        url: '/admin/api/venue-management/' + action,
+        headers: { origin, cookie, 'x-csrf-token': csrf, ...customHeaders },
+        payload
+      });
+    try {
+      const value = field('tw-http-test');
+      const createPayload = { regionId: tw, field: value, reason: 'HTTP synthetic create' };
+      for (const headers of [
+        { 'x-csrf-token': 'wrong' },
+        { origin: 'https://evil.invalid' },
+        { cookie: cookie + '; __Host-qigong-admin-csrf=' + csrf }
+      ])
+        expect((await call('create', createPayload, headers)).statusCode).toBe(403);
+      expect(
+        (
+          await call('create', createPayload, {
+            cookie: cookie + '; __Host-qigong-admin=' + session
+          })
+        ).statusCode
+      ).toBe(401);
+      expect(
+        (await owner.query("SELECT 1 FROM core.practice_fields WHERE code='tw-http-test'")).rowCount
+      ).toBe(0);
+      const created = await call('create', createPayload);
+      expect(created.statusCode).toBe(201);
+      const saved = created.json<{
+        field: { id: string; version: number; urls: { nfc: string; qr: string; link: string } };
+      }>().field;
+      expect(saved.version).toBe(1);
+      expect(saved.urls.nfc).toBe(origin + '/venue-checkin?venue=tw-http-test&source=nfc');
+      expect((await call('create', createPayload)).statusCode).toBe(409);
+      const update = {
+        regionId: tw,
+        id: saved.id,
+        version: 1,
+        field: { ...value, name_zh_tw: 'Renamed via HTTP', is_active: false },
+        reason: 'HTTP retirement audit'
+      };
+      expect((await call('update', update)).statusCode).toBe(200);
+      expect((await call('update', update)).statusCode).toBe(409);
+      expect((await call('get', { regionId: tw, id: saved.id })).json()).toMatchObject({
+        field: { id: saved.id, version: 2, is_active: false, urls: saved.urls }
+      });
+      expect((await lookupManagedVenue(runtime, randomUUID(), value.code))?.active).toBe(false);
+      expect(
+        (
+          await call('update', {
+            ...update,
+            field: { ...update.field, region_id: randomUUID() },
+            version: 2
+          })
+        ).statusCode
+      ).toBe(403);
+      expect((await call('get', { regionId: sg, id: saved.id })).statusCode).toBe(404);
+      expect(
+        (
+          await call(
+            'create',
+            { ...createPayload, field: field('tw-http-view-denied') },
+            { cookie: cookie.replace(session, 'v'.repeat(43)) }
+          )
+        ).statusCode
+      ).toBe(403);
+      expect(
+        (await call('list', { regionId: tw, principalId: '10000000-0000-4000-8000-000000000003' }))
+          .statusCode
+      ).toBe(400);
+      expect(
+        (
+          await app.inject({
+            method: 'DELETE',
+            url: '/admin/api/venue-management/' + saved.id,
+            headers: { origin, cookie, 'x-csrf-token': csrf }
+          })
+        ).statusCode
+      ).toBe(404);
+    } finally {
+      await app.close();
+    }
+  });
+  it.each(['session-expiry', 'grant-expiry'] as const)(
+    'rechecks %s by wall clock after lock waits',
+    async (kind) => {
+      const row = await create(field('tw-lock-' + kind));
+      const blocker = await owner.connect();
+      let result: Promise<unknown> | undefined;
+      try {
+        await blocker.query('BEGIN');
+        await blocker.query(
+          "SELECT pg_advisory_xact_lock(hashtextextended('venue-config:'||$1::text,0))",
+          [row.id]
+        );
+        result = execute({
+          action: 'update',
+          regionId: tw,
+          id: row.id,
+          version: 1,
+          field: { ...field(row.code), name_zh_tw: 'Should not save' },
+          reason: 'blocked synthetic request'
+        }).then(
+          (data) => data,
+          (error) => error as unknown
+        );
+        let waiting = false;
+        for (let attempt = 0; attempt < 100; attempt++) {
+          const locks = await owner.query(
+            "SELECT 1 FROM pg_locks WHERE locktype='advisory' AND NOT granted"
+          );
+          if (locks.rowCount) {
+            waiting = true;
+            break;
+          }
+          await new Promise<void>((resolve) => setTimeout(resolve, 5));
+        }
+        expect(waiting).toBe(true);
+        if (kind === 'session-expiry')
+          await owner.query(
+            "UPDATE admin.sessions SET expires_at=clock_timestamp() WHERE token_hash=public.digest(repeat('m',43),'sha256')"
+          );
+        else
+          await owner.query(
+            "UPDATE admin.role_grants SET valid_to=clock_timestamp() WHERE principal_id='10000000-0000-4000-8000-000000000003'"
+          );
+        await blocker.query('ROLLBACK');
+        expect(await result).toMatchObject({ code: '42501' });
+        expect(
+          (await owner.query('SELECT version FROM core.practice_fields WHERE id=$1', [row.id]))
+            .rows[0].version
+        ).toBe(1);
+      } finally {
+        await blocker.query('ROLLBACK');
+        blocker.release();
+        await result;
+        await owner.query(
+          "UPDATE admin.sessions SET expires_at=clock_timestamp()+interval '1 day' WHERE token_hash=public.digest(repeat('m',43),'sha256'); UPDATE admin.role_grants SET valid_to=NULL WHERE principal_id='10000000-0000-4000-8000-000000000003'"
+        );
+      }
+    }
+  );
+  it('serializes the first attendance against a concurrent timezone edit without losing attendance', async () => {
+    const row = await create(field('tw-first-attendance-race'));
+    const recorder = await owner.connect();
+    let attempted: Promise<unknown> | undefined;
+    try {
+      await recorder.query('BEGIN');
+      await recorder.query(
+        `INSERT INTO core.field_attendance(person_id,field_id,checkin_method,checkin_at,attendance_date,attendance_timezone) VALUES('20000000-0000-4000-8000-000000000001',$1,'qr_gps',clock_timestamp(),(clock_timestamp() AT TIME ZONE 'Asia/Taipei')::date,'Asia/Taipei')`,
+        [row.id]
+      );
+      attempted = execute({
+        action: 'update',
+        regionId: tw,
+        id: row.id,
+        version: 1,
+        field: { ...field(row.code), timezone: 'UTC' },
+        reason: 'concurrent first attendance'
+      }).then(
+        (data) => data,
+        (error) => error as unknown
+      );
+      let waiting = false;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        if (
+          (await owner.query("SELECT 1 FROM pg_locks WHERE locktype='advisory' AND NOT granted"))
+            .rowCount
+        ) {
+          waiting = true;
+          break;
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, 5));
+      }
+      expect(waiting).toBe(true);
+      await recorder.query('COMMIT');
+      expect(await attempted).toMatchObject({ code: '40001' });
+      expect(
+        (
+          await owner.query('SELECT timezone,version FROM core.practice_fields WHERE id=$1', [
+            row.id
+          ])
+        ).rows[0]
+      ).toEqual({ timezone: 'Asia/Taipei', version: 1 });
+      expect(
+        (await owner.query('SELECT 1 FROM core.field_attendance WHERE field_id=$1', [row.id]))
+          .rowCount
+      ).toBe(1);
+    } finally {
+      await recorder.query('ROLLBACK');
+      recorder.release();
+      await attempted;
+    }
+  });
+  it('0051 QR writer remains functional after management policies and triggers', async () => {
+    const result = await withRequestContext(
+      runtime,
+      'qigong_api_runtime',
+      { requestId: randomUUID() },
+      (c) =>
+        c.query<{ data: { ok: boolean } }>(
+          "SELECT platform.venue_qr_checkin('Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','tw-test-one',25,121) data"
+        )
+    );
+    expect(result.rows[0]?.data.ok).toBe(true);
+    expect(
+      (
+        await owner.query(
+          "SELECT 1 FROM core.field_attendance a JOIN core.practice_fields f ON f.id=a.field_id WHERE f.code='tw-test-one'"
+        )
+      ).rowCount
+    ).toBe(1);
   });
   it('allows unused cross-region move only with both scopes; revocation is checked each operation', async () => {
     const row = await create(field('tw-unused-test'));

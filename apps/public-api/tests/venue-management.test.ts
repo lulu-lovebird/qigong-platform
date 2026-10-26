@@ -203,7 +203,12 @@ class Element {
   select() {}
 }
 const all = (e: Element): Element[] => [e, ...e.children.flatMap(all)];
-function browser(status = 200, manage = true) {
+function browser(
+  status = 200,
+  manage = true,
+  failedSaveStatus?: number,
+  clipboardAvailable = true
+) {
   const html = renderVenueManagementPage();
   const elements = new Map<string, Element>();
   for (const match of html.matchAll(/<(\w+)\b([^>]*\bid="([^"]+)"[^>]*)>/g)) {
@@ -219,9 +224,12 @@ function browser(status = 200, manage = true) {
       unknown
     >;
     calls.push({ action, body });
+    const responseStatus = ['create', 'update'].includes(action)
+      ? (failedSaveStatus ?? status)
+      : status;
     return {
-      ok: status === 200,
-      status,
+      ok: responseStatus === 200,
+      status: responseStatus,
       json: async () =>
         action === 'capabilities'
           ? { canRead: true, canManage: manage }
@@ -241,7 +249,7 @@ function browser(status = 200, manage = true) {
       createElement: (tag: string) => new Element(tag),
       cookie: '__Host-qigong-admin-csrf=' + 'c'.repeat(43)
     },
-    navigator: { clipboard: { writeText: copy } },
+    navigator: clipboardAvailable ? { clipboard: { writeText: copy } } : {},
     window: { print },
     fetch,
     Error
@@ -288,6 +296,31 @@ describe('venue management browser controller (in-memory transport, not DB evide
     expect(b.get('vm-status').textContent).not.toContain('已儲存');
     expect(b.get('vm-list').textContent).not.toContain(field.name_zh_tw);
   });
+  it('clipboard unavailable offers manual copy instead of claiming success', async () => {
+    const b = browser(200, true, undefined, false);
+    await b.get('vm-load').event('click');
+    await all(b.get('vm-list'))
+      .find((e) => e.tag === 'button')!
+      .event('click');
+    await all(b.get('vm-links'))
+      .find((e) => e.tag === 'button')!
+      .event('click');
+    expect(b.get('vm-status').textContent).toContain('請手動複製');
+  });
+  it.each([400, 401, 403, 404, 409, 503])(
+    'save HTTP %i preserves version and never claims success',
+    async (status) => {
+      const b = browser(200, true, status);
+      await b.get('vm-load').event('click');
+      await all(b.get('vm-list'))
+        .find((e) => e.tag === 'button')!
+        .event('click');
+      b.get('vm-reason').value = 'attempted change';
+      await b.get('vm-form').event('submit');
+      expect(b.get('vm-status').textContent).not.toContain('已儲存');
+      expect(b.get('vm-version').textContent).toContain('版本 3');
+    }
+  );
   it('view does not permit mutation, can inspect links', async () => {
     const b = browser(200, false);
     await b.get('vm-load').event('click');
