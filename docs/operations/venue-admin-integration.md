@@ -1,9 +1,11 @@
 # 團練場出席管理：四分支本地整合紀錄
 
+> 未部署 venue 原 0047／0048／0049／0050 已順延為 0048／0049／0050／0051；已發布 invitation 0047 不動。
+> 本文件下方舊檔名、SHA 與測試數字是重編號前歷史，保留不改寫；現行版本見 [本地整合紀錄](venue-renumber-integration.md)。
 > 本文件下方是先前批次的歷史紀錄。最新授權及交付見 [QR 完整流程／隔離演練](venue-qr-checkin.md)：
-> 已移除未核准的 k5／姓名額外權限／跨區拒絕提案，新增 0050 與獨立 QR／後台成功路徑。
+> 已移除未核准的 k5／姓名額外權限／跨區拒絕提案，新增現行 0051 與獨立 QR／後台成功路徑。
 > 舊 NFC 路由及管理寫入仍未啟用；不再以本文件舊的 deny-only 狀態描述整個目前程式。
-> 真 PG／Node24／手機及父代理安全審查仍是待辦，沒有部署或 push。
+> Node24／10 項隔離真 PG 已通過；真 LINE／手機及本輪獨立安全審查未完成，沒有部署或 push。
 
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.

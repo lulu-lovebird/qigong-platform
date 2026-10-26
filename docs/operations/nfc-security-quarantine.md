@@ -1,5 +1,7 @@
 # NFC 第二階段：資料庫與 API 隔離
 
+> 重編號註記：下方為原批次歷史，舊檔名／SHA／測試數字保留。未部署 venue 原 0047／0048／0049／0050 現為 0048／0049／0050／0051；已發布 invitation 0047 不動。現行規格與驗證見 [本地整合紀錄](venue-renumber-integration.md)。
+
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 

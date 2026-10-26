@@ -1,5 +1,13 @@
 # Qigong Platform — 交接摘要
 
+## Venue 重編號與遠端更新：僅本地整合，未部署
+
+- 分支 `feature/venue-attendance-qr`，起點 `b65d142`；本地 merge `b88c942` 納入 `origin/main@156d7dc`（invitation onboarding、privacy-safe logs、官方 security dependencies）。4 個衝突檔保留雙方能力，QR default-off、舊 NFC 拒絕不變。
+- 已發布 `0047_channel_invitations.sql` 不動；未部署 venue 原 0047／0048／0049／0050 順延為 0048／0049／0050／0051。前三份 SQL bytes／既有 hashes 保留；完整 0001–0047 與官方 package／lock files 和遠端逐檔相同。歷史文件的 SHA／原編號／測試數字不改寫。
+- readiness 改完整檔名白名單：QR enabled 僅精確 `0051_venue_qr_attendance.sql`；default-off 兼容原 0042–0046、invitation 0047、venue baseline 0048、quarantine 0049 及 QR 0051；denial-only 0050／未知同前綴 future 拒絕。
+- 全新 `/tmp/venue-qr-pg.*` PG17 合成鏈 51 migrations、重跑 0、10 PG tests 通過；原 8 項 NFC test lint 已獨立修正且保留 assertions。最終完整驗證與逐批 SHA 見 [本地整合紀錄](docs/operations/venue-renumber-integration.md)。一般 DB suites 無連線 opt-in 而明確 skipped，不冒稱全資料庫驗收。
+- 不 push／deploy／正式 migration／LINE Console／外站探測／讀 `.env` 或秘密；完全不碰既有舊 0050 手機 cluster／程序。下方是各批原始交接歷史，不代表本次重新確認正式狀態；手機／真 LINE 驗收與部署仍需另行核准。
+
 ## TG／WA邀請加入47發布候選（提交推送已核准，部署未核准）
 
 - 使用者暫緩WordPress/OIDC，核准**僅本機**實作TG/WA與LINE對等的預核准邀請，一個URL、不手填邀請碼。保留必要同意/基本資料及非邀請人工待審，新邀請預設7天1人；持有人可能使用，不假稱WordPress學籍或指定自然人證明。使用者後另明確核准本次25檔commit/push並等待精確SHA原CI；未核准deploy/正式apply47，未改env/token/provider/選單/通知/授獎。正式基準是 **b5731b9929549f98d2bc079f7e8d12579914dbd1／schema46**（前次只核准樣式/測試兩檔，故以下e244為較早文件紀錄）。

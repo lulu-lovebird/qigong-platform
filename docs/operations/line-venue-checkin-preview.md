@@ -1,8 +1,9 @@
 # LINE 團練入口：本地測試預覽規格
 
+> 下方舊 migration 編號為 preview 批次歷史，SHA／測試紀錄保留。未部署 venue 0047–0050 已順延為 0048–0051，已發布 invitation 0047 不動；見 [本地整合紀錄](venue-renumber-integration.md)。
 > 以下保留 preview 批次的歷史紀錄。最新 QR 成功路徑與 server-only 開關見
 > [QR 隔離演練](venue-qr-checkin.md)。預設仍是本預覽；server 明確啟用後同一入口可真簽到，
-> 不再以本文件舊的「沒有成功 adapter」描述目前全部實作。真 PG／LINE／手機仍未驗證。
+> 不再以本文件舊的「沒有成功 adapter」描述目前全部實作。10 項隔離真 PG 已通過；真 LINE／手機仍未驗證。
 
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
