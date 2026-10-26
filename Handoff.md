@@ -1,6 +1,17 @@
 # Qigong Platform — 交接摘要
 
-## 最新部署：LINE Help七張操作圖e2441cf／同schema46
+## TG／WA邀請加入47發布候選（提交推送已核准，部署未核准）
+
+- 使用者暫緩WordPress/OIDC，核准**僅本機**實作TG/WA與LINE對等的預核准邀請，一個URL、不手填邀請碼。保留必要同意/基本資料及非邀請人工待審，新邀請預設7天1人；持有人可能使用，不假稱WordPress學籍或指定自然人證明。使用者後另明確核准本次25檔commit/push並等待精確SHA原CI；未核准deploy/正式apply47，未改env/token/provider/選單/通知/授獎。正式基準是 **b5731b9929549f98d2bc079f7e8d12579914dbd1／schema46**（前次只核准樣式/測試兩檔，故以下e244為較早文件紀錄）。
+- 新`/admin/channel-invites`有TG/WA建立/列表/撤銷；只active global super＋actual session、Origin/CSRF/reason/revision，敏感操作及audit後重驗。新`/{platform}/join#shared`自動開固定native target，TG按Start／WA按Send，發訊驗證後取得本人15min private form。URL清fragment、不存storage、GET不耗額/不讀DB。候選新增非secret metadata `TELEGRAM_INVITE_BOT_USERNAME`與`WHATSAPP_INVITE_CHAT_NUMBER`，未設定或Bot未配置時禁止發行壞網址，不猜Meta ID作電話；使用者已確認TG公開帳號`qigong_checkin_bot`（設定不含@，發布前再getMe核對），WA對外電話未定；WA新邀請URL維持不可建立，不影響既有WA打卡/設定。未修改正式值。
+- 47新增3forced-RLS私表／hash-only scoped tokens、subject/nonce綁定、quota/approval transaction及鎖後/audit後fresh expiry/issuer/context/region重驗；只有成功批准扣一次額。pending本人重確認保留UUID，rejected/suspended/revoked不恢復、不以姓名/email/phone合併；old普通form有live邀請時409導回Bot，不暗中降pending。WA通知checkbox明示/心得false；既有approval outbox保持，review未送取消，不承諾召回in-flight。TG bounded5000/15min process guard，不是跨restart exactly-once；WA原durable inbox與fresh24h/service-window/STOP保持。
+- 候選API **min42/max47**，42–46新cap=false、不解析missing function，47啟新能力；原phase27 worker ready與operator FALSE保持。46→47測試原86表/安全metadata/非目標函式exact、apply1/repeat0，只有兩普通submit wrapper新增guard，原privacy body私有化，不改0001–0046。舊44→46測試明確pin46 artifact，沒有把47硬塞歷史expected；full-chain期望更新47。正式47需要相容先行版或另審協調窗口、fresh CI及stop-write final加密站外DB/roles/runtime actual restore/preservation，不能直接套在最高46的b573。47恢復寫入後留47 fix forward，不退46/回灌舊DB/env/token。
+- 本機DB17、HTTP11、unit20、schema42–47矩陣6過；LINE原DB14/API14回歸過，24LINE learner/invite/application/Help HTML及WA成功bootstrap/texts三語保持。共用admin sidebar只增加新capability入口，LINE邀請建立／管理規則和token未改。新頁語言切換保留input節點/值/checkbox，失敗/未確認不顯成功、不丟草稿，只有server approved清表單。
+- Chrome **42組／40PNG**（TG/WA×三語×390/1280×landing/form/admin＋6無效入口），auth/transport mock、沒有真的native handoff/手機接受；UI URI預填、無手填碼、同意未勾不送、錯/未確認不批准、單次預設、無overflow/外部請求/正式連線/provider sends。`/tmp/qigong-channel-invites-browser/`與results.json，圖片存在不等於已送Telegram附件。
+- 失敗留證：新fixture缺display_name補synthetic欄位不改constraint；UUID/DTO型別與control-regex/無await lint精確修，不關規則；惡意target先紅再以allowlist拒絕、checkbox測試不誤判合法reset=false。原full verify3fail僅新增第4導航路由與fixture未更新，精確補新link/獨立cap拒絕測試，原`/tmp/qigong-channel-invites-verify.log`保留。兩份無關文件/46migration baseline hash在`/tmp/qigong-channel-invites-baseline.json`，最終Node24兩strict gates／format/lint/typecheck/build／完整verify **1461tests（API1151/DB302/config2/identity6）**成功，map1811/1431，`/tmp/qigong-channel-invites-verify-complete.log`。Browser截圖前切回指定locale並驗h1，原錯標產物留before-locale-capture，新42組40PNG/complete log過，沒有改產品行為。
+- 全域日誌P0、Bitwarden、WordPress與個資遷移皆未夾帶實作；基本資料仍保存，不宣稱已免存個資。參見[流程、設定、測試與發布邊界](docs/operations/channel-invitations.md)。
+
+## 前次已記錄部署：LINE Help七張操作圖e2441cf／同schema46
 
 - 正式 **e2441cfbbd6290378e0aa9a3a3b07a5ac278ab63**，15核准檔，精確SHA CI **39916621797**原run/attempt1 **1406tests**及兩strict gates過，未重跑CI；本機DB身份時效失敗仍保留未結案、不宣稱根治。API min42/max46／原phase27，0001–0046 immutable，無migration applier/DDL/grant/backfill/依賴變更。4既有JS/map變更、image module三檔＋7衍生PNG新增、340其他manifest檔／worker與CSV runtime相同；原圖不入庫。
 - 使用者已自行把Help加LINE六格，並確認本人七圖/公開示例同意與本輪commit/push/deploy核准。七圖只做pixel-exact裁切／無損壓縮／去metadata，不AI重繪、不改日期數字勾選告知；三語圖說/alt、lazy/async／原尺寸native新分頁、06成就預設收合。七檔/完整SHA/尺寸白名單、無任意filesystem path、sanitized缺圖503，LINE-only img-src self；TG/WA六份HTML byte-identical。

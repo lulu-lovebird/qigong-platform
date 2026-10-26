@@ -1,6 +1,7 @@
 import { learnerTexts, type LearnerLocale, type LearnerTextKey } from './learner-locale.js';
 import { htmlLocale, languageOptions, uiTemplate, uiText } from './ui-localization.js';
 import { lineUiText } from './line-ui-localization.js';
+import { channelInviteTexts } from './channel-invites.js';
 
 export type LearnerPageChannel = (
   { platform: 'telegram' | 'whatsapp' } | { platform: 'line'; liffId: string }
@@ -236,7 +237,16 @@ ${channel.platform === 'line' ? '<script src="https://static.line-scdn.net/liff/
             }
           }
           `
-              : ''
+              : `
+          if (response.status === 409) {
+            const conflict = await response.json();
+            if (conflict.error === 'channel_invite_continuation_required') {
+              form.hidden = true;
+              status.textContent = ${JSON.stringify(Object.fromEntries((['zh_TW', 'zh_CN', 'en'] as const).map((lang) => [lang, channelInviteTexts(lang).continueRequired])))}[${channel.platform === 'whatsapp' ? 'applicationLocale' : JSON.stringify(locale)}];
+              return;
+            }
+          }
+          `
           }
           throw new Error(response.status === 409 ? ui.applicationConflict : ui.applicationFailed);
         }

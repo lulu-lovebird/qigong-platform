@@ -40,13 +40,13 @@ export const learnerHelpContent = (channel: HelpChannel, locale: Locale): Learne
           'After approval, open Practice check-in from the helper’s menu. You do not need to understand every feature first.'
         ],
         telegram: [
-          'Open the helper’s private chat and send /start. Read the notice and complete your own application details and region.',
-          'An ordinary application needs administrator approval. Until approved, a check-in page does not give you check-in access.',
+          'If invited, open the original invitation URL and press Start; no invitation code needs typing. The helper sends your private form. Otherwise send /start in the helper’s private chat.',
+          'Read the notice and confirm your own details. A valid invitation approves you directly in its assigned region; an ordinary application needs administrator approval. Opening a check-in page alone gives no access.',
           'After approval, tap Start check-in or send /checkin. The Mini App verifies your Telegram identity.'
         ],
         whatsapp: [
-          'In the helper’s WhatsApp chat, send join. Open only your own private link, read the notice and confirm your details and region.',
-          'An ordinary application needs administrator approval. Read any application-decision message consent separately; it is not reflection-sharing consent.',
+          'If invited, open the original invitation URL and press Send on the prefilled WhatsApp message; no typing is needed. The helper sends your private form. Otherwise send join.',
+          'Read the notice and confirm your own details. A valid invitation approves you directly in its assigned region; ordinary applications wait for approval. Application-decision message consent is separate from reflection-sharing consent.',
           'After approval, send checkin and open the private link. Sign in before starting; use Remember me only on your own device.'
         ]
       }
@@ -57,13 +57,13 @@ export const learnerHelpContent = (channel: HelpChannel, locale: Locale): Learne
           '核准後，從小幫手選單開啟「練功打卡」。不用先學會所有功能。'
         ],
         telegram: [
-          '開啟小幫手的私人對話，輸入 /start，依頁面閱讀告知、確認本人資料與地區。',
-          '一般申請需管理員核准。尚未核准時，開啟打卡頁也不會取得打卡資格。',
+          '有邀請請開原邀請網址並按開始，不必手填邀請碼；小幫手會傳本人專用表單。一般加入則在私人對話輸入 /start。',
+          '依頁面閱讀告知並確認本人資料。有效邀請依指定地區直接核准；一般申請需管理員審核。開啟打卡頁本身不會取得打卡資格。',
           '核准後，點「開始打卡」或輸入 /checkin，Mini App會確認你的Telegram身份。'
         ],
         whatsapp: [
-          '在小幫手對話輸入 join，開啟本人的私人連結，閱讀告知並確認資料與地區。',
-          '一般申請需管理員核准。申請結果通知的同意，與心得分享同意是不同事情，請依頁面各自確認。',
+          '有邀請請開原網址，WhatsApp訊息已預填，按送出即可，不必打字；小幫手會傳本人專用表單。一般加入則輸入 join。',
+          '閱讀告知並確認本人資料。有效邀請依指定地區直接核准；一般申請等待審核。申請結果通知與心得分享同意不同，請各自確認。',
           '核准後，輸入 checkin、開私人連結並登入；只有個人裝置才使用「記住我」。'
         ]
       };

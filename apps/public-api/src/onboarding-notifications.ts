@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { uiText } from './ui-localization.js';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { learnerLocale, learnerTexts, type LearnerLocale } from './learner-locale.js';
+import { classifyLogFailure } from './log-privacy.js';
 
 export interface PendingNotification {
   id: string;
@@ -137,7 +138,7 @@ export const deliverOnboardingNotifications = async (
         );
       } else throw new Error('Unsupported notification platform');
     } catch (error) {
-      failure = error instanceof Error ? error.message.slice(0, 200) : 'Delivery failed';
+      failure = classifyLogFailure(error);
       onError(error, notification.id);
     }
     const finished = await withRequestContext(

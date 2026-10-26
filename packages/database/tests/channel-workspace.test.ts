@@ -47,8 +47,9 @@ suite('LINE full learner workspace and private summary', () => {
         [target, subject]
       )
     ).rows[0]!.id;
+    // Workspace fixtures represent already-eligible learners, not activation boundaries.
     await pool.query(
-      "INSERT INTO identity.person_interaction_channels(person_id,platform_identity_id,activation_source) VALUES($1,$2,'onboarding')",
+      "INSERT INTO identity.person_interaction_channels(person_id,platform_identity_id,activation_source,valid_from) VALUES($1,$2,'onboarding',CURRENT_TIMESTAMP-INTERVAL '1 day')",
       [target, ident]
     );
     await pool.query(
@@ -171,6 +172,57 @@ suite('LINE full learner workspace and private summary', () => {
       'practice identity unavailable'
     );
   });
+  it('denies future activation and allows past activation for the same identity through runtime facades', async () => {
+    const checkin = await seed(-1);
+    expect((await query<{ role: string }>('SELECT current_user AS role')).rows).toEqual([
+      { role: 'qigong_api_runtime' }
+    ]);
+    const stream = async () =>
+      (
+        await query<{ data: Record<string, unknown> }>(
+          'SELECT platform.line_journal_stream($1,$2::jsonb,$3) data',
+          [token, null, 'zh_TW']
+        )
+      ).rows[0]!.data;
+    const future = await pool.query<{ future: boolean }>(
+      `UPDATE identity.person_interaction_channels
+       SET valid_from=CURRENT_TIMESTAMP+INTERVAL '1 day'
+       WHERE person_id=$1 AND platform_identity_id=$2
+       RETURNING valid_from>CURRENT_TIMESTAMP AS future`,
+      [person, identity]
+    );
+    expect(future.rowCount).toBe(1);
+    expect(future.rows[0]!.future).toBe(true);
+    for (const read of [() => report(), stream])
+      await expect(read()).rejects.toMatchObject({
+        code: 'P0001',
+        message: 'practice identity unavailable'
+      });
+
+    // Only valid_from changes: identity, consent, region and revocation remain identical.
+    const past = await pool.query<{ past: boolean }>(
+      `UPDATE identity.person_interaction_channels
+       SET valid_from=CURRENT_TIMESTAMP-INTERVAL '1 day'
+       WHERE person_id=$1 AND platform_identity_id=$2
+       RETURNING valid_from<CURRENT_TIMESTAMP AS past`,
+      [person, identity]
+    );
+    expect(past.rowCount).toBe(1);
+    expect(past.rows[0]!.past).toBe(true);
+    const profile = await report();
+    expect(profile).toMatchObject({ totalDays: 1, timezone: 'UTC' });
+    expect(profile.entries).toEqual([expect.objectContaining({ id: checkin, timezone: 'UTC' })]);
+    expect(await stream()).toEqual({
+      snapshotAt: expect.any(String),
+      pageSize: 10,
+      hasMore: false,
+      nextCursor: null,
+      entries: []
+    });
+    await expect(query('SELECT platform.line_checkin_person($1)', [token])).rejects.toMatchObject({
+      code: '42501'
+    });
+  });
   it('saves atomic practice versions, private notes and one identity-resolved receipt; retries are idempotent', async () => {
     await query('SELECT platform.channel_workspace_timezone($1,$2,$3)', ['line', token, 'UTC']);
     const req = randomUUID(),
@@ -252,8 +304,9 @@ suite('LINE full learner workspace and private summary', () => {
         [pid, phone]
       )
     ).rows[0]!.id;
+    // The linked WhatsApp learner is also already eligible before workspace requests.
     await pool.query(
-      "INSERT INTO identity.person_interaction_channels(person_id,platform_identity_id,activation_source) VALUES($1,$2,'onboarding')",
+      "INSERT INTO identity.person_interaction_channels(person_id,platform_identity_id,activation_source,valid_from) VALUES($1,$2,'onboarding',CURRENT_TIMESTAMP-INTERVAL '1 day')",
       [pid, iid]
     );
     await pool.query(

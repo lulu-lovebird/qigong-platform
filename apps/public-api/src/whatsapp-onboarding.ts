@@ -1,6 +1,12 @@
 import { localeSchema, uiText } from './ui-localization.js';
 import { helpLabel, helpUrl, isHelpCommand } from './learner-help-content.js';
 import {
+  beginChannelInvitation,
+  channelInviteCommand,
+  channelInviteTexts
+} from './channel-invites.js';
+import { registerChannelInvitePages } from './channel-invite-routes.js';
+import {
   registerWhatsAppBrowserSessions,
   resolveWhatsAppWorkspaceCredential,
   whatsappWorkspaceCredentialSchema
@@ -126,8 +132,10 @@ const knownConflict = (error: unknown) =>
 export const registerWhatsAppOnboarding = (
   app: FastifyInstance,
   pool: Pool,
-  config: WhatsAppConfig
+  config: WhatsAppConfig,
+  inviteTarget?: string
 ) => {
+  registerChannelInvitePages(app, pool, 'whatsapp', config.appSecret, inviteTarget);
   const sendText = config.sendText ?? createWhatsAppTextSender(config);
   const sendMenu =
     config.sendWorkspaceMenu ??
@@ -252,7 +260,7 @@ export const registerWhatsAppOnboarding = (
               );
               const locale = learnerLocale(preference.rows[0]?.locale);
               const texts = learnerTexts(locale);
-              const text = command.trim();
+              let text = command.trim();
               if (isHelpCommand(text)) {
                 await sendText(
                   message.from,
@@ -296,6 +304,35 @@ export const registerWhatsAppOnboarding = (
                     : uiText(locale, '已停止申請結果通知。可輸入「加入」查看狀態。')
                 );
                 return;
+              }
+              const invitationCommand = channelInviteCommand('whatsapp', text);
+              if (invitationCommand.command) {
+                const inviteCopy = channelInviteTexts(locale);
+                if (invitationCommand.invalid) {
+                  await sendText(message.from, inviteCopy.unavailable);
+                  return;
+                }
+                const invitation = await beginChannelInvitation(
+                  client,
+                  'whatsapp',
+                  message.from,
+                  invitationCommand.token,
+                  config.appSecret
+                );
+                if (invitation.status !== 'none' && invitation.status !== 'approved') {
+                  await sendText(
+                    message.from,
+                    'token' in invitation && typeof invitation.token === 'string'
+                      ? inviteCopy.reply +
+                          '\nhttps://checkin.baiyinqigong.org/whatsapp/invite' +
+                          localeQuery(locale) +
+                          '#' +
+                          invitation.token
+                      : inviteCopy.unavailable
+                  );
+                  return;
+                }
+                if (invitation.status === 'approved') text = 'join';
               }
               const workspace =
                 /^(?:\/)?(menu|選單|stats|統計|leaderboard|排行榜|methods|methodanalysis|功法分析|achievements|成就|history|紀錄|journal|share|心得|心得分享)$/i.test(
@@ -414,6 +451,8 @@ export const registerWhatsAppOnboarding = (
       );
       return { status: 'pending' };
     } catch (error) {
+      if (error instanceof Error && error.message === 'channel invite continuation required')
+        return reply.code(409).send({ error: 'channel_invite_continuation_required' });
       if (isLearnerPrivacyError(error))
         return reply.code(403).send({ error: 'privacy_acceptance_required' });
       return reply

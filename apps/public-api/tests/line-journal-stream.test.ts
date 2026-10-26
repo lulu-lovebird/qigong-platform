@@ -28,6 +28,7 @@ interface Entry {
   publishedAt: string;
 }
 interface Feed {
+  snapshotAt: string;
   pageSize: number;
   hasMore: boolean;
   nextCursor: Cursor | null;
@@ -135,8 +136,9 @@ suite('LINE10-entry cursor stream and public-only data envelope', () => {
           [person, provider, subject]
         )
       ).rows[0]!.id;
+      // These learners are already eligible; activation boundaries are tested separately.
       await db.pool.query(
-        "INSERT INTO identity.person_interaction_channels(person_id,platform_identity_id,activation_source) VALUES($1,$2,'onboarding')",
+        "INSERT INTO identity.person_interaction_channels(person_id,platform_identity_id,activation_source,valid_from) VALUES($1,$2,'onboarding',CURRENT_TIMESTAMP-INTERVAL '1 day')",
         [person, ident]
       );
       const assigned = (
@@ -231,21 +233,71 @@ suite('LINE10-entry cursor stream and public-only data envelope', () => {
   });
   it('freezes the upper boundary against newly shared records while refresh sees them', async () => {
     const first = await feed();
+    expect(first.entries).toHaveLength(10);
+    expect(first.hasMore).toBe(true);
+    expect(first.nextCursor).not.toBeNull();
+    expect(first.nextCursor!.snapshotAt).toBe(first.snapshotAt);
     const v = (
       await db.pool.query<{ id: string; assignment: string }>(
         'SELECT i.id,a.id assignment FROM identity.platform_identities i JOIN core.person_region_assignments a ON a.person_id=i.person_id WHERE i.person_id=$1',
         [viewer]
       )
     ).rows[0]!;
-    await seed(viewer, v.id, v.assignment, 0, new Date().toISOString());
+    // Use the DB clock without rounding to host milliseconds or moving the old anchor.
+    const publicationTime = (
+      await db.pool.query<{ value: string; afterSnapshot: boolean; deltaMicroseconds: string }>(
+        `WITH observed AS MATERIALIZED (SELECT clock_timestamp() AS value)
+         SELECT value::text, value>$1::timestamptz AS "afterSnapshot",
+           (extract(epoch FROM (value-$1::timestamptz))*1000000)::text AS "deltaMicroseconds"
+         FROM observed`,
+        [first.nextCursor!.snapshotAt]
+      )
+    ).rows[0]!;
+    expect(
+      publicationTime.afterSnapshot,
+      'DB clock did not advance beyond the frozen snapshot: ' +
+        JSON.stringify({ snapshotAt: first.nextCursor!.snapshotAt, ...publicationTime })
+    ).toBe(true);
+    const checkin = await seed(viewer, v.id, v.assignment, 0, publicationTime.value);
+    const publication = (
+      await db.pool.query<{ id: string }>(
+        'SELECT id FROM core.journal_publications WHERE checkin_id=$1',
+        [checkin]
+      )
+    ).rows[0]!;
     const tail = await feed(first.nextCursor);
+    expect(tail.snapshotAt).toBe(first.nextCursor!.snapshotAt);
+    expect(tail.entries).toHaveLength(10);
+    expect(tail.entries.some((e) => e.id === publication.id)).toBe(false);
     expect(
       tail.entries.some(
         (e) => e.alias === 'Synthetic public alias' && e.currentStreak === 1 && e.totalDays === 1
       )
     ).toBe(false);
+    const last = await feed(tail.nextCursor);
+    expect(last.snapshotAt).toBe(first.nextCursor!.snapshotAt);
+    expect(last.entries).toHaveLength(5);
+    expect(last.nextCursor).toBeNull();
+    expect(last.entries.some((e) => e.id === publication.id)).toBe(false);
     const refreshed = await feed();
+    const refreshTime = (
+      await db.pool.query<{ includesPublication: boolean; deltaMicroseconds: string }>(
+        `SELECT $1::timestamptz >= $2::timestamptz AS "includesPublication",
+           (extract(epoch FROM ($1::timestamptz-$2::timestamptz))*1000000)::text AS "deltaMicroseconds"`,
+        [refreshed.snapshotAt, publicationTime.value]
+      )
+    ).rows[0]!;
+    expect(
+      refreshTime.includesPublication,
+      'DB refresh snapshot precedes the new publication: ' +
+        JSON.stringify({
+          snapshotAt: refreshed.snapshotAt,
+          publishedAt: publicationTime.value,
+          ...refreshTime
+        })
+    ).toBe(true);
     expect(refreshed.entries.some((e) => e.currentStreak === 1 && e.totalDays === 1)).toBe(true);
+    expect(refreshed.entries.some((e) => e.id === publication.id)).toBe(true);
   });
   it('keeps the checkin region snapshot after the author changes primary region', async () => {
     const parent = (

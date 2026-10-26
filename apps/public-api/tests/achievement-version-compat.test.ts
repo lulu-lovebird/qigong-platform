@@ -11,8 +11,8 @@ import { buildApp, checkStartupReadiness } from '../src/app.js';
 const base = process.env.TEST_DATABASE_URL,
   suite = base ? describe : describe.skip,
   dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../migrations');
-suite('Same candidate42to46 readiness and explicit version export boundaries', () => {
-  it.each([42, 43, 44, 45, 46])(
+suite('Same candidate42to47 readiness and explicit version export boundaries', () => {
+  it.each([42, 43, 44, 45, 46, 47])(
     'supports schema%d without enabling publication or silently ignoring version requests',
     async (schema) => {
       const database = await createIsolatedTestDatabase(base!),
@@ -93,6 +93,9 @@ suite('Same candidate42to46 readiness and explicit version export boundaries', (
         });
         expect((await checkStartupReadiness(runtime)).ready).toBe(true);
         expect((await app.inject('/health/ready')).statusCode).toBe(200);
+        expect(
+          (await app.inject({ url: '/admin/api/channel-invites/capabilities', headers })).json()
+        ).toEqual({ canManage: schema >= 47 });
         expect(
           (await database.pool.query('SELECT ops.achievement_event_streak_schema_ready() ready'))
             .rows[0]!.ready
