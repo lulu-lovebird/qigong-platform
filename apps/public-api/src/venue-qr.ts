@@ -10,7 +10,7 @@ import {
   type VenueReadResult
 } from './venue-admin-read-contract.js';
 
-export const venueQrMigrationVersion = '0050_venue_qr_attendance.sql';
+export const venueQrMigrationVersion = '0051_venue_qr_attendance.sql';
 /** Composition-root configuration only. Never read query/body/storage for enablement. */
 export interface VenueQrConfig {
   readonly enabled: true;

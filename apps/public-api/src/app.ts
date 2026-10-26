@@ -49,6 +49,17 @@ export const apiLogRedaction = Object.freeze({
 export const minimumMigrationVersion = '0042_activity_consecutive_drafts.sql';
 // Exact QR schema compatibility does not enable QR or the old NFC routes.
 export const maximumMigrationVersion = venueQrMigrationVersion;
+const defaultOffMigrationVersions = new Set([
+  minimumMigrationVersion,
+  '0043_achievement_rule_versions.sql',
+  '0044_achievement_publication_candidates.sql',
+  '0045_versioned_achievement_runtime.sql',
+  '0046_achievement_evaluation_and_readers.sql',
+  '0047_channel_invitations.sql',
+  nfcMigrationVersion,
+  nfcQuarantineMigrationVersion,
+  venueQrMigrationVersion
+]);
 const requestIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -77,10 +88,8 @@ export const checkStartupReadiness = async (pool: Pool, venueQrEnabled = false) 
     ready: venueQrEnabled
       ? status.ready && status.currentVersion === venueQrMigrationVersion
       : status.ready &&
-        (status.currentVersion === venueQrMigrationVersion ||
-          status.currentVersion === nfcQuarantineMigrationVersion ||
-          (status.currentVersion !== null &&
-            status.currentVersion.localeCompare(nfcMigrationVersion) <= 0))
+        status.currentVersion !== null &&
+        defaultOffMigrationVersions.has(status.currentVersion)
   };
   if (!migration.ready)
     return { ready: false as const, reason: 'schema_version_mismatch', migration };

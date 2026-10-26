@@ -56,7 +56,7 @@ const seed = async (directory: string) => {
       resolve(repository, 'migrations'),
       'isolated-phone-test'
     );
-    if (result.currentVersion !== '0050_venue_qr_attendance.sql')
+    if (result.currentVersion !== '0051_venue_qr_attendance.sql')
       throw new Error('unexpected schema version');
     await pool.query(`
       BEGIN;

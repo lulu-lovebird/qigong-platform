@@ -43,8 +43,8 @@ export interface AdminAuthProvider {
 }
 
 // Schema introduction and quarantine are not evidence of trusted feature capability.
-export const nfcMigrationVersion = '0047_practice_fields_and_nfc_attendance.sql';
-export const nfcQuarantineMigrationVersion = '0048_nfc_attendance_security_quarantine.sql';
+export const nfcMigrationVersion = '0048_practice_fields_and_nfc_attendance.sql';
+export const nfcQuarantineMigrationVersion = '0049_nfc_attendance_security_quarantine.sql';
 
 // Deliberate opt-in only. This gate is not an identity or authorization boundary.
 export const isNfcEnabled = () => process.env.NFC_FIELD_CHECKIN_ENABLED === 'true';
@@ -64,7 +64,7 @@ export const checkNfcFeatureReadiness = async (pool: Pool) => {
           return { ready: false as const, reason: 'nfc_security_quarantined' as const };
         if (version !== nfcMigrationVersion)
           return { ready: false as const, reason: 'nfc_schema_not_ready' as const };
-        // 0047 lacks trusted identity, privacy and per-operation scoped authorization.
+        // 0048 lacks trusted identity, privacy and per-operation scoped authorization.
         // Never infer feature readiness from a version, SELECT privilege or index probe.
         // No supported version can enable NFC until the complete trusted flow is reviewed.
         return { ready: false as const, reason: 'nfc_authorization_unavailable' as const };
@@ -575,7 +575,7 @@ export const registerAdminRoutes = (
           return { ok: false, error: 'invalid_csrf' };
       }
       // No prior principal/capability is trusted or cached. The runner resolves
-      // the session and 0049 rechecks the operation + region in each transaction.
+      // the session and 0050 rechecks the operation + region in each transaction.
       return runVenueAttendanceAdminOperation(pool, request.id, session, operation);
     });
 

@@ -122,6 +122,7 @@ describe('health endpoints', () => {
     '0044_achievement_publication_candidates.sql',
     '0045_versioned_achievement_runtime.sql',
     '0046_achievement_evaluation_and_readers.sql',
+    '0047_channel_invitations.sql',
     nfcMigrationVersion,
     nfcQuarantineMigrationVersion
   ])('accepts %s at startup and health without NFC access when off', async (version) => {
@@ -193,10 +194,17 @@ describe('health endpoints', () => {
     async (setting) => {
       vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', setting);
       for (const version of [
+        '0042_future.sql',
+        '0046_future.sql',
+        '0047_future.sql',
         '0048_future.sql',
         '0048_z_future.sql',
         '0049_future.sql',
-        '0049_venue_attendance_security_contract.sql'
+        '0050_venue_attendance_security_contract.sql',
+        '0050_other.sql',
+        '0051_other.sql',
+        '0051_z_future.sql',
+        '0052_future.sql'
       ]) {
         const mock = createPoolMock(version);
         expect(await checkStartupReadiness(mock.pool)).toMatchObject({
