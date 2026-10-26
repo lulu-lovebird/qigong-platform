@@ -111,6 +111,7 @@ const texts = {
     unavailable: '目前無法取得定位，請確認裝置設定後再試；尚未記錄出席。',
     unsupported: '此瀏覽器不支援定位，請換用支援定位的瀏覽器；尚未記錄出席。',
     daily: '記錄今天功法與感受',
+    history: '查看我的團練紀錄',
     language: '介面語言',
     invalid: '入口參數無效或缺少場地代碼。請重新取得正確連結；尚未記錄出席。'
   },
@@ -133,6 +134,7 @@ const texts = {
     unavailable: '目前无法取得定位，请确认设备设置后再试；尚未记录出席。',
     unsupported: '此浏览器不支持定位，请换用支持定位的浏览器；尚未记录出席。',
     daily: '记录今天功法与感受',
+    history: '查看我的团练记录',
     language: '界面语言',
     invalid: '入口参数无效或缺少场地代码。请重新取得正确链接；尚未记录出席。'
   },
@@ -161,6 +163,7 @@ const texts = {
     unsupported:
       'This browser does not support location. Use a supported browser. Attendance has NOT been recorded.',
     daily: 'Record today’s practice and reflections',
+    history: 'View my group practice history',
     language: 'Language',
     invalid:
       'Invalid entry parameters or missing venue code. Obtain a valid link. Attendance has NOT been recorded.'
@@ -229,14 +232,18 @@ export const renderVenuePreview = (
   const live = mode === 'checkin';
   const t = live ? { ...texts[lang], ...checkinTexts[lang] } : texts[lang];
   const canonical = entry ? venuePreviewUrl(entry) : '';
+  const historyHref = /^[A-Za-z0-9-]{1,100}$/.test(liffId)
+    ? `https://liff.line.me/${encodeURIComponent(liffId)}/venue-history?lang=${lang}`
+    : `/line/venue-history?lang=${lang}`;
   return `<!doctype html><html lang="${htmlLocale(lang)}"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">
 <title>${t.title}</title><style>
-:root{font:125%/1.65 system-ui,sans-serif;color:#172b24;background:#f3f7f3}*{box-sizing:border-box}body{margin:0;padding:1rem}main{max-width:36rem;margin:auto}h1{font-size:1.6rem}p{overflow-wrap:anywhere}.notice{border:3px solid #725000;background:#fff5d6;padding:1rem;font-weight:700}button,a,select{font:inherit;min-height:48px}button,a{display:block;padding:.75rem;margin:1rem 0}button{width:100%;color:white;background:#195941;border:2px solid #195941;border-radius:.5rem}button:disabled{color:#404040;background:#ddd;border-color:#777}a{color:#164b83}select{max-width:100%}:focus-visible{outline:3px solid #ad5100;outline-offset:3px}footer{font-size:.8rem;overflow-wrap:anywhere;margin-top:2rem}
+:root{font:125%/1.65 system-ui,sans-serif;color:#172b24;background:#f3f7f3}*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;padding:1rem}main{max-width:36rem;margin:auto}h1{font-size:1.6rem}p{overflow-wrap:anywhere}.notice{border:3px solid #725000;background:#fff5d6;padding:1rem;font-weight:700}button,a,select{font:inherit;min-height:48px}button,a{display:block;padding:.75rem;margin:1rem 0}button{width:100%;color:white;background:#195941;border:2px solid #195941;border-radius:.5rem}button:disabled{color:#404040;background:#ddd;border-color:#777}a{color:#164b83}select{max-width:100%}:focus-visible{outline:3px solid #ad5100;outline-offset:3px}footer{font-size:.8rem;overflow-wrap:anywhere;margin-top:2rem}
 </style></head><body><main><h1>${t.title}</h1><p class="notice">${t.notice}</p>
 ${entry ? `<p>${t.venue}：<strong>${escapeHtml(entry.venue)}</strong></p><p>${t.unknown}</p><p>${t.privacy}</p><label for="preview-language">${t.language}</label><select id="preview-language" disabled>${languageOptions(lang)}</select><button id="preview-test" type="button" disabled>${t.button}</button>` : ''}
 <p id="preview-status" role="status" aria-live="polite" aria-atomic="true">${entry ? t.loading : t.invalid}</p>
+${live && entry ? `<a id="preview-history" href="${escapeHtml(historyHref)}" referrerpolicy="no-referrer" hidden>${t.history}</a>` : ''}
 <a href="/line/checkin?lang=${lang}" referrerpolicy="no-referrer">${t.daily}</a>
 <footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer></main>
 ${
@@ -271,6 +278,7 @@ button.onclick=()=>{
         if(!data.venue||typeof data.venue.name!=='string'||typeof data.checkedInAt!=='string'||typeof data.venue.timezone!=='string')throw new Error('invalid result');
         const time=new Intl.DateTimeFormat(${scriptJson(htmlLocale(lang))},{timeZone:data.venue.timezone,dateStyle:'medium',timeStyle:'short'}).format(new Date(data.checkedInAt));
         status.textContent=previewText.success+' — '+data.venue.name+' / '+time+' ('+data.venue.timezone+'). '+previewText.daily;
+        document.getElementById('preview-history').hidden=false;
         button.disabled=true;language.disabled=false;
       }catch{finish(previewText.retry);}
     }`
