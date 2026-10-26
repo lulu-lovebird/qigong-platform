@@ -214,7 +214,9 @@ describe('LINE Checkin LIFF Dual-Mode Integration (Batch 3)', () => {
         { action: 'nfc_touch' }
       );
 
-      expect(html).toContain('Baiyin Qigong Outdoor Group Practice - Senior Large-Font Check-in Panel');
+      expect(html).toContain(
+        'Baiyin Qigong Outdoor Group Practice - Senior Large-Font Check-in Panel'
+      );
       expect(html).toContain('Senior Large-Font Check-in Panel');
       expect(html).toContain('Supplement Today’s Practice Methods');
       expect(html).toContain('Allow Location & Check In');
@@ -239,18 +241,21 @@ describe('LINE Checkin LIFF Dual-Mode Integration (Batch 3)', () => {
       const nfcStatus = getElement('nfcStatus');
       const nfcGpsCard = getElement('nfcGpsCard');
       const nfcSuccessCard = getElement('nfcSuccessCard');
-      const nfcGpsNotice = getElement('nfcGpsNotice');
+      getElement('nfcGpsNotice');
       const nfcGpsErrorNotice = getElement('nfcGpsErrorNotice');
-      const nfcGpsErrorText = getElement('nfcGpsErrorText');
-      const nfcGpsButton = getElement('nfcGpsButton');
-      const nfcRetryBtn = getElement('nfcRetryBtn');
-      const nfcSupplementLink = getElement('nfcSupplementLink');
+      getElement('nfcGpsErrorText');
+      getElement('nfcGpsButton');
+      getElement('nfcRetryBtn');
+      getElement('nfcSupplementLink');
 
       nfcSuccessCard.hidden = true;
       nfcGpsErrorNotice.hidden = true;
 
       const fetchMock = vi.fn<typeof fetch>(async (url, init) => {
-        const body = JSON.parse(String(init?.body ?? '{}')) as {
+        const requestBody = init?.body;
+        expect(typeof requestBody).toBe('string');
+        if (typeof requestBody !== 'string') throw new Error('Expected string JSON body');
+        const body = JSON.parse(requestBody) as {
           field?: string;
           latitude?: number;
           longitude?: number;
@@ -331,8 +336,8 @@ describe('LINE Checkin LIFF Dual-Mode Integration (Batch 3)', () => {
         return elements.get(id)!;
       };
 
-      const nfcStatus = getElement('nfcStatus');
-      const nfcGpsCard = getElement('nfcGpsCard');
+      getElement('nfcStatus');
+      getElement('nfcGpsCard');
       const nfcSuccessCard = getElement('nfcSuccessCard');
       const nfcGpsErrorNotice = getElement('nfcGpsErrorNotice');
       const nfcGpsErrorText = getElement('nfcGpsErrorText');
