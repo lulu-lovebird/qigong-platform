@@ -109,7 +109,7 @@ describe.each(['buildApp', 'registerAdminRoutes'] as const)('NFC isolation via %
     [nfcQuarantineMigrationVersion, 'nfc_security_quarantined'],
     ['0048_future.sql', 'nfc_schema_not_ready'],
     ['0049_future.sql', 'nfc_schema_not_ready'],
-    ['0049_venue_attendance_security_contract.sql', 'nfc_schema_not_ready']
+    ['0050_venue_attendance_security_contract.sql', 'nfc_schema_not_ready']
   ] as const)('refuses explicit opt-in on %s with %s', async (version, reason) => {
     vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
     const client = createNfcLedgerClient(version);

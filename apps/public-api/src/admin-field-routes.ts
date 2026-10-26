@@ -137,7 +137,7 @@ export const registerAdminFieldRoutes = (
     if (!query.success) return reply.code(400).send({ error: 'invalid_request' });
     let operation: unknown;
     if (request.method === 'GET') {
-      // 0049 only has a region list selector, not a single-field read contract.
+      // 0050 only has a region list selector, not a single-field read contract.
       if (Object.hasOwn(request.params as object, 'id'))
         return reply.code(400).send({ error: 'unsupported_operation' });
       operation = { operation: 'field.read', regionId: query.data.regionId };

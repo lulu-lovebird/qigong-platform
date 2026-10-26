@@ -41,7 +41,7 @@ export const registerAdminAttendanceRoutes = (
 ): void => {
   // Neither pool nor LIFF identity grants attendance access. Production injects
   // the session-bound service; no-service registrations remain unavailable.
-  // 0049 is denial-only, never a reason to query quarantined tables directly.
+  // 0050 is denial-only, never a reason to query quarantined tables directly.
   void pool;
   void liffId;
   const headers = (reply: FastifyReply): FastifyReply =>
@@ -74,7 +74,7 @@ export const registerAdminAttendanceRoutes = (
     const parsed = attendanceExportQuerySchema.safeParse(request.query);
     if (!parsed.success || !parsed.data.regionId)
       return reply.code(400).send({ error: 'invalid_attendance_parameters' });
-    // 0049 cannot filter by field/method or paginate. Even valid legacy filters
+    // 0050 cannot filter by field/method or paginate. Even valid legacy filters
     // must be rejected, not silently converted into an unfiltered operation.
     if (
       ['fieldId', 'field_id', 'method', 'page', 'limit'].some((key) =>

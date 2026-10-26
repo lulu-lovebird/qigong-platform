@@ -55,7 +55,7 @@ describe('attendance routes → cookie-bound service → controlled runner', () 
       principal,
       failure: 'quarantine',
       deniedOperation: undefined,
-      version: '0049_venue_attendance_security_contract.sql'
+      version: '0050_venue_attendance_security_contract.sql'
     };
     const query = vi.fn(async (sql: string, values?: readonly unknown[]) => {
       if (sql === 'SELECT version FROM public.schema_migrations ORDER BY version DESC LIMIT 1')
@@ -334,8 +334,8 @@ describe('attendance routes → cookie-bound service → controlled runner', () 
     }
   });
   it.each([
-    ['0048_nfc_attendance_security_quarantine.sql', 'nfc_security_quarantined'],
-    ['0049_venue_attendance_security_contract.sql', 'nfc_schema_not_ready']
+    ['0049_nfc_attendance_security_quarantine.sql', 'nfc_security_quarantined'],
+    ['0050_venue_attendance_security_contract.sql', 'nfc_schema_not_ready']
   ])('actual buildApp still refuses opt-in on %s', async (version, reason) => {
     const h = fixture();
     h.state.version = version;

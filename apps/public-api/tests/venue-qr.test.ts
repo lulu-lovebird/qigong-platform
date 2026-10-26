@@ -166,18 +166,25 @@ describe('live LIFF UI and exact schema readiness (mock, not real browser/PG)', 
       await app.close();
     }
   });
-  it.each(['0049_venue_attendance_security_contract.sql', '0050_other.sql', '0051_future.sql'])(
-    'enabled readiness rejects %s',
-    async (version) => {
-      const query = vi.fn(async () => ({ rows: [{ version }] }));
-      const pool = { connect: async () => ({ query, release: vi.fn() }) } as unknown as Pool;
-      expect(await checkStartupReadiness(pool, true)).toMatchObject({
-        ready: false,
-        reason: 'schema_version_mismatch'
-      });
-    }
-  );
-  it('exact 0050 supports default-off preview, but never opens the old NFC gate', async () => {
+  it.each([
+    '0047_channel_invitations.sql',
+    '0048_practice_fields_and_nfc_attendance.sql',
+    '0049_nfc_attendance_security_quarantine.sql',
+    '0050_venue_attendance_security_contract.sql',
+    '0050_other.sql',
+    '0051_other.sql',
+    '0051_future.sql',
+    '0051_z_future.sql',
+    '0052_future.sql'
+  ])('enabled readiness rejects %s', async (version) => {
+    const query = vi.fn(async () => ({ rows: [{ version }] }));
+    const pool = { connect: async () => ({ query, release: vi.fn() }) } as unknown as Pool;
+    expect(await checkStartupReadiness(pool, true)).toMatchObject({
+      ready: false,
+      reason: 'schema_version_mismatch'
+    });
+  });
+  it('exact 0051 supports default-off preview, but never opens the old NFC gate', async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql.includes('schema_migrations'))
         return { rows: [{ version: venueQrMigrationVersion }] };
@@ -261,7 +268,7 @@ describe('reviewed QR path through actual buildApp (mock LINE and SQL)', () => {
       await app.close();
     }
   });
-  it('server enablement connects verifier → 0049 resolver → consent → transactional writer', async () => {
+  it('server enablement connects verifier → 0050 resolver → consent → transactional writer', async () => {
     const m = mock();
     const app = buildApp({ pool: m.pool, logger: false, line: m.line, venueQr: config });
     try {
