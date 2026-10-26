@@ -154,7 +154,7 @@ env -u TEST_DATABASE_URL -u DATABASE_URL -u VENUE_QR_ISOLATED_PG_DIR -u VENUE_PE
 - 本批專屬離線 77 項、真 PG 11 項通過；PG 包含真 HTTP → service → SQL → RLS，view/export 分離、同人跨區 subset、home region 不同、多身份不倍增、總計／去重日數／filter／order／page、CSV injection、1000/1001、撤權／session revoked/expired、非法 selector／context、日期線。
 - scoped formatter／lint、所有 package source typecheck、**全倉含 tests tsc** 通過。
 - `pnpm -r test`：config 2、identity 6 通過；database **218 通過／310 略過／1 失敗**。失敗為既有 `packages/database/tests/venue-renumber-integration.test.ts:16` 固定 51 個 migration，新增 0054 後實際 52 個；未越界修改。父代理整合 0052／0053 時一併更新 migration artifact assertions 與既有 `venue-qr-postgres.test.ts` 的固定 51／latest0051 期待。
-- public-api 全套另外執行以免被 recursive first-fail 跳過；最後重跑數字見交接回報。既有 DB integration 使用未知 TEST_DATABASE_URL 的部分全部略過，沒有宣稱通過。
+- public-api 全套另跑以免被 recursive first-fail 跳過：**2025 通過／266 略過**（74 test files 通過／23 略過）。既有 DB integration 使用未知 TEST_DATABASE_URL 的部分全部略過，專屬 PG 11 項由隔離 harness 另外執行，沒有把略過算成通過。
 - harness 驗證 PG17、無 TCP listeners、pristine DB、marker／pid／socket／owner／0700；只在此新 cluster 套用 0001–0051 + 0054。不載入 .env、不用既有 DB、不讀 production／phone 配置、不安裝 dependency。退出後移除 cluster；full chain 仍待父代理整合。
 - 依賴驗證暫時使用主 checkout 已安裝 node_modules 的本地 symlink，沒有編譯／修改其他 worktree；交付前移除 symlink。
 
