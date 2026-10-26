@@ -105,7 +105,13 @@ const whatsappApplicationLanguageScript = (locale: LearnerLocale) => `
     });
 `;
 
-export const lineLoginScript = (liffId: string, locale: LearnerLocale = 'zh_TW') => {
+// continuation is a server-built, allowlisted public preview path, never a callback URL.
+// Omitted for every existing learner flow: their bootstrap remains unchanged.
+export const lineLoginScript = (
+  liffId: string,
+  locale: LearnerLocale = 'zh_TW',
+  continuation?: string
+) => {
   const messages = {
     primary: lineUiText(
       locale,
@@ -122,13 +128,13 @@ export const lineLoginScript = (liffId: string, locale: LearnerLocale = 'zh_TW')
   return `
     const liffId = ${JSON.stringify(liffId).replaceAll('<', '\\u003c')};
     const lineInterfaceLocale=${JSON.stringify(locale)},lineLoginText=${JSON.stringify(messages)};
-    let loginRedirectUri = location.href;
+    let loginRedirectUri = ${continuation ? `new URL(${JSON.stringify(continuation).replaceAll('<', '\\u003c')}, location.href).href` : 'location.href'};
     const lineInitialQuery = new URLSearchParams(location.search || '');
     const linePrimaryRedirect = lineInitialQuery.has('liff.state');
     const lineLoginReturned = ['_line_login_attempt','code','error','liffClientId'].some(key => lineInitialQuery.has(key));
-    const linePrivateFragment=/^#([A-Za-z0-9_-]{43})(?:[?&]|$)/.exec(location.hash||'')?.[1]||'';
+    const linePrivateFragment=${continuation ? "''" : "/^#([A-Za-z0-9_-]{43})(?:[?&]|$)/.exec(location.hash||'')?.[1]||''"};
     const lineLocaleCodes=['zh_TW','zh_CN','en'];
-    const lineRequestedLocale=lineInitialQuery.get('lang');
+    const lineRequestedLocale=${continuation ? JSON.stringify(locale) : "lineInitialQuery.get('lang')"};
     const lineSavedLocale=(document.cookie||'').split(';').map(v=>v.trim()).find(v=>v.startsWith('__Host-qigong-learner-locale='))?.slice('__Host-qigong-learner-locale='.length);
     let idToken = '';
     const lineReady = (async () => {
@@ -139,7 +145,7 @@ export const lineLoginScript = (liffId: string, locale: LearnerLocale = 'zh_TW')
         const redirect = new URL(loginRedirectUri);redirect.searchParams.set('_line_login_attempt', '1');loginRedirectUri = redirect.href;liff.login({ redirectUri: loginRedirectUri });throw new Error(lineLoginText.loggingIn);
       }
       idToken = liff.getIDToken() || '';if(!idToken)throw new Error(lineLoginText.missing);
-      history.replaceState(null, '', location.pathname+(lineLocaleCodes.includes(lineRequestedLocale)?'?lang='+lineRequestedLocale:''));
+      history.replaceState(null, '', ${continuation ? JSON.stringify(continuation).replaceAll('<', '\\u003c') : "location.pathname+(lineLocaleCodes.includes(lineRequestedLocale)?'?lang='+lineRequestedLocale:'')"});
       if(!lineLocaleCodes.includes(lineRequestedLocale)&&!lineLocaleCodes.includes(lineSavedLocale)){
         let preferred=null;
         try{const r=await fetch('/line/preferences/language',{method:'POST',cache:'no-store',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({idToken})});if(r.ok){const saved=await r.json();if(lineLocaleCodes.includes(saved.locale))preferred=saved.locale;}}catch{/* Presentation preference failure never bypasses the later authenticated API. */}

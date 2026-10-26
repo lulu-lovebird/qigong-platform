@@ -23,7 +23,31 @@ export type AdminPage =
   | 'privacy'
   | 'invites'
   | 'notifications'
-  | 'achievementManagement';
+  | 'achievementManagement'
+  | 'fieldSchedule'
+  | 'attendance';
+
+const nfcNavLabels: Record<AdminLocale, Record<string, string>> = {
+  zh_TW: {
+    navFieldSchedule: '團練場出席管理 · 場地設定',
+    navAttendance: '團練場出席管理 · 出席報表',
+    fieldSchedule: '團練場出席管理',
+    attendance: '團練場出席管理 · 出席報表'
+  },
+  zh_CN: {
+    navFieldSchedule: '团练场出席管理 · 场地设置',
+    navAttendance: '团练场出席管理 · 出席报表',
+    fieldSchedule: '团练场出席管理',
+    attendance: '团练场出席管理 · 出席报表'
+  },
+  en: {
+    navFieldSchedule: 'Group Practice Attendance · Venues',
+    navAttendance: 'Group Practice Attendance · Reports',
+    fieldSchedule: 'Group Practice Attendance',
+    attendance: 'Group Practice Attendance · Reports'
+  }
+};
+
 const navigation: ReadonlyArray<{ page: AdminPage; path: string; label: AdminTextKey }> = [
   { page: 'overview', path: '/admin/', label: 'navOverview' },
   { page: 'leaderboard', path: '/admin/leaderboard', label: 'navLeaderboard' },
@@ -42,6 +66,16 @@ const navigation: ReadonlyArray<{ page: AdminPage; path: string; label: AdminTex
     page: 'achievementManagement',
     path: '/admin/achievement-management',
     label: 'navAchievementManagement'
+  },
+  {
+    page: 'attendance',
+    path: '/admin/attendance',
+    label: 'navAttendance' as AdminTextKey
+  },
+  {
+    page: 'fieldSchedule',
+    path: '/admin/fields',
+    label: 'navFieldSchedule' as AdminTextKey
   }
 ];
 
@@ -53,14 +87,14 @@ const navigationGroups: ReadonlyArray<{
   {
     id: 'reports',
     label: 'navGroupReports',
-    pages: ['overview', 'leaderboard', 'achievements', 'methods']
+    pages: ['overview', 'leaderboard', 'achievements', 'methods', 'attendance']
   },
   { id: 'learners', label: 'navGroupLearners', pages: ['review', 'learners', 'invites'] },
   { id: 'journal', label: 'navGroupJournal', pages: ['journal', 'shared', 'tags'] },
   {
     id: 'settings',
     label: 'navGroupSettings',
-    pages: ['access', 'privacy', 'notifications', 'achievementManagement']
+    pages: ['access', 'privacy', 'notifications', 'achievementManagement', 'fieldSchedule']
   }
 ];
 const deferredNavigation = (page: AdminPage) =>
@@ -72,7 +106,9 @@ const deferredNavigation = (page: AdminPage) =>
     'privacy',
     'invites',
     'achievements',
-    'achievementManagement'
+    'achievementManagement',
+    'fieldSchedule',
+    'attendance'
   ].includes(page);
 // All shell inputs come from source-controlled page definitions, never user data.
 export const renderAdminShell = (
@@ -80,29 +116,40 @@ export const renderAdminShell = (
   content: string,
   script: string,
   locale: AdminLocale = 'zh_TW',
-  canManageAdmins = false
+  canManageAdmins = false,
+  canManageFields = false
 ) => {
   const text = adminTexts(locale);
+  const resolveText = (key: string) =>
+    (text as Record<string, string>)[key] ?? nfcNavLabels[locale]?.[key] ?? key;
+  const pageLabel = resolveText(page);
   const languageSwitcher = uiTemplate(
     locale
   )`<div class="languages"><select id="admin-language" aria-label="${text.language}">${languageOptions(locale)}</select></div>`;
   const navigationMarkup = navigationGroups
     .map((group) => {
       const items = group.pages
-        .flatMap((page) => navigation.filter((item) => item.page === page))
-        .filter((item) => item.page !== 'access' || canManageAdmins);
+        .flatMap((p) => navigation.filter((item) => item.page === p))
+        .filter(
+          (item) =>
+            (item.page !== 'access' || canManageAdmins) &&
+            ((item.page !== 'fieldSchedule' && item.page !== 'attendance') ||
+              canManageFields ||
+              page === 'fieldSchedule' ||
+              page === 'attendance')
+        );
       if (!items.length) return '';
       const visible = items.some((item) => !deferredNavigation(item.page));
-      return `<details class="nav-group" name="admin-navigation-groups" data-nav-group="${group.id}"${group.pages.includes(page) ? ' data-current-group="true"' : ''} aria-labelledby="nav-group-${group.id}"${visible ? '' : ' hidden'}><summary class="nav-group-title" id="nav-group-${group.id}">${text[group.label]}</summary><div class="nav-group-links">${items.map((item) => `<a href="${item.path + adminLocaleQuery(locale)}"${item.page === 'achievementManagement' ? ' class="journal-nav" data-achievement-management-nav hidden' : item.page === 'achievements' ? ' class="journal-nav" data-achievements-nav hidden' : item.page === 'invites' ? ' class="journal-nav" data-line-invites-nav hidden' : ['journal', 'tags', 'learners', 'shared', 'privacy'].includes(item.page) ? ` class="journal-nav" data-journal-nav="${item.page}" hidden` : ''}${item.page === page ? ' aria-current="page"' : ''}>${text[item.label]}</a>${item.page === 'invites' ? '<a href="/admin/channel-invites' + adminLocaleQuery(locale) + '" class="journal-nav" data-channel-invites-nav hidden>' + (locale === 'en' ? 'Telegram / WhatsApp invitations' : uiText(locale, 'Telegram／WhatsApp邀請')) + '</a>' : ''}`).join('')}</div></details>`;
+      return `<details class="nav-group" name="admin-navigation-groups" data-nav-group="${group.id}"${group.pages.includes(page) ? ' data-current-group="true"' : ''} aria-labelledby="nav-group-${group.id}"${visible ? '' : ' hidden'}><summary class="nav-group-title" id="nav-group-${group.id}">${text[group.label]}</summary><div class="nav-group-links">${items.map((item) => `<a href="${item.path + adminLocaleQuery(locale)}"${item.page === 'achievementManagement' ? ' class="journal-nav" data-achievement-management-nav hidden' : item.page === 'achievements' ? ' class="journal-nav" data-achievements-nav hidden' : item.page === 'invites' ? ' class="journal-nav" data-line-invites-nav hidden' : item.page === 'fieldSchedule' ? ' class="journal-nav" data-fields-nav hidden' : item.page === 'attendance' ? ' class="journal-nav" data-attendance-nav hidden' : ['journal', 'tags', 'learners', 'shared', 'privacy'].includes(item.page) ? ` class="journal-nav" data-journal-nav="${item.page}" hidden` : ''}${item.page === page ? ' aria-current="page"' : ''}>${resolveText(item.label)}</a>${item.page === 'invites' ? '<a href="/admin/channel-invites' + adminLocaleQuery(locale) + '" class="journal-nav" data-channel-invites-nav hidden>' + (locale === 'en' ? 'Telegram / WhatsApp invitations' : uiText(locale, 'Telegram／WhatsApp邀請')) + '</a>' : ''}`).join('')}</div></details>`;
     })
     .join('');
   return `<!doctype html>
-<html lang="${htmlLocale(locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${text[page]}｜${text.siteTitle}</title>
+<html lang="${htmlLocale(locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${pageLabel}｜${text.siteTitle}</title>
 <style>
 ${adminBrandStyles}
 ${adminLayoutStyles}
-</style></head><body><a class="skip" href="#main">${text.skip}</a><div class="shell"><aside class="sidebar"><div class="brand"><div class="brand-title">${renderAdminLogo(locale)}<span class="brand-title-text">${text.brand}</span></div><small>${text.brandSubtitle}</small></div>${languageSwitcher}<details id="admin-nav-disclosure" class="nav-disclosure" open><summary>${text.navigation}<span>${text[page]}</span></summary><nav id="admin-navigation" aria-label="${text.navigation}">${navigationMarkup}</nav></details><button id="logout" type="button">${text.logout}</button></aside>
-<div class="workspace"><header><div><h1>${text[page]}</h1><span class="muted">${text.scope}</span></div></header><div id="main">${content}</div><footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer></div></div>
+</style></head><body><a class="skip" href="#main">${text.skip}</a><div class="shell"><aside class="sidebar"><div class="brand"><div class="brand-title">${renderAdminLogo(locale)}<span class="brand-title-text">${text.brand}</span></div><small>${text.brandSubtitle}</small></div>${languageSwitcher}<details id="admin-nav-disclosure" class="nav-disclosure" open><summary>${text.navigation}<span>${pageLabel}</span></summary><nav id="admin-navigation" aria-label="${text.navigation}">${navigationMarkup}</nav></details><button id="logout" type="button">${text.logout}</button></aside>
+<div class="workspace"><header><div><h1>${pageLabel}</h1><span class="muted">${text.scope}</span></div></header><div id="main">${content}</div><footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer></div></div>
 <script>
 (() => {
   ${adminLocaleScript(locale)}
@@ -119,6 +166,8 @@ ${adminLayoutStyles}
   if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-channel-invites-nav]').length)fetch('/admin/api/channel-invites/capabilities',{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-channel-invites-nav]'))a.hidden=c?.canManage!==true;refreshNavigationGroups();}).catch(refreshNavigationGroups);
   if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-achievements-nav]').length)fetch('/admin/api/achievements/capabilities',{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-achievements-nav]'))a.hidden=c?.canReadAchievements!==true;refreshNavigationGroups();}).catch(refreshNavigationGroups);
   if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-achievement-management-nav]').length)fetch('/admin/api/achievement-management/capabilities',{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-achievement-management-nav]'))a.hidden=c?.canManage!==true;refreshNavigationGroups();}).catch(refreshNavigationGroups);
+  if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-fields-nav]').length)fetch('/admin/api/fields/capabilities',{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-fields-nav]'))a.hidden=c?.canManage!==true;refreshNavigationGroups();}).catch(refreshNavigationGroups);
+  if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-attendance-nav]').length)fetch('/admin/api/attendance/capabilities',{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-attendance-nav]'))a.hidden=c?.canRead!==true;refreshNavigationGroups();}).catch(refreshNavigationGroups);
   const mayLeave=()=>typeof window==='undefined'||!window.qigongJournalMayLeave||window.qigongJournalMayLeave();
   language.addEventListener('change',() => {
     const next=language.value;

@@ -22,6 +22,7 @@ import {
 } from './practice-notes.js';
 import { lineApplicationPage } from './line-application-page.js';
 import { renderChannelWorkspacePage } from './channel-workspace-pages.js';
+import { renderVenuePreview, venuePreviewRequest } from './line-venue-checkin-page.js';
 import { registerChannelWorkspace } from './channel-workspace.js';
 import {
   beginLearnerPrivacy,
@@ -59,7 +60,12 @@ const details = z.object({
   region: z.enum(['tw-general', 'my-general', 'sg-general', 'hk-general', 'other-general'])
 });
 
-export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config: LineConfig) => {
+export const registerLineOnboarding = (
+  app: FastifyInstance,
+  pool: Pool,
+  config: LineConfig,
+  venueCheckinEnabled = false
+) => {
   const liffBase = `https://liff.line.me/${encodeURIComponent(config.liffId)}`;
   const replyHelp = createHelpReplyGuard();
   const legacyVerify = config.verifyIdToken;
@@ -128,13 +134,45 @@ export const registerLineOnboarding = (app: FastifyInstance, pool: Pool, config:
         )
         .type('text/html; charset=utf-8')
         .send(render(resolveLocale(request.query, request.headers.cookie)));
+  const previewPage = (request: FastifyRequest, reply: Parameters<ReturnType<typeof page>>[1]) => {
+    const preview = venuePreviewRequest(request.url, request.headers.cookie);
+    return reply
+      .header('cache-control', 'no-store')
+      .header('referrer-policy', 'no-referrer')
+      .header('x-robots-tag', 'noindex, nofollow')
+      .header('x-content-type-options', 'nosniff')
+      .header('permissions-policy', 'geolocation=(self)')
+      .header(
+        'content-security-policy',
+        `default-src 'none'; script-src 'unsafe-inline' https://static.line-scdn.net; style-src 'unsafe-inline'; connect-src ${venueCheckinEnabled ? "'self' " : ''}https://api.line.me; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`
+      )
+      .type('text/html; charset=utf-8')
+      .send(
+        renderVenuePreview(
+          config.liffId,
+          preview.kind === 'preview' ? preview.entry : null,
+          venueCheckinEnabled ? 'checkin' : 'preview'
+        )
+      );
+  };
+  // Primary state selects a preview only; SDK init still owns the redirect.
+  // No NFC gate, verifier, legacy renderer, DB or attendance service is involved.
+  app.get('/line/venue-checkin', (request, reply) => {
+    if (venuePreviewRequest(request.url, request.headers.cookie).kind !== 'preview')
+      reply.code(400);
+    return previewPage(request, reply);
+  });
   // The configured LIFF endpoint must initialize the SDK, including primary redirects.
-  app.get(
-    '/line/',
-    page((locale) =>
+  app.get('/line/', (request, reply) => {
+    const preview = venuePreviewRequest(request.url, request.headers.cookie);
+    if (preview.kind !== 'none') {
+      if (preview.kind === 'invalid') reply.code(400);
+      return previewPage(request, reply);
+    }
+    return page((locale) =>
       renderChannelWorkspacePage({ platform: 'line', liffId: config.liffId }, 'checkin', locale)
-    )
-  );
+    )(request, reply);
+  });
   app.get(
     '/line/apply',
     page((locale) => lineApplicationPage(config.liffId, locale))

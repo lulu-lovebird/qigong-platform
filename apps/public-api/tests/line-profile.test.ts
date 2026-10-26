@@ -37,6 +37,8 @@ describe('Server-verified LINE display metadata', () => {
     { aud: 'other' },
     { exp: 0 },
     { iss: 'https://evil.example.invalid' },
+    { iss: undefined },
+    { exp: Math.floor(Date.now() / 1000) },
     { sub: 'invalid' }
   ])('rejects wrong audience, expiry, issuer or subject: %j', async (patch) => {
     vi.stubGlobal(

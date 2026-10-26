@@ -118,6 +118,11 @@ export const runPublicApi = async (
             liffId: source.LINE_LIFF_ID
           })
       : undefined;
+    const venueQrEnabled =
+      z.enum(['true', 'false']).default('false').parse(source.VENUE_QR_CHECKIN_ENABLED) === 'true';
+    const venueQr = venueQrEnabled
+      ? { enabled: true as const, publicOrigin: z.url().parse(source.VENUE_QR_PUBLIC_ORIGIN) }
+      : undefined;
     const whatsapp = loadWhatsAppConfig(source);
     phase = 'api_pool_failed';
     const { attachPoolErrorHandler, createPool } = await import('@qigong/database');
@@ -139,6 +144,7 @@ export const runPublicApi = async (
       adminAuth,
       ...(telegramOnboarding ? { telegramOnboarding } : {}),
       ...(line ? { line } : {}),
+      ...(venueQr ? { venueQr } : {}),
       ...(whatsapp ? { whatsapp } : {}),
       inviteTransports,
       serviceVersion: source.SERVICE_VERSION || 'development'
@@ -146,7 +152,7 @@ export const runPublicApi = async (
     process.on('SIGINT', interrupt);
     process.on('SIGTERM', terminate);
     phase = 'api_readiness_failed';
-    const readiness = await checkStartupReadiness(pool);
+    const readiness = await checkStartupReadiness(pool, venueQrEnabled);
     if (!readiness.ready) throw new Error('startup readiness failed');
     if (!stopping) {
       phase = 'api_listen_failed';

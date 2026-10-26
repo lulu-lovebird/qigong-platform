@@ -11,7 +11,15 @@ import { isLocale, resolveLocale, learnerLocaleCookie } from './ui-localization.
 import { localizeSystemLabels } from './system-label-localization.js';
 import { adminLocaleCookie } from './admin-locale.js';
 import { checkApiRuntimePreflight, getMigrationStatus, type Pool } from '@qigong/database';
-import { registerAdminRoutes, type AdminAuthProvider } from './admin-auth.js';
+import {
+  registerAdminRoutes,
+  type AdminAuthProvider,
+  nfcMigrationVersion,
+  nfcQuarantineMigrationVersion,
+  isNfcEnabled,
+  checkNfcFeatureReadiness,
+  registerNfcFeature
+} from './admin-auth.js';
 import { registerExternalJournalRoutes } from './journal-routes.js';
 import { registerLearnerPrivacyRoutes, isLearnerPrivacyError } from './learner-privacy-routes.js';
 import {
@@ -19,14 +27,23 @@ import {
   type TelegramOnboardingConfig
 } from './telegram-onboarding.js';
 import { registerLineOnboarding, type LineConfig } from './line-onboarding.js';
+import { registerVenueEntry } from './venue-entry.js';
 import { registerWhatsAppOnboarding, type WhatsAppConfig } from './whatsapp-onboarding.js';
 import { registerLearnerHelpPages } from './learner-help-page.js';
+import { registerFieldCheckinRoutes } from './field-checkin-routes.js';
+import {
+  registerVenueQrCheckinRoutes,
+  validateVenueQrConfig,
+  venueQrMigrationVersion,
+  type VenueQrConfig
+} from './venue-qr.js';
 import type { InviteTransports } from './channel-invites.js';
 
 // LIFF primary redirects can contain both SDK credentials and private application fragments in the query.
 export const apiLogRedaction = Object.freeze({
   paths: [
     'req.url',
+    'req.body',
     'req.headers.authorization',
     'req.headers.cookie',
     'req.headers.x-line-access-token',
@@ -39,7 +56,19 @@ export const apiLogRedaction = Object.freeze({
 });
 
 export const minimumMigrationVersion = '0042_activity_consecutive_drafts.sql';
-export const maximumMigrationVersion = '0047_channel_invitations.sql';
+// Exact QR schema compatibility does not enable QR or the old NFC routes.
+export const maximumMigrationVersion = venueQrMigrationVersion;
+const defaultOffMigrationVersions = new Set([
+  minimumMigrationVersion,
+  '0043_achievement_rule_versions.sql',
+  '0044_achievement_publication_candidates.sql',
+  '0045_versioned_achievement_runtime.sql',
+  '0046_achievement_evaluation_and_readers.sql',
+  '0047_channel_invitations.sql',
+  nfcMigrationVersion,
+  nfcQuarantineMigrationVersion,
+  venueQrMigrationVersion
+]);
 // HTTP error classes can inherit status/message data (unlike log diagnostics,
 // which deliberately ignore prototypes). Preserve that compatibility without
 // evaluating accessors, and bound traversal for hostile/cyclic proxy prototypes.
@@ -182,21 +211,36 @@ interface AppDependencies {
   telegramOnboarding?: TelegramOnboardingConfig;
   line?: LineConfig;
   whatsapp?: WhatsAppConfig;
+  venueQr?: VenueQrConfig;
   inviteTransports?: InviteTransports;
 }
 
-export const checkStartupReadiness = async (pool: Pool) => {
-  const migration = await getMigrationStatus(
+export const checkStartupReadiness = async (pool: Pool, venueQrEnabled = false) => {
+  const status = await getMigrationStatus(
     pool,
     minimumMigrationVersion,
     maximumMigrationVersion,
     'qigong_api_runtime'
   );
+  // Admit only the exact reviewed forward versions above the old compatibility range.
+  // A disabled QR deployment can still run preview/daily practice after migration.
+  const migration = {
+    ...status,
+    ready: venueQrEnabled
+      ? status.ready && status.currentVersion === venueQrMigrationVersion
+      : status.ready &&
+        status.currentVersion !== null &&
+        defaultOffMigrationVersions.has(status.currentVersion)
+  };
   if (!migration.ready)
     return { ready: false as const, reason: 'schema_version_mismatch', migration };
   const runtime = await checkApiRuntimePreflight(pool);
   if (!runtime.ready)
     return { ready: false as const, reason: 'runtime_role_misconfigured', runtime };
+  if (isNfcEnabled()) {
+    const nfc = await checkNfcFeatureReadiness(pool);
+    if (!nfc.ready) return { ready: false as const, reason: nfc.reason, migration, runtime };
+  }
   return { ready: true as const, migration, runtime };
 };
 
@@ -209,8 +253,11 @@ export const buildApp = ({
   telegramOnboarding,
   line,
   whatsapp,
+  venueQr,
   inviteTransports = {}
 }: AppDependencies) => {
+  const qr = venueQr ? validateVenueQrConfig(venueQr) : undefined;
+  if (qr && !line) throw new Error('venue QR requires LINE configuration');
   const enabledInviteTransports: InviteTransports = {
     ...(telegramOnboarding && inviteTransports.telegram
       ? { telegram: inviteTransports.telegram }
@@ -345,7 +392,7 @@ export const buildApp = ({
   app.get('/health/ready', async (request, reply) => {
     try {
       await pool.query('SELECT 1');
-      const readiness = await checkStartupReadiness(pool);
+      const readiness = await checkStartupReadiness(pool, qr?.enabled === true);
       if (!readiness.ready) return reply.code(503).send({ ok: false, ...readiness });
       return { ok: true, ...readiness };
     } catch (error) {
@@ -354,13 +401,19 @@ export const buildApp = ({
     }
   });
 
+  registerVenueEntry(app, line?.liffId);
   registerLearnerHelpPages(app);
   registerLearnerPrivacyRoutes(app, pool);
   registerExternalJournalRoutes(app, pool);
-  if (adminAuth) registerAdminRoutes(app, pool, adminAuth, line?.liffId, enabledInviteTransports);
+  registerNfcFeature(app, pool, registerFieldCheckinRoutes);
+  if (adminAuth)
+    registerAdminRoutes(app, pool, adminAuth, line?.liffId, enabledInviteTransports, qr);
   if (telegramOnboarding)
     registerTelegramOnboarding(app, pool, telegramOnboarding, enabledInviteTransports.telegram);
-  if (line) registerLineOnboarding(app, pool, line);
+  if (line) {
+    registerLineOnboarding(app, pool, line, qr?.enabled === true);
+    if (qr) registerVenueQrCheckinRoutes(app, pool, line, qr);
+  }
   if (whatsapp) registerWhatsAppOnboarding(app, pool, whatsapp, enabledInviteTransports.whatsapp);
 
   return app;

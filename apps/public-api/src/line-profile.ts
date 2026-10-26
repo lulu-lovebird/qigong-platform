@@ -29,14 +29,14 @@ export const verifyLineIdentity = async (
         sub: z.string().regex(/^U[0-9a-f]{32}$/),
         aud: z.string(),
         exp: z.number(),
-        iss: z.string().optional(),
+        iss: z.literal('https://access.line.me'),
         name: z.unknown().optional()
       })
       .parse(await response.json());
     if (
       claims.aud !== channelId ||
       claims.exp <= Date.now() / 1000 ||
-      (claims.iss !== undefined && claims.iss !== 'https://access.line.me')
+      claims.iss !== 'https://access.line.me'
     )
       throw Error('Invalid identity');
     const display = name.safeParse(claims.name);

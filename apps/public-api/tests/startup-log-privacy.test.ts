@@ -172,6 +172,9 @@ describe('contained startup boundaries', () => {
   );
 
   it.each([
+    { VENUE_QR_CHECKIN_ENABLED: sentinel },
+    { VENUE_QR_CHECKIN_ENABLED: 'true' },
+    { VENUE_QR_CHECKIN_ENABLED: 'true', VENUE_QR_PUBLIC_ORIGIN: sentinel },
     { TELEGRAM_ONBOARDING_BOT_TOKEN: sentinel },
     { TELEGRAM_ONBOARDING_BOT_TOKEN: sentinel, TELEGRAM_ONBOARDING_WEBHOOK_SECRET: sentinel },
     { LINE_CHANNEL_SECRET: sentinel },
@@ -316,7 +319,9 @@ describe('running API lifecycle', () => {
       WHATSAPP_VERIFY_TOKEN: 'v'.repeat(20),
       TELEGRAM_INVITE_BOT_USERNAME: 'SyntheticBot',
       WHATSAPP_INVITE_CHAT_NUMBER: '+12025550123',
-      SERVICE_VERSION: 'synthetic-version'
+      SERVICE_VERSION: 'synthetic-version',
+      VENUE_QR_CHECKIN_ENABLED: 'true',
+      VENUE_QR_PUBLIC_ORIGIN: 'https://synthetic.invalid'
     };
     await runPublicApi(source, exit);
     expect(mocks.environment).toHaveBeenCalledExactlyOnceWith(source);
@@ -325,6 +330,7 @@ describe('running API lifecycle', () => {
       pool: { end },
       adminAuth: { syntheticProvider: true },
       serviceVersion: source.SERVICE_VERSION,
+      venueQr: { enabled: true, publicOrigin: source.VENUE_QR_PUBLIC_ORIGIN },
       telegramOnboarding: {
         botToken: source.TELEGRAM_ONBOARDING_BOT_TOKEN,
         webhookSecret: source.TELEGRAM_ONBOARDING_WEBHOOK_SECRET,
@@ -346,6 +352,7 @@ describe('running API lifecycle', () => {
       },
       inviteTransports: { telegram: 'SyntheticBot', whatsapp: '12025550123' }
     });
+    expect(mocks.readiness).toHaveBeenCalledExactlyOnceWith({ end }, true);
     expect(listen).toHaveBeenCalledExactlyOnceWith({
       host: environment.HOST,
       port: environment.PORT
@@ -361,6 +368,7 @@ describe('running API lifecycle', () => {
 
   it('does not enable omitted channels or change development version fallback', async () => {
     await runPublicApi({}, exit);
+    expect(mocks.readiness).toHaveBeenCalledExactlyOnceWith({ end }, false);
     expect(mocks.build).toHaveBeenCalledExactlyOnceWith({
       pool: { end },
       adminAuth: { syntheticProvider: true },

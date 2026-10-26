@@ -1,5 +1,5 @@
-import { htmlLocale, languageOptions, uiTemplate } from './ui-localization.js';
-import type { LearnerTextKey } from './learner-locale.js';
+import { htmlLocale, languageOptions, uiTemplate, uiText } from './ui-localization.js';
+import type { LearnerLocale, LearnerTextKey } from './learner-locale.js';
 import { learnerPrivacyTexts } from './learner-privacy-locale.js';
 import {
   lineLoginScript,
@@ -8,7 +8,258 @@ import {
   type LearnerPageChannel
 } from './application-page.js';
 
-export const renderCheckinPage = (channel: LearnerPageChannel) => {
+export interface CheckinPageOptions {
+  action?: string;
+  field?: string;
+  [key: string]: string | undefined;
+}
+
+export type CheckinPageQuery = string | URLSearchParams | CheckinPageOptions;
+
+export const parseCheckinQuery = (query?: CheckinPageQuery): CheckinPageOptions => {
+  if (!query) return {};
+  if (typeof query === 'string') {
+    const raw = query.startsWith('?') ? query.slice(1) : query;
+    const sp = new URLSearchParams(raw);
+    const result: CheckinPageOptions = {};
+    for (const [k, v] of sp.entries()) result[k] = v;
+    return result;
+  }
+  if (query instanceof URLSearchParams) {
+    const result: CheckinPageOptions = {};
+    for (const [k, v] of query.entries()) result[k] = v;
+    return result;
+  }
+  return query;
+};
+
+export const isNfcTouchQuery = (query?: CheckinPageQuery): boolean => {
+  const options = parseCheckinQuery(query);
+  return options.action === 'nfc_touch' || Boolean(options.field);
+};
+
+const nfcTexts = (locale: LearnerLocale) => {
+  if (locale === 'en') {
+    return {
+      title: 'Baiyin Qigong Outdoor Group Practice - Senior Large-Font Check-in Panel',
+      heading: 'Baiyin Qigong Outdoor Group Practice',
+      subheading: 'Senior Large-Font Check-in Panel',
+      fieldLabel: '📍 Practice Field: ',
+      generalField: 'Outdoor Practice Field',
+      statusPreparing: 'Preparing check-in…',
+      gpsHeading: 'Field Location Verification',
+      gpsGuide:
+        'Please allow location permission. The system will verify your proximity to the practice field to confirm attendance.',
+      gpsButton: 'Allow Location & Check In',
+      retryButton: 'Grant Permission & Retry',
+      gpsDenied:
+        'Location permission was denied. Please allow location access in your device settings to check in.',
+      locating: 'Acquiring GPS location…',
+      submitting: 'Location acquired, submitting check-in…',
+      successHeading: 'Group Practice Check-in Successful!',
+      successDesc: 'Your outdoor group practice attendance has been recorded.',
+      completed: 'Check-in Completed!',
+      supplementMethods: 'Supplement Today’s Practice Methods',
+      manualCheckin: 'Daily Personal Practice Check-in (Methods & Journal)',
+      failed: 'Group practice check-in failed. Please contact on-site volunteers.',
+      gpsUnavailable:
+        'GPS location is currently unavailable. Please move to an open area and try again.',
+      gpsTimeout: 'Location acquisition timed out. Please tap retry.'
+    };
+  }
+  return {
+    title: uiText(locale, '白雁氣功戶外團練 - 樂齡大字體簽到面板'),
+    heading: uiText(locale, '白雁氣功戶外團練'),
+    subheading: uiText(locale, '樂齡大字體簽到面板'),
+    fieldLabel: uiText(locale, '📍 團練場地：'),
+    generalField: uiText(locale, '戶外團練場地'),
+    statusPreparing: uiText(locale, '正在準備打卡…'),
+    gpsHeading: uiText(locale, '團練場地定位確認'),
+    gpsGuide: uiText(locale, '請允許瀏覽器定位授權，系統將自動比對團練場地距離以確認您的出席。'),
+    gpsButton: uiText(locale, '允許定位並自動打卡'),
+    retryButton: uiText(locale, '重新授權並簽到'),
+    gpsDenied: uiText(
+      locale,
+      '定位授權已被拒絕。請至手機或瀏覽器設定允許存取位置，方可完成現場打卡。'
+    ),
+    locating: uiText(locale, '正在獲取 GPS 定位…'),
+    submitting: uiText(locale, '定位成功，正在進行團練打卡…'),
+    successHeading: uiText(locale, '團練簽到成功！'),
+    successDesc: uiText(locale, '已成功完成今日戶外團練出席記錄。'),
+    completed: uiText(locale, '簽到完成！'),
+    supplementMethods: uiText(locale, '補充今日練功功法'),
+    manualCheckin: uiText(locale, '一般自主練功打卡（日常功法與心得）'),
+    failed: uiText(locale, '團練簽到失敗，請洽詢現場助教志工。'),
+    gpsUnavailable: uiText(locale, '目前無法取得定位訊號，請至開闊處後再試一次。'),
+    gpsTimeout: uiText(locale, '定位超時，請重新按下「重新授權並簽到」。')
+  };
+};
+
+export const renderNfcCheckinPage = (channel: LearnerPageChannel, options: CheckinPageOptions) => {
+  const locale = channel.locale ?? 'zh_TW';
+  const texts = nfcTexts(locale);
+  const supplementHref = channel.platform === 'line' ? '/line/checkin' : '/telegram/checkin';
+  const fieldCodeDisplay = options.field || texts.generalField;
+
+  return uiTemplate(locale)`<!doctype html>
+<html lang="${htmlLocale(locale)}">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow"><title>${texts.title}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; background: #f0fdf4; color: #0f172a; font-size: 20px; line-height: 1.6; }
+    .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
+    .nfc-card { background: #ffffff; border-radius: 20px; padding: 28px 24px; border: 3px solid #166534; box-shadow: 0 10px 30px rgba(0,0,0,.1); margin-bottom: 20px; }
+    h1 { font-size: 32px; color: #14532d; margin: 0 0 8px; font-weight: 800; }
+    h2 { font-size: 24px; color: #0f172a; margin: 0 0 16px; font-weight: 700; }
+    .nfc-subtitle { font-size: 22px; color: #15803d; font-weight: 700; margin: 0 0 16px; }
+    .nfc-field-badge { background: #dcfce7; color: #14532d; font-size: 20px; font-weight: 700; padding: 12px 16px; border-radius: 12px; border: 2px solid #86efac; margin-bottom: 16px; }
+    .nfc-guide-card { background: #fefce8; border: 2px solid #ca8a04; border-radius: 14px; padding: 16px; margin-bottom: 20px; font-size: 19px; color: #713f12; }
+    .nfc-error-card { background: #fef2f2; border: 2px solid #dc2626; border-radius: 14px; padding: 16px; margin-top: 16px; font-size: 19px; color: #991b1b; }
+    .nfc-btn { width: 100%; background: #15803d; color: #ffffff; border: 0; border-radius: 16px; padding: 20px 24px; font-size: 22px; font-weight: 800; cursor: pointer; display: block; box-sizing: border-box; text-align: center; }
+    .nfc-retry-btn { width: 100%; background: #b45309; color: #ffffff; border: 0; border-radius: 14px; padding: 16px 20px; font-size: 20px; font-weight: 700; cursor: pointer; margin-top: 12px; }
+    .nfc-supplement-btn { width: 100%; background: #0284c7; color: #ffffff; border: 0; border-radius: 16px; padding: 20px 24px; font-size: 22px; font-weight: 800; text-decoration: none; display: block; box-sizing: border-box; text-align: center; margin-top: 20px; }
+    .nfc-checkmark-wrap { text-align: center; margin: 12px 0; }
+    .nfc-checkmark { font-size: 96px; line-height: 1; color: #16a34a; font-weight: 900; display: inline-block; }
+    .nfc-success-title { font-size: 30px; color: #14532d; text-align: center; margin: 8px 0; font-weight: 800; }
+    .nfc-desc { font-size: 20px; color: #334155; text-align: center; margin: 0 0 16px; }
+    .nfc-status { font-size: 20px; font-weight: 600; text-align: center; color: #166534; min-height: 30px; margin: 16px 0; }
+    .nfc-switch-wrap { text-align: center; margin: 24px 0 12px; }
+    .nfc-secondary-link { color: #15803d; font-size: 18px; font-weight: 600; text-decoration: underline; }
+    nav select { font-size: 18px; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; }
+    footer { color: #475569; font-size: 14px; text-align: center; padding: 24px 0; }
+    @media (max-width: 480px) { .container { padding: 16px 12px; } .nfc-card { padding: 20px 16px; } h1 { font-size: 28px; } .nfc-btn, .nfc-supplement-btn { font-size: 20px; padding: 18px 20px; } }
+  </style>
+${channel.platform === 'line' ? '<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>' : ''}
+</head>
+<body><div class="container">
+<nav><select id="languageSwitch" aria-label="Language">${languageOptions(locale)}</select></nav>
+  <section class="nfc-card">
+    <h1>${texts.heading}</h1>
+    <p class="nfc-subtitle">${texts.subheading}</p>
+    <div id="nfcFieldBadge" class="nfc-field-badge">${texts.fieldLabel}<span id="nfcFieldName">${fieldCodeDisplay}</span></div>
+    <p id="nfcStatus" class="nfc-status" role="status" aria-live="polite">${texts.statusPreparing}</p>
+  </section>
+  <section id="nfcSuccessCard" class="nfc-card" hidden>
+    <div class="nfc-checkmark-wrap" aria-hidden="true"><span class="nfc-checkmark">✓</span></div>
+    <h2 class="nfc-success-title">${texts.successHeading}</h2>
+    <p id="nfcSuccessDetail" class="nfc-desc">${texts.successDesc}</p>
+    <a id="nfcSupplementLink" class="nfc-supplement-btn" href="${supplementHref}">${texts.supplementMethods}</a>
+  </section>
+  <section id="nfcGpsCard" class="nfc-card">
+    <h2>${texts.gpsHeading}</h2>
+    <div id="nfcGpsNotice" class="nfc-guide-card">
+      <p class="nfc-guide-text">${texts.gpsGuide}</p>
+    </div>
+    <button id="nfcGpsButton" type="button" class="nfc-btn">${texts.gpsButton}</button>
+    <div id="nfcGpsErrorNotice" class="nfc-error-card" hidden>
+      <p id="nfcGpsErrorText" class="nfc-error-text">${texts.gpsDenied}</p>
+      <button id="nfcRetryBtn" type="button" class="nfc-retry-btn">${texts.retryButton}</button>
+    </div>
+  </section>
+  <div class="nfc-switch-wrap">
+    <a id="nfcManualSwitchLink" class="nfc-secondary-link" href="${supplementHref}">${texts.manualCheckin}</a>
+  </div>
+  <footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer>
+</div><script>
+  ${
+    channel.platform === 'line'
+      ? lineLoginScript(channel.liffId, locale) + "\nconst token='';"
+      : `const tg = ${channel.platform === 'telegram' ? 'window.Telegram?.WebApp' : 'undefined'};
+  if (tg) { tg.ready(); tg.expand(); }
+  const token = location.hash.slice(1);
+  history.replaceState(null, '', location.pathname);`
+  }
+  const params = new URLSearchParams(location.search);
+  const fieldCode = params.get('field') || ${JSON.stringify(options.field ?? '')};
+  const status = document.getElementById('nfcStatus');
+  const gpsCard = document.getElementById('nfcGpsCard');
+  const successCard = document.getElementById('nfcSuccessCard');
+  const gpsErrorNotice = document.getElementById('nfcGpsErrorNotice');
+  const gpsErrorText = document.getElementById('nfcGpsErrorText');
+  const gpsButton = document.getElementById('nfcGpsButton');
+  const retryBtn = document.getElementById('nfcRetryBtn');
+
+  const postAttendance = async (coords) => {
+    status.textContent = ${JSON.stringify(texts.submitting)};
+    const response = await fetch('/${channel.platform}/checkin/field', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ${channel.platform === 'line' ? 'idToken' : 'token'},
+        locale: ${JSON.stringify(locale)},
+        field: fieldCode,
+        latitude: coords.latitude,
+        longitude: coords.longitude
+      })
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message || ${JSON.stringify(texts.failed)});
+    }
+    return response.json();
+  };
+
+  const onGpsSuccess = async (position) => {
+    try {
+      await postAttendance(position.coords);
+      if (gpsCard) gpsCard.hidden = true;
+      if (successCard) successCard.hidden = false;
+      status.textContent = ${JSON.stringify(texts.completed)};
+    } catch (error) {
+      status.textContent = error.message;
+      if (gpsErrorNotice) gpsErrorNotice.hidden = false;
+      if (gpsErrorText) gpsErrorText.textContent = error.message;
+    }
+  };
+
+  const onGpsError = (err) => {
+    if (gpsErrorNotice) gpsErrorNotice.hidden = false;
+    let message = ${JSON.stringify(texts.gpsDenied)};
+    if (err && err.code === 2) {
+      message = ${JSON.stringify(texts.gpsUnavailable)};
+    } else if (err && err.code === 3) {
+      message = ${JSON.stringify(texts.gpsTimeout)};
+    }
+    if (gpsErrorText) gpsErrorText.textContent = message;
+    status.textContent = message;
+  };
+
+  const triggerGps = () => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      onGpsError({ code: 2, message: ${JSON.stringify(texts.gpsUnavailable)} });
+      return;
+    }
+    if (gpsErrorNotice) gpsErrorNotice.hidden = true;
+    status.textContent = ${JSON.stringify(texts.locating)};
+    navigator.geolocation.getCurrentPosition(onGpsSuccess, onGpsError, {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0
+    });
+  };
+
+  if (gpsButton) gpsButton.addEventListener('click', triggerGps);
+  if (retryBtn) retryBtn.addEventListener('click', triggerGps);
+
+  ${
+    channel.platform === 'line'
+      ? `lineReady.then(() => { triggerGps(); }).catch(error => { status.textContent = error.message; });`
+      : `triggerGps();`
+  }
+  ${languageSwitchScript(channel.platform, locale)}
+</script></body></html>`;
+};
+
+export const renderCheckinPage = (
+  channel: LearnerPageChannel & { query?: CheckinPageQuery },
+  query?: CheckinPageQuery
+) => {
+  const resolvedQuery = query ?? ('query' in channel ? channel.query : undefined);
+  if (isNfcTouchQuery(resolvedQuery)) {
+    return renderNfcCheckinPage(channel, parseCheckinQuery(resolvedQuery));
+  }
   const locale = channel.locale ?? 'zh_TW';
   const texts = pageTexts(channel);
   const t = (key: LearnerTextKey) => texts[key];

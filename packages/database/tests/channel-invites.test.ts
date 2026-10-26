@@ -27,10 +27,15 @@ suite('Additive46to47 invitation upgrade preservation', () => {
   it('preserves all86 old tables, security metadata and other functions with worker/runtime gates unchanged', async () => {
     const database = await createIsolatedTestDatabase(base!);
     const old = await mkdtemp(path.join(tmpdir(), 'channel-before46-'));
+    const invitation = await mkdtemp(path.join(tmpdir(), 'channel-at47-'));
     try {
-      for (const file of await readdir(directory))
+      // This historical upgrade promises only 0047's additive changes, not later venue SQL.
+      for (const file of await readdir(directory)) {
         if (file.endsWith('.sql') && file < '0047_')
           await copyFile(path.join(directory, file), path.join(old, file));
+        if (file.endsWith('.sql') && file < '0048_')
+          await copyFile(path.join(directory, file), path.join(invitation, file));
+      }
       await runMigrations(database.pool, old, 'channel-before46');
       await database.pool.query(
         "INSERT INTO identity.people(preferred_name) VALUES('Synthetic preserved learner')"
@@ -74,10 +79,10 @@ suite('Additive46to47 invitation upgrade preservation', () => {
       const before = await fingerprints(),
         beforeSecurity = await security(),
         beforeFunctions = await functions();
-      expect((await runMigrations(database.pool, directory, 'channel-expand47')).applied).toEqual([
+      expect((await runMigrations(database.pool, invitation, 'channel-expand47')).applied).toEqual([
         '0047_channel_invitations.sql'
       ]);
-      expect((await runMigrations(database.pool, directory, 'channel-repeat47')).applied).toEqual(
+      expect((await runMigrations(database.pool, invitation, 'channel-repeat47')).applied).toEqual(
         []
       );
       expect(await fingerprints()).toEqual(before);
@@ -100,6 +105,7 @@ suite('Additive46to47 invitation upgrade preservation', () => {
     } finally {
       await database.dispose();
       await rm(old, { recursive: true, force: true });
+      await rm(invitation, { recursive: true, force: true });
     }
   });
 });

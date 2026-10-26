@@ -2,7 +2,10 @@ import { localeSchema } from './ui-localization.js';
 import { adminContentSecurityPolicy } from './admin-branding.js';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { withRequestContext, type Pool } from '@qigong/database';
+import { runVenueAttendanceAdminOperation, withRequestContext, type Pool } from '@qigong/database';
+import { createVenueAdminService, type VenueAdminService } from './venue-admin-service.js';
+import { registerVenueQrAdminRoutes } from './venue-qr-admin.js';
+import type { VenueQrConfig } from './venue-qr.js';
 import { z } from 'zod';
 import { accessCookie, registerAdminAccessRoutes } from './admin-access.js';
 import { renderReviewPage } from './admin-pages.js';
@@ -14,6 +17,8 @@ import { registerAdminLineInvites } from './admin-line-invite-routes.js';
 import { registerAdminChannelInvites } from './admin-channel-invite-routes.js';
 import type { InviteTransports } from './channel-invites.js';
 import { registerReviewNotificationRoutes } from './admin-review-notification-routes.js';
+import { registerAdminFieldRoutes } from './admin-field-routes.js';
+import { registerAdminAttendanceRoutes } from './admin-attendance-routes.js';
 import {
   adminLocaleCookie,
   adminNameColumn,
@@ -38,6 +43,52 @@ export interface AdminAuthProvider {
   ): Promise<{ iss: string; sub: string; name?: string; verifiedEmail?: string }>;
   callbackUrl: string;
 }
+
+// Schema introduction and quarantine are not evidence of trusted feature capability.
+export const nfcMigrationVersion = '0048_practice_fields_and_nfc_attendance.sql';
+export const nfcQuarantineMigrationVersion = '0049_nfc_attendance_security_quarantine.sql';
+
+// Deliberate opt-in only. This gate is not an identity or authorization boundary.
+export const isNfcEnabled = () => process.env.NFC_FIELD_CHECKIN_ENABLED === 'true';
+
+export const checkNfcFeatureReadiness = async (pool: Pool) => {
+  try {
+    return await withRequestContext(
+      pool,
+      'qigong_api_runtime',
+      { requestId: crypto.randomUUID() },
+      async (client) => {
+        const migration = await client.query<{ version: string }>(
+          'SELECT version FROM public.schema_migrations ORDER BY version DESC LIMIT 1'
+        );
+        const version = migration.rows[0]?.version;
+        if (version === nfcQuarantineMigrationVersion)
+          return { ready: false as const, reason: 'nfc_security_quarantined' as const };
+        if (version !== nfcMigrationVersion)
+          return { ready: false as const, reason: 'nfc_schema_not_ready' as const };
+        // 0048 lacks trusted identity, privacy and per-operation scoped authorization.
+        // Never infer feature readiness from a version, SELECT privilege or index probe.
+        // No supported version can enable NFC until the complete trusted flow is reviewed.
+        return { ready: false as const, reason: 'nfc_authorization_unavailable' as const };
+      }
+    );
+  } catch {
+    return { ready: false as const, reason: 'nfc_schema_not_ready' as const };
+  }
+};
+
+export const registerNfcFeature = (
+  app: FastifyInstance,
+  pool: Pool,
+  register: (scope: FastifyInstance) => void
+) => {
+  if (!isNfcEnabled()) return;
+  app.register(async (scope) => {
+    const readiness = await checkNfcFeatureReadiness(pool);
+    if (!readiness.ready) throw new Error(readiness.reason);
+    register(scope);
+  });
+};
 
 const sessionCookie = '__Host-qigong-admin';
 const csrfCookie = '__Host-qigong-admin-csrf';
@@ -69,7 +120,8 @@ export const registerAdminRoutes = (
   pool: Pool,
   provider: AdminAuthProvider,
   lineLiffId?: string,
-  inviteTransports: InviteTransports = {}
+  inviteTransports: InviteTransports = {},
+  venueQr?: VenueQrConfig
 ) => {
   app.get('/admin/auth/login', async (request, reply) => {
     const state = token();
@@ -516,6 +568,91 @@ export const registerAdminRoutes = (
     );
   });
 
+  // Credentials never leave this private cookie boundary. Every supported route
+  // operation revalidates session + action + region through the controlled runner.
+  const venueAdminServiceFor = (request: FastifyRequest): VenueAdminService =>
+    createVenueAdminService(async (operation) => {
+      const values = cookies(request);
+      const session = values[sessionCookie];
+      // Match token()'s 32-byte base64url output, not a caller-supplied UUID.
+      // Ambiguous duplicate cookies must not choose an identity by ordering.
+      const count = (name: string) =>
+        (request.headers.cookie ?? '')
+          .split(';')
+          .filter((item) => item.trim().startsWith(`${name}=`)).length;
+      if (!session || !/^[A-Za-z0-9_-]{43}$/.test(session) || count(sessionCookie) !== 1)
+        return { ok: false, error: 'unauthenticated' };
+      if (operation.operation === 'field.write') {
+        const csrf = request.headers['x-csrf-token'];
+        const saved = values[csrfCookie];
+        if (
+          !['POST', 'PUT', 'PATCH'].includes(request.method) ||
+          typeof csrf !== 'string' ||
+          !/^[A-Za-z0-9_-]{43}$/.test(csrf) ||
+          !saved ||
+          count(csrfCookie) !== 1 ||
+          !timingSafeEqual(sha256(csrf), sha256(saved))
+        )
+          return { ok: false, error: 'invalid_csrf' };
+      }
+      // No prior principal/capability is trusted or cached. The runner resolves
+      // the session and 0050 rechecks the operation + region in each transaction.
+      return runVenueAttendanceAdminOperation(pool, request.id, session, operation);
+    });
+
+  if (venueQr?.enabled) {
+    registerVenueQrAdminRoutes(
+      app,
+      pool,
+      (request) => {
+        const values = cookies(request);
+        const session = values[sessionCookie];
+        const saved = values[csrfCookie];
+        const csrf = request.headers['x-csrf-token'];
+        const count = (name: string) =>
+          (request.headers.cookie ?? '')
+            .split(';')
+            .filter((part) => part.trim().startsWith(name + '=')).length;
+        if (
+          request.headers.origin !== venueQr.publicOrigin ||
+          !session ||
+          !/^[A-Za-z0-9_-]{43}$/.test(session) ||
+          count(sessionCookie) !== 1 ||
+          !saved ||
+          count(csrfCookie) !== 1 ||
+          typeof csrf !== 'string' ||
+          !/^[A-Za-z0-9_-]{43}$/.test(csrf) ||
+          !timingSafeEqual(sha256(csrf), sha256(saved))
+        )
+          return null;
+        return session;
+      },
+      principalFor
+    );
+  }
+
+  registerNfcFeature(app, pool, (scope) => {
+    registerAdminFieldRoutes(
+      scope,
+      pool,
+      principalFor,
+      (request) => {
+        const value = request.headers['x-csrf-token'],
+          saved = cookies(request)[csrfCookie];
+        return (
+          typeof value === 'string' &&
+          typeof saved === 'string' &&
+          saved.length > 0 &&
+          timingSafeEqual(sha256(value), sha256(saved))
+        );
+      },
+      lineLiffId,
+      venueAdminServiceFor
+    );
+
+    registerAdminAttendanceRoutes(scope, pool, principalFor, lineLiffId, venueAdminServiceFor);
+  });
+
   app.post('/admin/auth/logout', async (request, reply) => {
     const values = cookies(request);
     const csrf = request.headers['x-csrf-token'];
@@ -544,4 +681,6 @@ export const registerAdminRoutes = (
       ])
       .send({ ok: true });
   });
+
+  return Object.freeze({ venueAdminServiceFor });
 };

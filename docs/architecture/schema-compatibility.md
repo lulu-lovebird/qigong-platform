@@ -1,5 +1,15 @@
 # Schema Compatibility Release Contract
 
+## Venue local integration candidate (not deployed)
+
+On `feature/venue-attendance-qr`, local integration from `b65d142` merges `origin/main@156d7dc` as `b88c942`. Published repository migration `0047_channel_invitations.sql` and all earlier SQL/checksums remain immutable. Only the four unpublished venue artifacts move from0047–0050 to0048–0051; this is not a ledger rewrite or permission to migrate an existing database. Their original-number SQL comments remain historical source annotations.
+
+API minimum remains exact filename `0042_activity_consecutive_drafts.sql`; maximum is `0051_venue_qr_attendance.sql`, with an additional **full-filename allowlist**, not a numeric/prefix range. Default-off accepts known0042–0046, invitation0047, venue baseline0048, quarantine0049 and QR0051. Denial-only venue0050 and all unknown filenames (including same-number future names) fail closed. QR enabled accepts only exact0051 plus runtime-role preflight; the old NFC gate never becomes ready. Invitation capability detection, guarded onboarding and privacy-safe diagnostics from main remain intact.
+
+Fresh synthetic PG17 verification applies all51 migrations before fixtures, reruns with zero additions and checks empty deployment regions/venues/consents plus invitation forced RLS. The pre-existing phone-only0050 cluster is neither production deployment evidence nor a migration target; it was not inspected, upgraded or restarted. True LINE/mobile acceptance, production compatibility/backup/restore review and deployment are separately gated. See [mapping, local verification and PR summary](../operations/venue-renumber-integration.md).
+
+The production descriptions below are preserved upstream historical handoff claims, **not reverified by this local-only integration**.
+
 Current production is **b5731b9929549f98d2bc079f7e8d12579914dbd1 / unchanged schema46 / API min42–max46 / original phase27 workers**. The latest release changes only WA completion styling (exact-SHA CI39927124131/1411tests); its predecessor e244 added consented LINE Help images. Both preserve the user-configured LINE menu, original rules/CSV/history, configured WA environment, notifications and operator FALSE; see [same46 final restore, asset and edge-cache evidence](../operations/learner-help-pages.md). The preceding96 text-Help and a24 alias releases are historical. Operator control remainsFALSE; no new runtime version or award transition was registered. Retain46 and all new writes/fix forward, without42 binary downgrade or old-snapshot restore. All0001–0046 migrations are now immutable. Earlier sections preserve historical checkpoints, not present recovery authorization. See [A/B/C deployment, actual final restore and compatible42 precursor evidence](../operations/achievement-versioned-deployment.md). Gate enable and individual publication remain separately unapproved.
 
 Every deployable application version declares:

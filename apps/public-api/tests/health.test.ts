@@ -1,10 +1,38 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Pool } from 'pg';
-import { buildApp, maximumMigrationVersion } from '../src/app.js';
+import {
+  buildApp,
+  checkStartupReadiness,
+  minimumMigrationVersion,
+  maximumMigrationVersion
+} from '../src/app.js';
+import { nfcMigrationVersion, nfcQuarantineMigrationVersion } from '../src/admin-auth.js';
 
-const createPoolMock = (version = maximumMigrationVersion, preflightReady = true) => {
+beforeEach(() => {
+  vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', undefined);
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => {
+      throw new Error('External API calls are forbidden in these isolated tests');
+    })
+  );
+});
+afterEach(() => {
+  expect(fetch).not.toHaveBeenCalled();
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
+
+const createPoolMock = (
+  version: string | null = maximumMigrationVersion,
+  preflightReady = true
+) => {
   const query = vi.fn(async (queryText: string) => {
-    if (queryText.includes('schema_migrations')) return { rows: [{ version }] };
+    // Readiness must never probe NFC relations, even with LIMIT 0 or missing permissions.
+    if (/core\.(practice_fields|field_attendance)|pg_index/.test(queryText)) {
+      throw new Error('NFC table and index probes are forbidden');
+    }
+    if (queryText.includes('schema_migrations')) return { rows: version ? [{ version }] : [] };
     if (queryText.includes('FROM pg_roles')) {
       return {
         rows: [
@@ -28,32 +56,50 @@ const createPoolMock = (version = maximumMigrationVersion, preflightReady = true
       throw new Error('permission denied to set role');
     }
     if (queryText.includes('identity.people')) return { rows: [], rowCount: 0 };
-    return { rows: [{ '?column?': 1 }] };
+    return { rows: [] };
   });
   const client = { query, release: vi.fn() };
+  const directQuery = vi.fn(async (sql: string) => {
+    if (sql !== 'SELECT 1') throw new Error('Unexpected direct pool query');
+    return { rows: [{ '?column?': 1 }] };
+  });
+  const connect = vi.fn(async () => client);
   return {
-    query: vi.fn(async (queryText: string) => {
-      if (queryText.includes('schema_migrations')) return { rows: [{ version }] };
-      return { rows: [{ '?column?': 1 }] };
-    }),
-    connect: vi.fn(async () => client)
-  } as unknown as Pool;
+    pool: { query: directQuery, connect } as unknown as Pool,
+    client,
+    directQuery,
+    connect
+  };
 };
+
+const expectNoNfcAccess = (mock: ReturnType<typeof createPoolMock>) => {
+  for (const [sql] of mock.client.query.mock.calls) {
+    expect(sql).not.toMatch(/core\.(practice_fields|field_attendance)|pg_index/);
+  }
+  expect(mock.directQuery.mock.calls.every(([sql]) => sql === 'SELECT 1')).toBe(true);
+};
+
+const enabledFailures = [
+  ['0046_achievement_evaluation_and_readers.sql', 'nfc_schema_not_ready'],
+  [nfcMigrationVersion, 'nfc_authorization_unavailable'],
+  [nfcQuarantineMigrationVersion, 'nfc_security_quarantined']
+] as const;
 
 describe('health endpoints', () => {
   it('reports liveness without checking dependencies', async () => {
-    const pool = createPoolMock();
-    const app = buildApp({ pool, serviceVersion: 'test', logger: false });
+    const mock = createPoolMock();
+    const app = buildApp({ pool: mock.pool, serviceVersion: 'test', logger: false });
     const response = await app.inject({ method: 'GET', url: '/health/live' });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ ok: true, version: 'test' });
     expect(response.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
-    expect(Reflect.get(pool, 'query')).not.toHaveBeenCalled();
+    expect(mock.directQuery).not.toHaveBeenCalled();
+    expect(mock.connect).not.toHaveBeenCalled();
     await app.close();
   });
 
   it('accepts only UUID request IDs', async () => {
-    const app = buildApp({ pool: createPoolMock(), logger: false });
+    const app = buildApp({ pool: createPoolMock().pool, logger: false });
     const valid = '123e4567-e89b-42d3-a456-426614174000';
     const accepted = await app.inject({
       method: 'GET',
@@ -70,27 +116,139 @@ describe('health endpoints', () => {
     await app.close();
   });
 
-  it('reports readiness when database and migrations are current', async () => {
-    const app = buildApp({ pool: createPoolMock(), logger: false });
-    const response = await app.inject({ method: 'GET', url: '/health/ready' });
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ ok: true });
-    await app.close();
+  it.each([
+    minimumMigrationVersion,
+    '0043_achievement_rule_versions.sql',
+    '0044_achievement_publication_candidates.sql',
+    '0045_versioned_achievement_runtime.sql',
+    '0046_achievement_evaluation_and_readers.sql',
+    '0047_channel_invitations.sql',
+    nfcMigrationVersion,
+    nfcQuarantineMigrationVersion
+  ])('accepts %s at startup and health without NFC access when off', async (version) => {
+    const mock = createPoolMock(version);
+    const app = buildApp({ pool: mock.pool, logger: false });
+    try {
+      await expect(app.ready()).resolves.toBe(app);
+      expect(mock.connect).not.toHaveBeenCalled();
+      expect(await checkStartupReadiness(mock.pool)).toMatchObject({
+        ready: true,
+        migration: { currentVersion: version, minimumVersion: minimumMigrationVersion }
+      });
+      const response = await app.inject('/health/ready');
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ ok: true, migration: { currentVersion: version } });
+      expect((await app.inject('/health/live')).statusCode).toBe(200);
+      expect((await app.inject('/api/v1/fields/active')).statusCode).toBe(404);
+      expect(
+        (await app.inject({ method: 'POST', url: '/api/v1/field-checkin', payload: {} })).statusCode
+      ).toBe(404);
+      expectNoNfcAccess(mock);
+    } finally {
+      await app.close();
+    }
   });
 
-  it('fails readiness before runtime RLS is installed', async () => {
-    const app = buildApp({ pool: createPoolMock('0002_identity_region_rbac.sql'), logger: false });
-    const response = await app.inject({ method: 'GET', url: '/health/ready' });
-    expect(response.statusCode).toBe(503);
-    expect(response.json()).toMatchObject({ reason: 'schema_version_mismatch' });
-    await app.close();
-  });
+  it.each(enabledFailures)(
+    'rejects explicit NFC in startup preflight and buildApp for %s as %s',
+    async (version, reason) => {
+      vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
+      const mock = createPoolMock(version);
+      expect(await checkStartupReadiness(mock.pool)).toMatchObject({ ready: false, reason });
+      const app = buildApp({ pool: mock.pool, logger: false });
+      try {
+        await expect(app.ready()).rejects.toThrow(reason);
+        expect(app.hasRoute({ method: 'GET', url: '/api/v1/fields/active' })).toBe(false);
+        expect(app.hasRoute({ method: 'POST', url: '/api/v1/field-checkin' })).toBe(false);
+        expectNoNfcAccess(mock);
+        expect(mock.directQuery).not.toHaveBeenCalled();
+        expect(mock.client.query).toHaveBeenCalledWith('SET LOCAL ROLE qigong_api_runtime');
+        expect(mock.client.release).toHaveBeenCalledTimes(mock.connect.mock.calls.length);
+      } finally {
+        await app.close();
+      }
+    }
+  );
+
+  it.each(enabledFailures)(
+    'health fails closed if NFC is enabled after default-off startup on %s',
+    async (version, reason) => {
+      const mock = createPoolMock(version);
+      const app = buildApp({ pool: mock.pool, logger: false });
+      try {
+        await app.ready();
+        vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', 'true');
+        const response = await app.inject('/health/ready');
+        expect(response.statusCode).toBe(503);
+        expect(response.json()).toMatchObject({ ok: false, reason });
+        expect((await app.inject('/api/v1/fields/active')).statusCode).toBe(404);
+        expectNoNfcAccess(mock);
+      } finally {
+        await app.close();
+      }
+    }
+  );
+
+  it.each([undefined, 'true'])(
+    'rejects unknown future schema versions with NFC setting %s',
+    async (setting) => {
+      vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', setting);
+      for (const version of [
+        '0042_future.sql',
+        '0046_future.sql',
+        '0047_future.sql',
+        '0048_future.sql',
+        '0048_z_future.sql',
+        '0049_future.sql',
+        '0050_venue_attendance_security_contract.sql',
+        '0050_other.sql',
+        '0051_other.sql',
+        '0051_z_future.sql',
+        '0052_future.sql'
+      ]) {
+        const mock = createPoolMock(version);
+        expect(await checkStartupReadiness(mock.pool)).toMatchObject({
+          ready: false,
+          reason: 'schema_version_mismatch',
+          migration: { ready: false }
+        });
+        const app = buildApp({ pool: mock.pool, logger: false });
+        try {
+          if (setting === 'true') {
+            await expect(app.ready()).rejects.toThrow('nfc_schema_not_ready');
+          } else {
+            const response = await app.inject('/health/ready');
+            expect(response.statusCode).toBe(503);
+            expect(response.json()).toMatchObject({ reason: 'schema_version_mismatch' });
+          }
+          expectNoNfcAccess(mock);
+        } finally {
+          await app.close();
+        }
+      }
+    }
+  );
+
+  it.each([null, '0002_identity_region_rbac.sql', '0041_independent_activity_drafts.sql'])(
+    'preserves the minimum schema policy for %s',
+    async (version) => {
+      const mock = createPoolMock(version);
+      const app = buildApp({ pool: mock.pool, logger: false });
+      const response = await app.inject('/health/ready');
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toMatchObject({ reason: 'schema_version_mismatch' });
+      expectNoNfcAccess(mock);
+      await app.close();
+    }
+  );
 
   it('fails readiness when the login cannot assume the API runtime role', async () => {
-    const app = buildApp({ pool: createPoolMock(maximumMigrationVersion, false), logger: false });
-    const response = await app.inject({ method: 'GET', url: '/health/ready' });
+    const mock = createPoolMock(maximumMigrationVersion, false);
+    const app = buildApp({ pool: mock.pool, logger: false });
+    const response = await app.inject('/health/ready');
     expect(response.statusCode).toBe(503);
     expect(response.json()).toMatchObject({ reason: 'database_unavailable' });
+    expectNoNfcAccess(mock);
     await app.close();
   });
 });
