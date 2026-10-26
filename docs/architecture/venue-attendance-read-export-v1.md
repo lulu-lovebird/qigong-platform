@@ -18,9 +18,9 @@ Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 ## 安全資料面
 
 新 forward migration 保留 FORCE RLS；專用 NOLOGIN/NOBYPASSRLS 非表 owner 函式角色只持必要 column SELECT／INSERT，無 membership，session login 無直接表權限。
-0047–0049 不改寫；0048 deny-all 僅由新 reviewed SELECT／verified INSERT policies 取代，UPDATE／DELETE 仍拒絕。舊 NFC gate 與危險路由不開。
+已發布 invitation 0047 不改寫；未部署 venue 0047–0050 已順延為 0048–0051，前三份 SQL 位元組不改寫。0049 deny-all 僅由新 reviewed SELECT／verified INSERT policies 取代，UPDATE／DELETE 仍拒絕。舊 NFC gate 與危險路由不開。
 
-LINE ID token 先經原 verifier 的 issuer/audience/expiry 與官方驗證，0049 resolver 映射 active/approved/channel identity；寫入交易重新驗身份、同意、場地 active、當地時段與半徑。客戶不得提供 personId/checkinId；唯一鍵衝突重播已存在成功。
+LINE ID token 先經原 verifier 的 issuer/audience/expiry 與官方驗證，0050 resolver 映射 active/approved/channel identity；寫入交易重新驗身份、同意、場地 active、當地時段與半徑。客戶不得提供 personId/checkinId；唯一鍵衝突重播已存在成功。
 
 管理功能每次使用私有 admin cookie → 真 session → principal → region+operation permission，CSV 另需 CSRF 並稽核；不擴大既有私人心得權限。
 
@@ -28,5 +28,5 @@ LINE ID token 先經原 verifier 的 issuer/audience/expiry 與官方驗證，00
 
 ## 驗證與發布
 
-預設功能關閉，只有 server 配置可啟用；URL 無 mode/test/bypass。readiness 僅接受精確新 migration。
+預設功能關閉，只有 server 配置可啟用；URL 無 mode/test/bypass。QR enabled readiness 僅接受精確 `0051_venue_qr_attendance.sql`；default-off 接受完整檔名白名單（含 invitation 0047、venue 0048／0049／0051），不接受 denial-only 0050 或任意同前綴 future。
 本地 mock／SQL 靜態測試不等於 PG RLS／ACL／並行已驗證。操作與實測結果見 `docs/operations/venue-qr-checkin.md`（本實作後續批次交付）。手機、真 LINE、部署與父代理安全審查另行完成。

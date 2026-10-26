@@ -5,14 +5,16 @@ Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 
 ## 狀態：Node 24／隔離 PostgreSQL 已通過，真 LINE／手機尚未驗證
 
+現行編號為 venue 0048–0051；已發布 invitation 0047 不動。原 venue 0047–0050 未部署，經核准更名；前三份 SQL 位元組未變，舊編號的 SQL comments 保留作原版本來源。0051 的空表錯誤訊息同步新編號。完整映射、合併與驗證見 [本地整合紀錄](venue-renumber-integration.md)。以下開發起點敘述屬原實作歷史。
+
 開始於乾淨 `b3a61bc`，唯一實作者為父 checkout；沒有開代理、部署、push、讀 .env／機密、連正式或未知 DB／外部 API、修改依賴／lockfile／global config、刪 worktree。
 
 本次實作不是 deny-only stub：
 
-- `/api/line/venue-checkin` 真正組裝既有 LINE verifier、0049 identity resolver、privacy adapter 與 `platform.venue_qr_checkin`。寫入交易再次查身份／同意／場地 active、場地當地時間窗與半徑；只接受 token、venue code、當次位置，不接受 personId/checkinId。
-- 新 0050 forward migration 保留 FORCE RLS，非表 owner／NOLOGIN／NOBYPASSRLS／無 membership 的 writer/reader 僅有必要 column 權限；runtime/session 無兩表直接權限。原 0047–0049 檔案完全未變。
-- 替換 0048 deny-all 為明確 SELECT／verified INSERT policies；UPDATE／DELETE restrictive deny 保留。舊 NFC 路由與 gate 不開；0049 metadata/write 拒絕契約也沒有偷換成管理 CRUD。
-- 0049 resolver 由 0050 forward replacement 改為 wall-clock validity；原非 owner 身份角色、最小欄位 ACL 與 RLS 保留。不是修改既有 migration 檔案。
+- `/api/line/venue-checkin` 真正組裝既有 LINE verifier、0050 identity resolver、privacy adapter 與 `platform.venue_qr_checkin`。寫入交易再次查身份／同意／場地 active、場地當地時間窗與半徑；只接受 token、venue code、當次位置，不接受 personId/checkinId。
+- 新 0051 forward migration 保留 FORCE RLS，非表 owner／NOLOGIN／NOBYPASSRLS／無 membership 的 writer/reader 僅有必要 column 權限；runtime/session 無兩表直接權限。現行 0048–0050 僅由原 venue 0047–0049 更名，SQL 位元組未變。
+- 替換 0049 deny-all 為明確 SELECT／verified INSERT policies；UPDATE／DELETE restrictive deny 保留。舊 NFC 路由與 gate 不開；0050 metadata/write 拒絕契約也沒有偷換成管理 CRUD。
+- 0050 resolver 由 0051 forward replacement 改為 wall-clock validity；原非 owner 身份角色、最小欄位 ACL 與 RLS 保留。不是修改既有 migration 檔案。
 - 同人同場當地日期唯一；跨場計次，日數對 local date 去重，跨區／跨國出席不按 home region 拒絕。GPS／日課連結／心得欄位保留 NULL，不新增或修改日課。
 - 唯一衝突回原成功時間／日期；**每次 replay 仍須通過當下身份、同意、active、時段、半徑**。過了時段或離場的重試不會新增或假稱成功。
 - LIFF 成功畫面顯示可信場地名稱／時間／時區，提醒「記錄今天功法與感受」，提供 `/line/checkin?lang=…`。不自動建立日課。網路結果不明時明說可能已記錄、可冪等重試。
@@ -33,7 +35,7 @@ NFC_FIELD_CHECKIN_ENABLED=false
 
 Origin 必須精確 HTTPS origin，不帶 path／尾斜線。原 LINE 四個設定 `LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、`LINE_LOGIN_CHANNEL_ID`、`LINE_LIFF_ID` 及既有 admin OIDC、`DATABASE_URL` 仍沿用現有安全配置，不在本文件填寫憑證。
 
-- QR enabled 的 startup／health 必須是精確 `0050_venue_qr_attendance.sql`，不是任意 0050／0049／future；並通過既有 NOINHERIT session role preflight。default-off 也接受精確 0050（0049／任意 future 仍拒絕），使 migration 後仍可關閉功能、使用 preview／日課；這不授予 NFC capability。
+- QR enabled 的 startup／health 必須是精確 `0051_venue_qr_attendance.sql`，不是任意 0051／0050／future；並通過既有 NOINHERIT session role preflight。default-off 也接受精確 0051（0050／任意 future 仍拒絕），使 migration 後仍可關閉功能、使用 preview／日課；這不授予 NFC capability。
 - `buildApp` 的 `venueQr: { enabled: true, publicOrigin }` 是同一 server-only dependency。production 無 mock verifier、假身份或 URL bypass。測試只在 test code 注入 LINE mock。
 - 正式啟動指令仍為既有 `pnpm build`、`pnpm --filter @qigong/public-api start`。**本次沒有執行 start、migration CLI、部署或網路代理。** 不要以本文件取代隔離 PG／Node24／安全審查。
 - 原始 GPS 只有 JSON POST 參數；API 不記 body，logger 亦 redacts `req.body`／URL，parser/size 錯誤固定回覆、不記診斷。運維還須保證 reverse proxy/APM 不擷取 request body，PG `log_parameter_max_length=0`、`log_parameter_max_length_on_error=0`，不開參數／封包／crash dump 收集；不能宣稱應用碼控制了外部服務記錄。
@@ -59,7 +61,7 @@ primary 不提前定位／提交；未知／重複／惡意應用參數仍拒絕
 
 ## 全新場地／合成資料
 
-0050 只接受全新空 attendance／venue；不做 legacy scope、日期回填或未知資料遷移。若已有資料應停止並另審，不刪資料來繞過。
+0051 只接受全新空 attendance／venue；不做 legacy scope、日期回填或未知資料遷移。若已有資料應停止並另審，不刪資料來繞過。
 
 場地配置需包含 `region_id`、唯一 `code`、`name_zh_tw`、場地 latitude/longitude、半徑 1–5000m、IANA timezone、`is_active` 及：
 
@@ -104,9 +106,11 @@ PATH="/opt/homebrew/opt/node@24/bin:/opt/homebrew/opt/postgresql@17/bin:$PATH" \
   bash scripts/test-venue-qr-local-pg.sh
 ```
 
-遷移身份須具備建立隔離角色、設定 owner 及取代既有專用角色所擁函式的能力；一般 API login 不適用。正式環境需由 DBA 確認授權，不能僅假定資料庫 owner 即有跨角色權限。不要預先建立 `qigong_venue_qr_writer`／`qigong_venue_qr_reader`；0050 刻意拒絕重用未知角色。
+遷移身份須具備建立隔離角色、設定 owner 及取代既有專用角色所擁函式的能力；一般 API login 不適用。正式環境需由 DBA 確認授權，不能僅假定資料庫 owner 即有跨角色權限。不要預先建立 `qigong_venue_qr_writer`／`qigong_venue_qr_reader`；0051 刻意拒絕重用未知角色。
 
-## 批次提交及實際測試
+## 批次提交及實際測試（重編號前歷史）
+
+本節 SHA、編號與測試數字是當時實際紀錄，保留不改寫；現行版本及結果以本地整合紀錄為準。
 
 每批 <=5 檔；每檔修改即測相關 suite、每批 configured Prettier 與測試後提交。SQL／shell 沒有既有 Prettier parser；SQL 是靜態契約檢查，shell 使用 `bash -n`。沒有安裝 formatter。
 

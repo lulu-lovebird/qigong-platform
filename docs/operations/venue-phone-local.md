@@ -3,7 +3,9 @@
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 
-## 2026-10-26 交付狀態：本機 running，HTTPS／真人 onboarding 被阻擋
+## 2026-10-26 交付快照（歷史，未重新探測）：本機 running，HTTPS／真人 onboarding 被阻擋
+
+本文件以下 PID／schema／URL／測試結果皆為 `86eef8a` 時點紀錄，不代表目前仍在運行。現行新建環境工具已改用 `0051_venue_qr_attendance.sql`（venue 原 0047–0050 → 0048–0051，另保留已發布 invitation 0047）。本次整合完全沒有連線、升級、重啟或清理下列舊 0050 手機 DB／程序；不得把它視作正式已部署 venue 的證據。後續重新建立環境須另核准，詳見 [本地整合紀錄](venue-renumber-integration.md)。
 
 **不要把 HTTPS 的 HTTP 200 當作簽到服務已就緒。** 此輪實際讀到的 Tailscale Serve 是 foreground `443 / → http://127.0.0.1:55043`，不是交接預期的 `3100`。
 以本機 `/usr/bin/curl` 正常驗證 TLS，`/line/` 與 QR 頁回 200，但 title 是 **OpenClaw Control**，body hash 不等於隔離 API；HTTPS `/health/ready` 回 404。

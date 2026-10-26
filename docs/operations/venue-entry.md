@@ -5,6 +5,8 @@ Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 
 ## 範圍與狀態
 
+以下為 `b65d142` 原交付紀錄；後續已本地合併 invitation／privacy 安全更新並重編號，未更新任何手機服務。現行 mapping 與驗證見 [本地整合紀錄](venue-renumber-integration.md)。
+
 基底 `86eef8a6c4b052dc5568af8e897cc32df5ec167f`，開始時工作區乾淨。已核准固定平台 URL 方案，本批唯一 writer 為父 checkout，只修改四檔：
 
 - `apps/public-api/src/venue-entry.ts`：公開入口、嚴格 parser、LINE chooser／redirect。
@@ -57,7 +59,7 @@ LIFF ID 只取既有完整 server LINE 配置，沿用安全字元 `[A-Za-z0-9-]
 
 ## 場地可信度與安全邊界
 
-已核對 0047／0050 schema、既有 admin read contract 與 `platform.venue_qr_checkin`：沒有已授權的匿名公開場地 lookup。本入口不接受 pool，不匿名 raw SELECT，不借用學員寫入函式查名稱，也不使用合成 fixture 或本地假 registry 當成可信資料。
+原實作已核對原編號 0047／0050 schema（現行未部署檔案更名為 0048／0051；歷史測試／SHA 不改寫），既有 admin read contract 與 `platform.venue_qr_checkin`：沒有已授權的匿名公開場地 lookup。本入口不接受 pool，不匿名 raw SELECT，不借用學員寫入函式查名稱，也不使用合成 fixture 或本地假 registry 當成可信資料。
 
 因此合法語法但未知的 code 只安全顯示「場地代碼（未驗證）」；明示名稱、存在性及停用狀態均未確認。不冒稱可信名稱／啟用／簽到成功，也不因前端 code 合法就授權寫入。最終由既有簽到 backend 驗證 identity／privacy、venue 存在且 active、時間窗與半徑；未知／停用場地不可簽到。若 server 未開真簽到，後段仍只是 preview。
 
