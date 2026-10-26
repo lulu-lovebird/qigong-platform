@@ -2,6 +2,8 @@
 import { readFile, readdir, realpath, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Pool } from 'pg';
+import Fastify from 'fastify';
+import { registerVenuePeopleRoutes } from '../src/venue-people-routes.js';
 import { withRequestContext } from '@qigong/database';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runMigrations } from '../../../packages/database/src/migrations.js';
@@ -76,6 +78,54 @@ const direct = (
         ]
       )
   );
+};
+
+const origin = 'https://synthetic.invalid';
+const httpApp = () => {
+  const app = Fastify({ logger: false, genReqId: () => crypto.randomUUID() });
+  registerVenuePeopleRoutes(app, {
+    config: { enabled: true, publicOrigin: origin },
+    service: createVenuePeopleService(runtime),
+    pagePrincipalFor: async (request) =>
+      withRequestContext(
+        runtime,
+        'qigong_api_runtime',
+        { requestId: request.id },
+        async (client) => {
+          const token =
+            request.headers.cookie?.match(
+              /(?:^|;\s*)__Host-qigong-admin=([A-Za-z0-9_-]{43})(?:;|$)/
+            )?.[1] ?? '';
+          return (
+            (
+              await client.query<{ principal: string | null }>(
+                'SELECT admin.session_principal($1) principal',
+                [token]
+              )
+            ).rows[0]?.principal ?? null
+          );
+        }
+      )
+  });
+  return app;
+};
+const httpRead = (
+  app: ReturnType<typeof httpApp>,
+  token = viewer,
+  exporting = false,
+  patch: Partial<VenuePeopleQuery> = {}
+) => {
+  const { from, until, ...rest } = query(patch);
+  return app.inject({
+    method: 'POST',
+    url: '/admin/venue-people/api/' + (exporting ? 'export' : 'read'),
+    headers: {
+      origin,
+      cookie: '__Host-qigong-admin=' + token + '; __Host-qigong-admin-csrf=' + 'c'.repeat(43),
+      'x-csrf-token': 'c'.repeat(43)
+    },
+    payload: { ...rest, period: { from, until } }
+  });
 };
 
 describe.skipIf(!directory)('venue people: isolated PG17 integrated 54 migrations', () => {
@@ -292,6 +342,58 @@ describe.skipIf(!directory)('venue people: isolated PG17 integrated 54 migration
       await owner.query('UPDATE admin.sessions SET revoked_at=NULL');
     }
   });
+  it('real HTTP cookie/session + CSRF flow preserves SQL authorization and scoped detail', async () => {
+    const app = httpApp();
+    try {
+      const list = await httpRead(app);
+      expect(list.statusCode).toBe(200);
+      expect(list.json().totals.attendanceCount).toBe(5);
+      expect((await httpRead(app, viewer, true)).statusCode).toBe(403);
+      expect((await httpRead(app, exporter)).statusCode).toBe(403);
+      const csv = await httpRead(app, exporter, true);
+      expect(csv.statusCode).toBe(200);
+      expect(csv.body).toContain("'=SYNTHETIC()");
+      expect((await httpRead(app, mixed, false, { regionId: otherRegion })).statusCode).toBe(403);
+      expect((await httpRead(app, mixed, true, { regionId: otherRegion })).statusCode).toBe(200);
+      const detail = await httpRead(app, viewer, false, { mode: 'detail', personId });
+      expect(detail.json().total).toBe(3);
+      expect(
+        (await httpRead(app, viewer, false, { mode: 'detail', personId, fieldId: otherField }))
+          .statusCode
+      ).toBe(403);
+      expect(
+        (
+          await app.inject({
+            url: '/admin/venue-people',
+            headers: { cookie: '__Host-qigong-admin=' + viewer }
+          })
+        ).statusCode
+      ).toBe(200);
+      await owner.query(
+        "UPDATE admin.sessions SET revoked_at=clock_timestamp() WHERE token_hash=public.digest(repeat('v',43),'sha256')"
+      );
+      expect((await httpRead(app)).statusCode).toBe(401);
+      expect(
+        (
+          await app.inject({
+            url: '/admin/venue-people',
+            headers: { cookie: '__Host-qigong-admin=' + viewer }
+          })
+        ).statusCode
+      ).toBe(401);
+      await owner.query('UPDATE admin.sessions SET revoked_at=NULL');
+      await owner.query(
+        "DELETE FROM admin.role_permissions WHERE role_id=(SELECT id FROM admin.roles WHERE code='vp_view')"
+      );
+      expect((await httpRead(app)).statusCode).toBe(403);
+    } finally {
+      await owner.query('UPDATE admin.sessions SET revoked_at=NULL');
+      await owner.query(
+        "INSERT INTO admin.role_permissions SELECT r.id,p.id FROM admin.roles r CROSS JOIN admin.permissions p WHERE r.code='vp_view' AND p.code='checkin.read' ON CONFLICT DO NOTHING"
+      );
+      await app.close();
+    }
+  });
   it('CSV ignores pagination, guards formula names, and audit contains only counts/mode/region', async () => {
     const result = await read(query({ page: 9999, limit: 1 }), true);
     expect(result.rows).toHaveLength(3);
@@ -333,6 +435,14 @@ describe.skipIf(!directory)('venue people: isolated PG17 integrated 54 migration
         [fieldId]
       );
       await expect(read(query(), true)).rejects.toMatchObject({ code: '54000' });
+      const app = httpApp();
+      try {
+        const response = await httpRead(app, exporter, true);
+        expect(response.statusCode).toBe(413);
+        expect(response.json()).toEqual({ error: 'export_too_large', maximumRows: 1000 });
+      } finally {
+        await app.close();
+      }
       expect((await read()).total).toBe(1001);
     } finally {
       await owner.query(
