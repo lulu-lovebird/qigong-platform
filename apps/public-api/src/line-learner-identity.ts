@@ -41,7 +41,7 @@ const privacySchema = z.discriminatedUnion('active', [
 /**
  * Server-owned DB boundary, not request data. Must use an audited controlled
  * function on this runtime client, returning null for unknown subjects. There is
- * production resolver is the minimal 0049 controlled function. Do not substitute
+ * production resolver is the minimal 0050 controlled function. Do not substitute
  * privileged SQL, a report, or a new broad GRANT.
  */
 export type LineLearnerResolver = (client: PoolClient, verifiedSubject: string) => Promise<unknown>;

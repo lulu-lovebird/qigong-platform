@@ -40,7 +40,7 @@ export type VenueAttendanceAdminOperation =
       readonly until: string;
     };
 
-// Deliberately NO success branch: 0048 is still in force. Unexpected SQL success
+// Deliberately NO success branch: 0049 quarantine remains the legacy admin boundary. Unexpected SQL success
 // is a contract failure, not permission to expose data or pretend a write happened.
 export interface VenueAttendanceAdminDenied {
   readonly ok: false;

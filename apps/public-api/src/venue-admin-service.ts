@@ -33,7 +33,7 @@ const response = (
 /**
  * No HTTP, cookies, pool, cached principal/capability, logging or success adapter.
  * The injected closure must revalidate the real session and action + region for
- * every call. The existing runner/0049 contract owns transaction + authorization.
+ * every call. The existing runner/0050 contract owns transaction + authorization.
  * Unexpected dependency success/output is unavailable, never data or fake CRUD.
  */
 export const createVenueAdminService = (execute: VenueAdminExecute): VenueAdminService =>

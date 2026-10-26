@@ -182,7 +182,7 @@ const fixture = () => {
   return { app, state, query, connect, poolQuery, release, logs };
 };
 
-describe('admin-auth private cookie → service → real 0049 runner (mock pool)', () => {
+describe('admin-auth private cookie → service → real 0050 runner (mock pool)', () => {
   it.each([
     [read, 'SELECT admin.venue_attendance_read_fields($1, $2) AS data', [session, regionId]],
     [
