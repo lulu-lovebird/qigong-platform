@@ -77,9 +77,20 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 55→56 chain', () =>
       "INSERT INTO platform.venue_debug_config(enabled,expires_at,token_hash) VALUES(TRUE,clock_timestamp()+interval '1 hour',$1)",
       [hash]
     );
+    await owner.query(
+      (
+        await readFile(new URL('./fixtures/venue-qr-synthetic.sql', import.meta.url), 'utf8')
+      ).replaceAll('tw-test-one', 'tw-location-test')
+    );
+    await owner.query(`INSERT INTO core.practice_fields(region_id,code,name_zh_tw,latitude,longitude,radius_meters,timezone,active_time_rules)
+      SELECT region_id,'tw-taipei-cks',name_zh_tw,latitude,longitude,radius_meters,timezone,active_time_rules FROM core.practice_fields WHERE code='tw-location-test';
+      INSERT INTO core.field_attendance(person_id,field_id,checkin_method,distance_meters,checkin_at,attendance_date,attendance_timezone,is_test,verification_mode)
+      SELECT '20000000-0000-4000-8000-000000000001',id,'qr_gps',100000,clock_timestamp(),(clock_timestamp() AT TIME ZONE timezone)::date,timezone,TRUE,'distance_debug' FROM core.practice_fields WHERE code='tw-location-test';`);
     const oldLedger = (
       await owner.query('SELECT version,checksum FROM schema_migrations ORDER BY version')
     ).rows;
+    const oldRows = (await owner.query('SELECT * FROM core.field_attendance ORDER BY id')).rows;
+    const oldVenues = (await owner.query('SELECT * FROM core.practice_fields ORDER BY id')).rows;
     const result = await runMigrations(owner, resolve('../../migrations'));
     expect(result.applied).toEqual(['0056_venue_cks_distance_debug.sql']);
     expect(result.currentVersion).toBe('0056_venue_cks_distance_debug.sql');
@@ -99,12 +110,20 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 55→56 chain', () =>
     ).toBeNull();
     expect((await owner.query('SELECT 1 FROM platform.venue_debug_config')).rowCount).toBe(0);
     expect((await runMigrations(owner, resolve('../../migrations'))).applied).toEqual([]);
-    await owner.query(
-      (
-        await readFile(new URL('./fixtures/venue-qr-synthetic.sql', import.meta.url), 'utf8')
-      ).replaceAll('tw-test-one', 'tw-taipei-cks')
+    expect((await owner.query('SELECT * FROM core.field_attendance ORDER BY id')).rows).toEqual(
+      oldRows
+    );
+    expect((await owner.query('SELECT * FROM core.practice_fields ORDER BY id')).rows).toEqual(
+      oldVenues
     );
     runtime = new Pool({ ...options, user: 'venue_qr_test_login', max: 12 });
+    const legacyHistory = (
+      await call("SELECT platform.venue_debug_history('line',$1) AS data", [subject])
+    ).rows[0]?.data;
+    expect(legacyHistory.entries).toHaveLength(1);
+    expect(legacyHistory.entries[0]).toMatchObject({ venueCode: 'tw-location-test', isTest: true });
+    expiresAt = new Date(Date.now() + 3500000).toISOString();
+    await expect(checkin()).rejects.toMatchObject({ code: '42501', message: 'venue_debug_denied' });
   }, 120000);
   beforeEach(async () => {
     expect((await owner.query('SELECT 1 FROM platform.venue_debug_context')).rowCount).toBe(0);
@@ -264,6 +283,39 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 55→56 chain', () =>
     });
     expect((await owner.query('SELECT 1 FROM core.field_attendance')).rowCount).toBe(0);
   });
+  it('enforces active operational/country/global hierarchy without a home-region requirement', async () => {
+    // Owner-only adversarial fixture: existing hierarchy triggers normally prohibit
+    // active children under an inactive parent. Independently exercise the guard.
+    await owner.query('ALTER TABLE core.regions DISABLE TRIGGER USER');
+    try {
+      for (const code of ['tw-general', 'venue-test-tw', 'venue-test-global']) {
+        await owner.query('UPDATE core.regions SET active=FALSE WHERE code=$1', [code]);
+        await expect(checkin()).rejects.toMatchObject({
+          code: '42501',
+          message: 'venue_unavailable'
+        });
+        await owner.query('UPDATE core.regions SET active=TRUE WHERE code=$1', [code]);
+      }
+    } finally {
+      await owner.query(
+        'UPDATE core.regions SET active=TRUE; ALTER TABLE core.regions ENABLE TRIGGER USER'
+      );
+    }
+    expect((await owner.query('SELECT 1 FROM core.field_attendance')).rowCount).toBe(0);
+    expect((await checkin()).rows[0]?.data).toMatchObject({ isTest: true });
+    await owner.query("UPDATE core.regions SET active=FALSE WHERE code='tw-general'");
+    await expect(checkin()).rejects.toMatchObject({ code: '42501' });
+    await owner.query("UPDATE core.regions SET active=TRUE WHERE code='tw-general'");
+  });
+  it('exact API/DB expiry binding fails closed even when both expiries are individually valid', async () => {
+    await owner.query(
+      "UPDATE platform.venue_debug_config SET expires_at=expires_at-interval '1 millisecond'"
+    );
+    await expect(checkin()).rejects.toMatchObject({ code: '42501', message: 'venue_debug_denied' });
+    await owner.query('UPDATE platform.venue_debug_config SET expires_at=$1', [expiresAt]);
+    await expect(checkin(true, 'tw-location-test')).rejects.toMatchObject({ code: '42501' });
+    expect((await checkin()).rows[0]?.data).toMatchObject({ isTest: true });
+  });
   it('excludes tests from normal history and exposes only labeled own test history', async () => {
     await checkin();
     const formal = (
@@ -353,7 +405,27 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 55→56 chain', () =>
         expect((await send()).statusCode).toBe(401);
       }
       expect((await send('wrong'.repeat(8))).json()).toMatchObject({ error: 'venue_debug_denied' });
-      expect((await send(fixtureToken, 'tw-test-two')).statusCode).toBe(403);
+      for (const venue of ['tw-test-two', 'tw-location-test'])
+        expect((await send(fixtureToken, venue)).statusCode).toBe(403);
+      for (const payload of [
+        { idToken: 'synthetic-identity-private', venue: 'tw-taipei-cks' },
+        {
+          idToken: 'synthetic-identity-private',
+          venue: 'tw-taipei-cks',
+          latitude: null,
+          longitude: 121
+        }
+      ])
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: '/api/line/venue-checkin',
+              headers: { origin, 'x-venue-checkin': '1', 'x-venue-debug-token': fixtureToken },
+              payload
+            })
+          ).statusCode
+        ).toBe(400);
       const success = await send();
       expect(success.statusCode).toBe(200);
       expect(success.json()).toMatchObject({
@@ -486,7 +558,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 55→56 chain', () =>
       });
       expect(normal.json()).toMatchObject({ error: 'outside_radius' });
       await owner.query(
-        "UPDATE platform.venue_debug_config SET expires_at=clock_timestamp()-interval '1 second'"
+        "UPDATE platform.venue_debug_config SET configured_at=clock_timestamp()-interval '1 hour',expires_at=date_trunc('milliseconds',clock_timestamp()-interval '1 second')"
       );
       expect((await send()).json()).toMatchObject({ error: 'venue_debug_denied' });
       const audit = await owner.query<{ data: unknown }>(
@@ -657,7 +729,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 55→56 chain', () =>
       worker: boolean;
       public_access: boolean;
     }>(
-      `SELECT p.oid::regprocedure::text signature,has_function_privilege('qigong_api_runtime',p.oid,'EXECUTE') api,has_function_privilege('qigong_worker_runtime',p.oid,'EXECUTE') worker,EXISTS(SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE') public_access FROM pg_proc p WHERE p.oid IN ('platform.venue_debug_checkin(text,text,double precision,double precision,bigint,text)'::regprocedure,'platform.venue_debug_history(text,text,text,text,bigint)'::regprocedure)`
+      `SELECT p.oid::regprocedure::text signature,has_function_privilege('qigong_api_runtime',p.oid,'EXECUTE') api,has_function_privilege('qigong_worker_runtime',p.oid,'EXECUTE') worker,EXISTS(SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE') public_access FROM pg_proc p WHERE p.oid IN ('platform.venue_debug_checkin(text,text,double precision,double precision,bigint,bigint,text)'::regprocedure,'platform.venue_debug_history(text,text,text,text,bigint)'::regprocedure)`
     );
     expect(execution.rows).toHaveLength(2);
     for (const row of execution.rows)

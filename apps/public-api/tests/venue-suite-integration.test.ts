@@ -322,7 +322,11 @@ describe('venue suite through buildApp', () => {
     const app = appFor(fixture(version));
     await expect(app.ready()).rejects.toThrow('venue suite readiness failed');
   });
-  it.each([venueSuiteMigrationVersion, venueDebugMigrationVersion])(
+  it.each([
+    venueSuiteMigrationVersion,
+    '0055_venue_distance_debug.sql',
+    venueDebugMigrationVersion
+  ])(
     'keeps independently authorized administration and history operational on %s with debug off',
     async (version) => {
       const app = appFor(fixture(version));
@@ -347,7 +351,7 @@ describe('venue suite through buildApp', () => {
       );
     }
   );
-  it('probes all four independent capabilities on exact 55 without inferring readiness from version', async () => {
+  it('probes all four independent capabilities on exact 56 without inferring readiness from version', async () => {
     const suite = { history: enabled, management: enabled, people: enabled };
     const f = fixture();
     expect(await checkStartupReadiness(f.pool, true, suite, true)).toMatchObject({ ready: true });
@@ -360,7 +364,7 @@ describe('venue suite through buildApp', () => {
       ],
       [
         'debug',
-        'platform.venue_debug_checkin(text,text,double precision,double precision,bigint,text)'
+        'platform.venue_debug_checkin(text,text,double precision,double precision,bigint,bigint,text)'
       ]
     ] as const;
     for (const [feature, signature] of contracts) {
@@ -372,7 +376,11 @@ describe('venue suite through buildApp', () => {
       });
       f.unavailableFunctions.clear();
     }
-    for (const version of [venueSuiteMigrationVersion, '0055_other.sql', '0056_future.sql'])
+    for (const version of [
+      venueSuiteMigrationVersion,
+      '0055_venue_distance_debug.sql',
+      '0056_future.sql'
+    ])
       expect(await checkStartupReadiness(fixture(version).pool, true, suite, true)).toMatchObject({
         ready: false,
         reason: 'schema_version_mismatch'

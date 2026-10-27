@@ -1,5 +1,5 @@
 import { lineLoginScript } from './application-page.js';
-import { venueDebugLabel } from './venue-debug.js';
+import { venueDebugLabel, venueDebugVenueCode } from './venue-debug.js';
 import {
   htmlLocale,
   isLocale,
@@ -233,7 +233,7 @@ export const renderVenuePreview = (
 ): string => {
   const lang = entry?.lang ?? 'zh_TW';
   const live = mode === 'checkin';
-  const debugAvailable = live && debugEnabled && entry?.venue === 'tw-location-test';
+  const debugAvailable = live && debugEnabled && entry?.venue === venueDebugVenueCode;
   const t = live ? { ...texts[lang], ...checkinTexts[lang] } : texts[lang];
   const canonical = entry ? venuePreviewUrl(entry) : '';
   const historyHref = /^[A-Za-z0-9-]{1,100}$/.test(liffId)
