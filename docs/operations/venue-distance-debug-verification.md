@@ -1,5 +1,7 @@
 # Venue distance debug：本地交付驗證
 
+此文件保留來源分支的歷史結果；本地整合版最新 SHA／55-chain／correlation 與驗證數字見 [venue-debug-admin-integration.md](venue-debug-admin-integration.md)。
+
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 

@@ -1,5 +1,7 @@
 # 限時異地驗收（未啟用／未部署）
 
+整合版驗證／來源提交對照見 [venue-debug-admin-integration.md](venue-debug-admin-integration.md)。
+
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 
@@ -46,6 +48,7 @@ DB 的 `platform.venue_debug_config` 必須另經授權管理者安全配置相�
 
 - API 先 SHA-256 + fixed-length `timingSafeEqual` 驗證 header，再建立短效 HMAC。
 - 每個 debug 寫入使用全新 server UUID nonce 作為 DB request ID，不能由 inbound `X-Request-Id` 指定。proof 綁定 nonce、已驗證 LINE subject、venue、issued seconds。
+- 整合版以 request-scoped logger 的 `venue_debug_audit_attempt` 記錄 HTTP `reqId` → server `auditRequestId` UUID 映射；不是 success／commit 證明。專用 privacy boundary 僅接受 UUIDv4 audit ID，不記任何 header/body、token/hash/proof/GPS/SQL exception。logger 關閉／故障會失去映射，不改授權或寫入結果；HMAC／0055 signature 沒有變更。
 - DB 獨立確認 config、到期、場地、proof（過去最多 30 秒，未來最多 2 秒），並在 advisory lock **之後** 檢查。proof 不作為 API 回傳資料。
 - 受限 `qigong_venue_debug` 為 NOLOGIN、NOINHERIT、NOBYPASSRLS、非 table owner；無 role membership；僅精確函式 EXECUTE 給 API，PUBLIC／worker 不可執行。
 - context table 受 FORCE RLS 約束，綁 backend PID + transaction ID + person；runtime 不可讀寫，也不能用自訂 GUC 授權。成功刪除 context；失敗交易回滾。
@@ -61,23 +64,23 @@ DB 的 `platform.venue_debug_config` 必須另經授權管理者安全配置相�
 
 - 保留已發布 0001–0054 bytes；0055 為唯一新 forward migration。
 - enabled debug 必須精確 0055 且通過角色、function ACL/owner、FORCE RLS capability probe；普通 QR／suite 可接受各自既有版本與精確 0055，未知同號或未來版本仍拒絕。相容不等於啟用。
-- 未修改另一個 venue-admin-ui worktree、admin UI pages 或 shared admin-auth。可能的 composition-root 整合衝突檔：`apps/public-api/src/app.ts`、`index.ts`、`venue-suite.ts`；另有三份 venue PG regression tests 更新 55-chain 期待值。合併時須逐一人工比對，不能整檔覆蓋另一功能。
+- 原 debug 來源未改 admin UI／shared admin-auth；本地整合版已逐 commit 納入 admin usability、私有 capability endpoint 與 55-chain tests。保留 read/manage/export 獨立 scope，沒有整檔覆蓋共享檔或修改另一 worktree。詳見整合驗證紀錄。
 
 ## 本地驗證
 
-只使用既有 Node24／PG17，不安裝套件；腳本以 `env -i` 清除外部 DB/provider 環境，不讀 `.env` 或採用未知 `TEST_DATABASE_URL`。所有新 cluster 在 0700 `/tmp/venue-debug-*`、socket-only、marker/owner/PID/port 檢查後 cleanup。
+只使用既有 Node24／PG17，不安裝套件；腳本以 `env -i` 清除外部 DB/provider 環境，不讀 `.env` 或採用未知 `TEST_DATABASE_URL`。整合版所有新 cluster 在 0700 `/tmp/venue-debug-integration-*`、socket-only、marker/owner/PID/port 檢查後 cleanup。
 
 ```sh
 bash scripts/test-venue-debug-local-pg.sh focused
 bash scripts/test-venue-debug-local-pg.sh full
 ```
 
-- `focused`：debug HTTP/DB security 9、settings/management 12、people 11、QR 10，共 **42 passed、0 skipped**；每套獨立新 cluster，完整 55-chain。
+- 整合版 `focused`：debug HTTP/DB security 9、settings/management 14、people 11、QR 10，共 **44 passed、0 skipped**；每套獨立新 cluster，完整 55-chain。
 - `full`：腳本自行建立 disposable database URL 後執行 `pnpm verify`，接著 full source/tests `tsc -p tsconfig.eslint.json --noEmit` 與 receipt-health tsc。
-- full suite 結果與每批修復紀錄另見 `venue-distance-debug-verification.md`。
+- 整合版 full suite 結果見 `venue-debug-admin-integration.md`；`venue-distance-debug-verification.md` 保留原 debug 來源的歷史驗證數字。
 
 ## 尚須獨立審查／不代表完成的工作
 
-- 本地自審與合成測試不是跨模型／外部安全審查；啟用前必須獨立審查 HMAC/config/context/RLS、proxy/DB logger 與安全 secret 發放／撤銷。
+- 整合版已有唯讀跨模型 code review（範圍／限制見整合紀錄），不是正式環境／手機驗收。啟用前仍須獨立審查 HMAC/config/context/RLS、proxy/DB logger 與安全 secret 發放／撤銷。
 - 未做實體手機／真 LINE provider 驗收，未建立正式 token 或 owner config，未部署、push、merge、改 Rich Menu／Console。
 - 0055 變更無自動 downgrade／資料刪除方案；停用只需維持 server feature off 或到期，測試資料仍保持隔離供本人查閱。不得為回退覆寫已發布 migration 或刪正式出席。
