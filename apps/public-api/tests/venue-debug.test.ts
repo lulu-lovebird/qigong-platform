@@ -2,7 +2,7 @@
 import { createHash, createHmac } from 'node:crypto';
 import type { Pool } from '@qigong/database';
 import { describe, expect, it, vi } from 'vitest';
-import { buildApp } from '../src/app.js';
+import { apiLogRedaction, buildApp, checkStartupReadiness } from '../src/app.js';
 import { createVenueQrCheckin } from '../src/venue-qr.js';
 import { loadVenueDebugConfig, validateVenueDebugConfig } from '../src/venue-debug.js';
 
@@ -32,6 +32,27 @@ const mock = () => {
   const write = vi.fn(async (): Promise<unknown> => testResult);
   const query = vi.fn(async (sql: string, params?: unknown[]) => {
     void params;
+    if (sql.includes(' AS ready')) return { rows: [{ ready: true }] };
+    if (sql.includes('schema_migrations'))
+      return { rows: [{ version: '0055_venue_distance_debug.sql' }] };
+    if (sql.includes('FROM pg_roles'))
+      return {
+        rows: [
+          {
+            session_user: 'synthetic_login',
+            rolsuper: false,
+            rolbypassrls: false,
+            rolcreatedb: false,
+            rolcreaterole: false,
+            rolreplication: false,
+            rolinherit: false
+          }
+        ]
+      };
+    if (sql.includes('FROM pg_shdepend')) return { rows: [{ unsafe: false }] };
+    if (sql.includes('FROM pg_auth_members'))
+      return { rows: [{ role_name: 'qigong_api_runtime' }] };
+    if (sql.includes('SELECT id FROM identity.people')) return { rows: [], rowCount: 0 };
     if (sql.includes('resolve_line_learner_identity'))
       return {
         rows: [
@@ -142,6 +163,21 @@ describe('distance debug API authority (mock SQL / LINE)', () => {
     const result = await checkin(requestId, input, token);
     expect(result).toMatchObject({ status: 403, body: { error: 'venue_debug_denied' } });
     expect(JSON.stringify(result)).not.toContain(token);
+  });
+  it('requires exact 0055 and independent debug capability; feature-off stays compatible', async () => {
+    const m = mock();
+    expect(await checkStartupReadiness(m.pool, true, {}, true)).toMatchObject({ ready: true });
+    expect(await checkStartupReadiness(m.pool, false)).toMatchObject({ ready: true });
+    expect(await checkStartupReadiness(m.pool, false, {}, true)).toMatchObject({ ready: false });
+    expect(apiLogRedaction.paths).toContain('req.headers.x-venue-debug-token');
+    for (const version of ['0054_venue_people_read.sql', '0055_other.sql', '0056_future.sql']) {
+      const query = vi.fn(async () => ({ rows: [{ version }] }));
+      const pool = { connect: async () => ({ query, release: vi.fn() }) } as unknown as Pool;
+      expect(await checkStartupReadiness(pool, true, {}, true)).toMatchObject({
+        ready: false,
+        reason: 'schema_version_mismatch'
+      });
+    }
   });
   it('actual router forwards header only; never logs secret or coordinates', async () => {
     const m = mock();

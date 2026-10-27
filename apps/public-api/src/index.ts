@@ -120,8 +120,15 @@ export const runPublicApi = async (
       : undefined;
     const venueQrEnabled =
       z.enum(['true', 'false']).default('false').parse(source.VENUE_QR_CHECKIN_ENABLED) === 'true';
+    const { loadVenueDebugConfig } = await import('./venue-debug.js');
+    const debug = loadVenueDebugConfig(source);
+    if (debug && !venueQrEnabled) throw new Error('venue debug requires venue QR');
     const venueQr = venueQrEnabled
-      ? { enabled: true as const, publicOrigin: z.url().parse(source.VENUE_QR_PUBLIC_ORIGIN) }
+      ? {
+          enabled: true as const,
+          publicOrigin: z.url().parse(source.VENUE_QR_PUBLIC_ORIGIN),
+          ...(debug ? { debug } : {})
+        }
       : undefined;
     const venueFeature = (enabled: string | undefined, publicOrigin: string | undefined) =>
       z.enum(['true', 'false']).default('false').parse(enabled) === 'true'
@@ -168,9 +175,11 @@ export const runPublicApi = async (
     process.on('SIGINT', interrupt);
     process.on('SIGTERM', terminate);
     phase = 'api_readiness_failed';
-    const readiness = Object.keys(venueSuite).length
-      ? await checkStartupReadiness(pool, venueQrEnabled, venueSuite)
-      : await checkStartupReadiness(pool, venueQrEnabled);
+    const readiness = debug
+      ? await checkStartupReadiness(pool, venueQrEnabled, venueSuite, true)
+      : Object.keys(venueSuite).length
+        ? await checkStartupReadiness(pool, venueQrEnabled, venueSuite)
+        : await checkStartupReadiness(pool, venueQrEnabled);
     if (!readiness.ready) throw new Error('startup readiness failed');
     if (!stopping) {
       phase = 'api_listen_failed';
