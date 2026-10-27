@@ -1,11 +1,47 @@
 # 團練場場地設定與 NFC／QR URL 管理（0053）
 
-> 整合狀態更新：已在本地 integration branch 接上主程式，**尚未上線**。最新 54-chain、路由／開關、驗證與限制見[整合交接](./venue-history-admin-integration.md)。以下保留原 standalone 分支的交付／驗證紀錄；「未接線」、52 檔 migration 或舊失敗數字均屬該歷史範圍，不是目前整合狀態。
+> 本次地區選單變更基於 `origin/main@9cfe372054e53d9d33fdce22cf952ac128bb09bb`，只在本地開發／提交，**未部署、未 push、未建立遠端 PR**。下方「本次地區選單」為目前契約；再下方保留原 standalone 分支的歷史紀錄，舊 52／54-chain、「未接線」及舊失敗數字不是本次結果。
 
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 
-## 交付與邊界
+## 本次地區選單（2026-10-27）
+
+### Endpoint 與最小契約
+
+- `POST /admin/api/venue-management/regions`，body `{}` 或 `{lang:"zh_TW"|"zh_CN"|"en"}`；不收 region UUID、principal、token 或 client capability。讀取也要求既有唯一 session／CSRF cookies、CSRF header、trusted Origin；拒絕 cross-site Fetch Metadata，回應 no-store／no-referrer。僅在原 management feature gate 開啟時掛載，沒有新增 public 身分路徑。
+- 成功：`{regions:[{id,displayName,countryName,code,canRead,canManage}]}`。名稱依 locale，簡中缺值回繁中，再英文／code；標籤固定顯示「名稱｜國家（地區代碼）」避免同名歧義。UUID 只用於 option.value 與後端 payload，不顯示可手填的區域 UUID。
+- `readVenueManagementRegions` 在同一 request-context transaction 重新解析 session、設定 principal，再以 SQL 篩選有效 operational → country → global hierarchy 與既有 `can_access_region`／`venue_attendance_authorized` action。只回符合資格的地區，不先送全部地區給前端 filter，不使用角色名稱 allowlist。
+- `qigong_api_runtime` 已由 0003 取得 `core.regions` SELECT；本次完整 PG 55-chain 證實名稱查詢可用。0053 function owner 的窄 column grant 不用來執行目錄。**沒有新增／擴大任何 GRANT、role permission、RLS、SQL 或 migration（沒有 0056）**。
+- 原 suite/sidebar/people capabilities shape，以及原 `capabilities` endpoint 均不變。目錄只是 UI hint；create/update 仍經原 0053 每次驗 session、action、來源／目標管理 scope、鎖後有效期、audit reason 與 version。
+
+### 實際初載／新增流程
+
+1. 頁面開啟即由私有 session boundary 呼叫 `regions`，不必輸入 UUID。本次不自動查場地列表，避免把新增綁在列表成功與否。
+2. 單一可查地區自動選取；多地區顯示名稱下拉。目錄完成且任一地區可管理，就啟用主「新增場地」，不要求先按查詢，也不以目前 filter 的可讀性決定是否可新增。
+3. 新表單優先使用目前 filter 的可管理地區，否則唯一可管理地區自動選取，多個可管理地區則要求選擇。目標選單只含可管理地區；唯讀既有場地可顯示原地區但不開放修改。
+4. 新增的 `regionId = field.region_id = 選取目標`，絕不使用尚未載入的 loadedRegion。更新則保留既有場地 source region，目標獨立驗權。選擇目標同步新表單的 filter／查詢；列表失敗或 pending 不阻擋原有新增權限。更換 filter 不丟棄新表單文字。
+5. 目錄空、目錄失敗、列表失敗及 session 失效分開顯示；有「重試授權地區」與「重新登入」。不把錯誤轉成 false capability 或假成功。撤權／停區後後端拒絕 create；目錄重試也會重新反映權限。
+6. 寫入 busy 阻止重複提交，舊列表回應不覆蓋新寫入結果。session／權限失效保留草稿；未知網路結果／版本衝突要求重新查核，不盲目重送。UUID、永久 code、座標／時區／時段驗證、reason、audit、既有桌面／手機 Grid 保留。
+
+### 本次驗證與限制
+
+- Node 24、PG 17，`LANG=C LC_ALL=C`；offline frozen-lockfile 還原既有依賴，未修改 manifest／lock。全倉驗證初次因缺 build exports 失敗，先執行既有 `pnpm build` 後恢復；另修正新測試兩個 ESLint 型別警告。PG 初次撤銷全部 grants 的預期已修正為既有 session 契約的 unauthenticated，不改授權政策。
+- `pnpm verify` 最終 PASS（formatter、lint、workspace typecheck/test/build）。config 2、identity 6、database 261、public-api 2259 tests passed；database 310、public-api 291 skipped。未提供任何現有 DB URL，這不是全 PG 測試通過的宣稱。
+- `pnpm exec tsc -p tsconfig.eslint.json --noEmit`（source + tests）及 `pnpm exec tsc -p tsconfig.receipt-health.json --noEmit`：PASS。
+- 目錄單元 2、真 Fastify buildApp integration 22、VM controller／真 admin-auth transport 38 tests PASS；包含 XSS literal text、singleton／multiple／同名、唯讀、pending／double-create、空／錯誤目錄、列表失敗、失效草稿、來源／目標 payload、原排版及 ARIA label/status／native select。
+- `bash apps/public-api/tests/venue-management-local-pg.sh`：**16 PASS**，全可見 0001–0055 migration chain、全新 0700 `/tmp/venue-management-*` cluster、socket-only、拒絕 host、無外部 API／現有 DB／手機 DB。包括 runtime 名稱 ACL、country/global/region scope、locale fallback、撤權／停區、四個既有角色的合成 policy 映射／撤銷、CRUD／跨區／CSRF／鎖後到期／出席凍結等回歸。角色權限映射只存在 disposable fixture，未寫入產品 migration 或預設授權。
+- Chrome headless CDP 使用合成資料、阻擋 HTTP(S) 網路、不登入 production、不安裝 browser/package；390／1280 px screenshots 均 `scrollWidth === viewport width`，列表 503 時新增／編輯仍可用。**非真機測試**。手機模擬 ArrowDown 選區可用；桌面 headless 原生 popup 的鍵盤提交未可靠驗證，未宣稱通過（不再重試此自動化問題）。原生 select／label／required／ARIA DOM 契約已有測試。預覽阻擋資源使 logo 未載入，不代表正式資源變更。
+- 預覽、metrics 與重現腳本保存在 session artifact 目錄 `artifacts/01a16943-0be7-7090-92f9-7a12f0777f7b/venue-region-picker/`（`venue-region-390.png`、`venue-region-1280.png`）；不是產品截圖或正式登入證據。
+
+### PR 摘要
+
+- 授權地區目錄在 server 以既有 policy + hierarchy 篩選；不改授權、不增加 migration。
+- 區域 UUID input 改名稱 select；初載自動目錄、直接新增，列表錯誤不鎖住有管理權限者。
+- 新增 security／VM／Fastify／55-chain PG 回歸，維持 people/sidebar 及現有欄位與排版。
+- 僅本地 commits；父代理 review 後負責 push／建立 PR。不遠端 merge、不部署、不開 feature flag。
+
+## 歷史 standalone 紀錄：交付與邊界
 
 - Base: `origin/main@56284208942acb182651c02983011f80b8921a47`。
 - 新增且獨占 `migrations/0053_venue_management.sql`。開工已 fetch origin/main，未發現遠端 0053 衝突。
@@ -74,7 +110,7 @@ Routes：
 - 成功：capabilities `{canRead:true,canManage:boolean}`；list `{fields:[row+urls]}`；其他 `{field:row+urls}`。create 201，其餘 200；400 格式、401 session、403 scope／CSRF、404 找不到、409 code／version／已出席凍結衝突、503 backend。
 - 舊 `/admin/fields` renderer／路由維持原狀；父代理需自行決定導覽至新頁或整合舊入口，避免同 path 重複註冊。本分支不修改導覽或假稱舊頁已接上新 CRUD。
 
-`apps/public-api/src/venue-management-page.ts`：`renderVenueManagementPage(locale?)`。頁面先輸入 operational region UUID 再查詢；尚未提供區域名稱下拉選單。
+`apps/public-api/src/venue-management-page.ts`：`renderVenueManagementPage(locale?)`。舊 standalone 曾要求先輸入 operational region UUID；本次已由上方「本次地區選單」契約取代。
 
 ### 停用舊網址
 

@@ -1,11 +1,12 @@
 /** Developed with ❤️ by Bean, Bird & Badminton Tech Consulting */
 import { renderAdminShell } from './admin-dashboard.js';
 import type { AdminLocale } from './admin-locale.js';
+import type { VenueManagementRegion } from './venue-admin-capabilities.js';
 import type { VenueManagementRow, VenueManagementField } from './venue-management.js';
 type LinkedVenue = VenueManagementRow & { urls: Record<'nfc' | 'qr' | 'link', string> };
 
 // Compiled before serialization. Never insert API text with innerHTML.
-function venueManagementController() {
+function venueManagementController(locale: AdminLocale) {
   const get = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
   const value = (id: string) => get<HTMLInputElement>(id).value;
   const set = (id: string, value: string | number) => {
@@ -16,14 +17,32 @@ function venueManagementController() {
   const list = get('vm-list');
   const links = get('vm-links');
   let selected: LinkedVenue | null = null;
-  let canManage = false;
+  let regions: VenueManagementRegion[] = [];
+  let directoryReady = false;
+  let directoryBusy = false;
+  let sessionExpired = false;
+  let editorOpen = false;
   let busy = false;
+  let listBusy = false;
+  let listGeneration = 0;
+  const manages = (id: string) => directoryReady && regions.some((r) => r.id === id && r.canManage);
+  const anyManage = () => directoryReady && regions.some((r) => r.canManage);
+  const editable = () => (selected ? manages(selected.region_id) : anyManage());
+  const writable = () => editable() && manages(value('vm-region_id'));
   let rows: LinkedVenue[] = [];
   let loaded = false;
   let loadedRegion = '';
   let requiresReload = false;
   function editorState() {
-    editor.disabled = busy || requiresReload || (!selected && !canManage);
+    const locked = busy || directoryBusy || requiresReload || sessionExpired || !directoryReady;
+    editor.disabled = locked || !editorOpen;
+    get<HTMLButtonElement>('vm-add').disabled = locked || !anyManage();
+    get<HTMLButtonElement>('vm-load').disabled =
+      busy || directoryBusy || listBusy || sessionExpired || !directoryReady;
+    get<HTMLButtonElement>('vm-regions-retry').disabled = busy || directoryBusy;
+    get<HTMLSelectElement>('vm-region').disabled =
+      busy || directoryBusy || sessionExpired || !directoryReady;
+    get<HTMLSelectElement>('vm-region_id').disabled = locked || !editable();
     for (const key of [
       'code',
       'name_zh_tw',
@@ -33,15 +52,14 @@ function venueManagementController() {
       'longitude',
       'radius_meters',
       'timezone',
-      'region_id',
       'start',
       'end',
       'reason'
     ])
-      get<HTMLInputElement>('vm-' + key).readOnly = !canManage || (key === 'code' && !!selected);
+      get<HTMLInputElement>('vm-' + key).readOnly = !editable() || (key === 'code' && !!selected);
     for (const key of ['active', ...Array.from({ length: 7 }, (_, day) => 'day-' + day)])
-      get<HTMLInputElement>('vm-' + key).disabled = !canManage;
-    get<HTMLButtonElement>('vm-save').disabled = !canManage || busy || requiresReload;
+      get<HTMLInputElement>('vm-' + key).disabled = locked || !editable();
+    get<HTMLButtonElement>('vm-save').disabled = locked || !writable();
   }
   const say = (message: string) => {
     status.textContent = message;
@@ -81,11 +99,15 @@ function venueManagementController() {
     });
     if (!response.ok) {
       if (action === 'update' && response.status === 409) requiresReload = true;
-      if ([401, 403, 404, 503].includes(response.status)) {
-        canManage = false;
-        editor.disabled = true;
-        get<HTMLButtonElement>('vm-add').disabled = true;
+      if (response.status === 401) {
+        sessionExpired = true;
+        directoryReady = false;
       }
+      if (['create', 'update'].includes(action) && [403, 404, 503].includes(response.status)) {
+        requiresReload = true;
+        if (response.status === 403) directoryReady = false;
+      }
+      editorState();
       throw new Error(failure(response.status));
     }
     return response.json().catch(() => {
@@ -153,9 +175,38 @@ function venueManagementController() {
       links.append(container);
     }
   }
+  function options(
+    id: string,
+    choices: VenueManagementRegion[],
+    preferred: string,
+    placeholder: string
+  ) {
+    const select = get<HTMLSelectElement>(id);
+    select.replaceChildren();
+    const blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = placeholder;
+    select.append(blank);
+    for (const region of choices) {
+      const option = document.createElement('option');
+      option.value = region.id;
+      option.textContent =
+        region.displayName + '｜' + region.countryName + '（' + region.code + '）';
+      select.append(option);
+    }
+    select.value = choices.some((r) => r.id === preferred)
+      ? preferred
+      : choices.length === 1
+        ? choices[0]!.id
+        : '';
+  }
+  function targets(preferred: string) {
+    const choices = regions.filter((r) => r.canManage || r.id === selected?.region_id);
+    options('vm-region_id', choices, preferred, '請選擇可管理的目標地區');
+  }
   function edit(venue: LinkedVenue | null) {
     selected = venue;
-    editorState();
+    targets(venue?.region_id ?? (manages(value('vm-region')) ? value('vm-region') : ''));
     get('vm-version').textContent = venue
       ? '場地 UUID：' + venue.id + '／版本 ' + venue.version
       : '新增：由系統產生 UUID，代碼建立後永久保留。';
@@ -167,21 +218,13 @@ function venueManagementController() {
       'latitude',
       'longitude',
       'radius_meters',
-      'timezone',
-      'region_id'
+      'timezone'
     ] as const)
       set(
         'vm-' + key,
-        venue?.[key] ??
-          (key === 'region_id'
-            ? loadedRegion
-            : key === 'radius_meters'
-              ? 50
-              : key === 'timezone'
-                ? 'Asia/Taipei'
-                : '')
+        venue?.[key] ?? (key === 'radius_meters' ? 50 : key === 'timezone' ? 'Asia/Taipei' : '')
       );
-    get<HTMLInputElement>('vm-code').readOnly = !canManage || !!venue;
+    get<HTMLInputElement>('vm-code').readOnly = !editable() || !!venue;
     get<HTMLInputElement>('vm-active').checked = venue?.is_active ?? true;
     const rules = venue?.active_time_rules ?? {
       day_of_week: [0, 6],
@@ -194,6 +237,7 @@ function venueManagementController() {
     set('vm-end', rules.end_time);
     set('vm-reason', '');
     sign(venue);
+    editorState();
   }
   function renderList() {
     list.replaceChildren();
@@ -211,10 +255,12 @@ function venueManagementController() {
       );
       const button = document.createElement('button');
       button.type = 'button';
-      button.textContent = canManage ? '編輯／網址' : '檢視／網址';
-      button.disabled = busy || requiresReload;
+      button.textContent = manages(venue.region_id) ? '編輯／網址' : '檢視／網址';
+      button.disabled =
+        busy || directoryBusy || requiresReload || !directoryReady || sessionExpired;
       button.addEventListener('click', () => {
-        if (!busy && !requiresReload) {
+        if (!busy && !directoryBusy && !requiresReload && directoryReady && !sessionExpired) {
+          editorOpen = true;
           edit(venue);
           get('vm-version').focus();
         }
@@ -227,50 +273,127 @@ function venueManagementController() {
         node('p', loaded ? '沒有符合條件的場地。' : '尚未成功載入場地；請確認區域與權限後重試。')
       );
   }
-  async function load() {
-    if (busy) return;
-    busy = true;
-    canManage = false;
-    rows = [];
-    loaded = false;
-    requiresReload = false;
-    loadedRegion = value('vm-region').trim();
-    edit(null);
-    list.replaceChildren();
-    get<HTMLButtonElement>('vm-add').disabled = true;
-    get<HTMLButtonElement>('vm-load').disabled = true;
-    say('重新驗證登入與區域權限中…');
+  async function init() {
+    if (busy || directoryBusy) return;
+    directoryBusy = true;
+    directoryReady = false;
+    ++listGeneration;
+    listBusy = false;
+    editorState();
+    say('載入已授權地區中…');
     try {
-      const regionId = loadedRegion;
-      const caps = (await api('capabilities', { regionId })) as {
-        canRead?: unknown;
-        canManage?: unknown;
+      const data = (await api('regions', { lang: locale })) as { regions?: unknown };
+      const valid = (v: unknown): v is VenueManagementRegion => {
+        if (!v || typeof v !== 'object') return false;
+        const r = v as Partial<VenueManagementRegion>;
+        return (
+          typeof r.id === 'string' &&
+          /^[0-9a-f-]{36}$/i.test(r.id) &&
+          [r.displayName, r.countryName, r.code].every(
+            (s) => typeof s === 'string' && s.length > 0
+          ) &&
+          typeof r.canRead === 'boolean' &&
+          typeof r.canManage === 'boolean' &&
+          (r.canRead || r.canManage)
+        );
       };
-      if (caps?.canRead !== true || typeof caps.canManage !== 'boolean')
-        throw new Error('權限回應無效，停止操作。');
-      const data = (await api('list', { regionId })) as { fields?: unknown };
-      if (!Array.isArray(data?.fields) || !data.fields.every(row))
-        throw new Error('資料回應無效，停止操作。');
-      rows = data.fields;
-      loaded = true;
-      canManage = caps.canManage;
-      get<HTMLButtonElement>('vm-add').disabled = !canManage;
+      if (
+        !Array.isArray(data?.regions) ||
+        !data.regions.every(valid) ||
+        new Set(data.regions.map((r) => r.id)).size !== data.regions.length
+      )
+        throw new Error('地區目錄回應無效，請重試或重新登入。');
+      regions = data.regions;
+      directoryReady = true;
+      sessionExpired = false;
+      options(
+        'vm-region',
+        regions.filter((r) => r.canRead),
+        value('vm-region'),
+        '請選擇查詢地區'
+      );
+      targets(value('vm-region_id'));
       say(
-        canManage
-          ? '可管理此區域。位置／時段修改需填寫原因；更新採版本檢查。'
-          : '唯讀：現有 view 權限不包含建立／修改。'
+        !regions.length
+          ? '目前沒有可用的授權地區，請聯絡管理員、重試或重新登入。'
+          : anyManage()
+            ? '已載入授權地區，可直接新增；不需先查詢場地。'
+            : '唯讀：可查詢場地，但不能新增或修改。'
       );
     } catch (error) {
-      say(error instanceof Error ? error.message : '載入失敗，請重試。');
+      say('地區目錄載入失敗：' + (error instanceof Error ? error.message : '請重試或重新登入。'));
     } finally {
-      busy = false;
-      get<HTMLButtonElement>('vm-load').disabled = false;
+      directoryBusy = false;
+      editorState();
       renderList();
+    }
+  }
+  async function load() {
+    if (busy || directoryBusy || !directoryReady || sessionExpired) return;
+    const regionId = value('vm-region');
+    if (!regions.some((r) => r.id === regionId && r.canRead)) {
+      ++listGeneration;
+      listBusy = false;
+      rows = [];
+      loaded = false;
+      loadedRegion = '';
+      renderList();
+      editorState();
+      say('請選擇查詢地區；仍可直接新增至有管理權限的地區。');
+      return;
+    }
+    const generation = ++listGeneration;
+    listBusy = true;
+    rows = [];
+    loaded = false;
+    loadedRegion = regionId;
+    renderList();
+    editorState();
+    say('重新驗證登入與查詢地區權限中…');
+    try {
+      const data = (await api('list', { regionId })) as { fields?: unknown };
+      if (generation !== listGeneration) return;
+      if (
+        !Array.isArray(data?.fields) ||
+        !data.fields.every(row) ||
+        data.fields.some((r) => r.region_id !== regionId)
+      )
+        throw new Error('資料回應無效，停止查詢；可重試。');
+      rows = data.fields;
+      loaded = true;
+      if (requiresReload) {
+        requiresReload = false;
+        editorOpen = false;
+        edit(null);
+      }
+      say(
+        manages(regionId)
+          ? '可管理此地區。新增不需先查詢；更新採版本檢查。'
+          : '此地區唯讀：不包含建立／修改。'
+      );
+    } catch (error) {
+      if (generation === listGeneration)
+        say('場地清單載入失敗：' + (error instanceof Error ? error.message : '請重試。'));
+    } finally {
+      if (generation === listGeneration) {
+        listBusy = false;
+        editorState();
+        renderList();
+      }
     }
   }
   async function save(event: SubmitEvent) {
     event.preventDefault();
-    if (!canManage || busy || requiresReload) return;
+    if (
+      !editorOpen ||
+      !directoryReady ||
+      directoryBusy ||
+      sessionExpired ||
+      !writable() ||
+      busy ||
+      requiresReload
+    )
+      return;
     if (
       selected?.is_active &&
       !get<HTMLInputElement>('vm-active').checked &&
@@ -300,12 +423,13 @@ function venueManagementController() {
       is_active: get<HTMLInputElement>('vm-active').checked
     };
     busy = true;
-    editor.disabled = true;
-    get<HTMLButtonElement>('vm-add').disabled = true;
+    ++listGeneration;
+    listBusy = false;
+    editorState();
     say('驗證與儲存中…');
     try {
       const data = (await api(selected ? 'update' : 'create', {
-        regionId: selected?.region_id ?? loadedRegion,
+        regionId: selected?.region_id ?? field.region_id,
         field,
         reason: value('vm-reason').trim(),
         ...(selected ? { id: selected.id, version: selected.version } : {})
@@ -324,7 +448,6 @@ function venueManagementController() {
     } finally {
       busy = false;
       editorState();
-      get<HTMLButtonElement>('vm-add').disabled = !canManage || requiresReload;
       renderList();
     }
   }
@@ -332,9 +455,29 @@ function venueManagementController() {
     void load();
   });
   get('vm-add').addEventListener('click', () => {
-    if (canManage && !busy && !requiresReload) {
+    if (anyManage() && !busy && !directoryBusy && !sessionExpired && !requiresReload) {
+      editorOpen = true;
       edit(null);
       get('vm-version').focus();
+    }
+  });
+  get('vm-regions-retry').addEventListener('click', () => {
+    void init();
+  });
+  get('vm-region').addEventListener('change', () => {
+    if (busy || directoryBusy) return;
+    if (editorOpen && !selected && manages(value('vm-region'))) {
+      set('vm-region_id', value('vm-region'));
+      editorState();
+    }
+    void load();
+  });
+  get('vm-region_id').addEventListener('change', () => {
+    if (busy || directoryBusy) return;
+    editorState();
+    if (!selected && manages(value('vm-region_id'))) {
+      set('vm-region', value('vm-region_id'));
+      void load();
     }
   });
   get('vm-search').addEventListener('input', renderList);
@@ -345,7 +488,7 @@ function venueManagementController() {
   get('vm-print').addEventListener('click', () => {
     if (selected && !busy) window.print();
   });
-  say('請輸入場地所屬區域 UUID，按「查詢」。未接線／未授權不會模擬成功。');
+  void init();
 }
 
 export const renderVenueManagementPage = (locale: AdminLocale = 'zh_TW'): string => {
@@ -456,11 +599,13 @@ body *{visibility:hidden}
   <div class="vm-card vm-toolbar-card">
     <div class="vm-toolbar-row">
       <div class="vm-region-group">
-        <label for="vm-region" class="vm-field-label">查詢區域 UUID<span class="vm-req" aria-hidden="true">*</span></label>
-        <input id="vm-region" autocomplete="off" class="vm-input" placeholder="請輸入 36 字元區域 UUID">
+        <label for="vm-region" class="vm-field-label">查詢地區<span class="vm-req" aria-hidden="true">*</span></label>
+        <select id="vm-region" class="vm-input" aria-describedby="vm-status" disabled><option value="">載入授權地區中…</option></select>
       </div>
       <div class="vm-btn-group">
-        <button id="vm-load" type="button" class="vm-btn vm-btn-primary">查詢／重新載入</button>
+        <button id="vm-load" type="button" class="vm-btn vm-btn-primary" disabled>查詢／重新載入</button>
+        <button id="vm-regions-retry" type="button" class="vm-btn vm-btn-secondary">重試授權地區</button>
+        <a href="/admin/auth/login" class="vm-btn vm-btn-secondary">重新登入</a>
         <button id="vm-add" type="button" class="vm-btn vm-btn-secondary" disabled>新增場地</button>
       </div>
     </div>
@@ -535,11 +680,11 @@ body *{visibility:hidden}
 
           <div class="vm-form-row">
             <div class="vm-label-col">
-              <label for="vm-region_id" class="vm-field-label">目標區域 UUID<span class="vm-req" aria-hidden="true">*</span></label>
-              <span class="vm-field-hint">場地所屬之區域 UUID</span>
+              <label for="vm-region_id" class="vm-field-label">目標地區<span class="vm-req" aria-hidden="true">*</span></label>
+              <span class="vm-field-hint">僅列出可管理地區；新增不需先查詢</span>
             </div>
             <div class="vm-control-col">
-              <input id="vm-region_id" type="text" required class="vm-input" autocomplete="off" placeholder="36 字元 UUID">
+              <select id="vm-region_id" required class="vm-input" aria-describedby="vm-status"><option value="">請選擇可管理的目標地區</option></select>
             </div>
           </div>
 
@@ -653,7 +798,7 @@ body *{visibility:hidden}
     <section id="vm-sign" class="vm-signboard"></section>
   </section>
 </section>`,
-    `(${venueManagementController.toString()})();`,
+    `(${venueManagementController.toString()})(${JSON.stringify(locale)});`,
     locale
   );
 };

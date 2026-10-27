@@ -173,6 +173,79 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
       if (duplicate) await owner.query('DELETE FROM core.regions WHERE id=$1', [duplicate]);
     }
   });
+  it('existing role names acquire manage only from synthetic policy data, and removing that permission rejects create', async () => {
+    // Reflect an already-authorized deployment as DATA in the disposable fixture,
+    // never migrate/promote roles or teach the application a role-name allowlist.
+    const roles = ['super_admin', 'master_admin', 'global_viewer', 'regional_admin'] as const;
+    for (const [index, role] of roles.entries()) {
+      const principal = randomUUID();
+      const credential = ['A', 'B', 'C', 'D'][index]!.repeat(43);
+      let addedPermission = false;
+      await owner.query(
+        `INSERT INTO admin.principals(id,oidc_issuer,oidc_subject,display_name)
+        VALUES($1,'https://synthetic.invalid',$2,'Synthetic catalog role')`,
+        [principal, 'catalog-' + role]
+      );
+      await owner.query(
+        `INSERT INTO admin.role_grants(principal_id,role_id,scope_type,region_id,reason)
+        SELECT $1,id,$3,$4,'Synthetic catalog role only' FROM admin.roles WHERE code=$2`,
+        [
+          principal,
+          role,
+          role === 'regional_admin' ? 'region' : 'global',
+          role === 'regional_admin' ? tw : null
+        ]
+      );
+      await owner.query(
+        `INSERT INTO admin.sessions(token_hash,principal_id,expires_at)
+        VALUES(public.digest($1,'sha256'),$2,clock_timestamp()+interval '1 day')`,
+        [credential, principal]
+      );
+      const catalog = () => readVenueManagementRegions(runtime, randomUUID(), credential, 'en');
+      try {
+        expect((await catalog()).regions.every((r) => !r.canManage)).toBe(true);
+        const inserted = await owner.query(
+          `INSERT INTO admin.role_permissions(role_id,permission_id)
+          SELECT r.id,p.id FROM admin.roles r CROSS JOIN admin.permissions p
+          WHERE r.code=$1 AND p.code='venue_attendance.field.manage' ON CONFLICT DO NOTHING RETURNING role_id`,
+          [role]
+        );
+        addedPermission = inserted.rowCount === 1;
+        expect(addedPermission).toBe(true);
+        const authorized = (await catalog()).regions;
+        expect(authorized).toHaveLength(role === 'regional_admin' ? 1 : 2);
+        expect(authorized.every((r) => r.canManage && r.canRead)).toBe(true);
+        await owner.query(
+          `DELETE FROM admin.role_permissions rp USING admin.roles r,admin.permissions p
+          WHERE rp.role_id=r.id AND rp.permission_id=p.id AND r.code=$1 AND p.code='venue_attendance.field.manage'`,
+          [role]
+        );
+        addedPermission = false;
+        expect((await catalog()).regions.every((r) => !r.canManage)).toBe(true);
+        await expect(
+          execute(
+            {
+              action: 'create',
+              regionId: tw,
+              field: field('tw-revoked-role-' + index),
+              reason: 'Synthetic revoked policy'
+            },
+            credential
+          )
+        ).rejects.toMatchObject({ code: '42501' });
+      } finally {
+        if (addedPermission)
+          await owner.query(
+            `DELETE FROM admin.role_permissions rp USING admin.roles r,admin.permissions p
+          WHERE rp.role_id=r.id AND rp.permission_id=p.id AND r.code=$1 AND p.code='venue_attendance.field.manage'`,
+            [role]
+          );
+        await owner.query('DELETE FROM admin.sessions WHERE principal_id=$1', [principal]);
+        await owner.query('DELETE FROM admin.role_grants WHERE principal_id=$1', [principal]);
+        await owner.query('DELETE FROM admin.principals WHERE id=$1', [principal]);
+      }
+    }
+  });
   it('55-chain readiness independently rejects missing ACLs, unsafe owner roles and disabled FORCE RLS', async () => {
     const enabled = { enabled: true, publicOrigin: 'https://synthetic.invalid' } as const;
     const suite = { history: enabled, management: enabled, people: enabled };
