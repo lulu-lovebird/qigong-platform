@@ -8,7 +8,10 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runMigrations, withRequestContext } from '@qigong/database';
 import { buildApp, checkStartupReadiness } from '../src/app.js';
-import { readVenueAdminCapabilities } from '../src/venue-admin-capabilities.js';
+import {
+  readVenueAdminCapabilities,
+  readVenueManagementRegions
+} from '../src/venue-admin-capabilities.js';
 import {
   lookupManagedVenue,
   runVenueManagement,
@@ -97,6 +100,151 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
   afterAll(async () => {
     await runtime?.end();
     await owner?.end();
+  });
+  it('runtime directory uses existing name ACLs, real scope/actions, locale fallback, revocation and active hierarchy', async () => {
+    const catalog = (credential = session, locale: 'en' | 'zh_CN' = 'en') =>
+      readVenueManagementRegions(runtime, randomUUID(), credential, locale);
+    const initial = await catalog();
+    expect(initial.regions).toEqual([
+      {
+        id: tw,
+        displayName: 'Synthetic Taiwan region',
+        countryName: 'Synthetic Taiwan',
+        code: 'tw-general',
+        canRead: true,
+        canManage: true
+      }
+    ]);
+    expect((await catalog('v'.repeat(43))).regions).toEqual([
+      { ...initial.regions[0], canManage: false }
+    ]);
+    expect(await catalog('e'.repeat(43))).toEqual({ regions: [] });
+    expect(await catalog(session, 'zh_CN')).toEqual(initial);
+    let duplicate: string | undefined;
+    try {
+      duplicate = (
+        await owner.query<{ id: string }>(
+          `INSERT INTO core.regions(parent_region_id,code,region_type,name_zh_tw,name_en)
+        SELECT parent_region_id,'tw-catalog-duplicate','operational',name_zh_tw,name_en FROM core.regions WHERE id=$1 RETURNING id`,
+          [tw]
+        )
+      ).rows[0]!.id;
+      // No all-region leak just because names are readable to the runtime role.
+      expect((await catalog()).regions).toHaveLength(1);
+      await owner.query(
+        `INSERT INTO admin.role_grants(principal_id,role_id,scope_type,region_id,reason)
+        SELECT '10000000-0000-4000-8000-000000000003',r.id,'country',g.parent_region_id,'catalog synthetic scope' FROM admin.roles r CROSS JOIN core.regions g WHERE r.code='venue_manage_test' AND g.id=$1`,
+        [tw]
+      );
+      const country = (await catalog()).regions;
+      expect(country).toHaveLength(2);
+      expect(new Set(country.map((r) => r.displayName)).size).toBe(1);
+      expect(new Set(country.map((r) => r.code)).size).toBe(2);
+      expect(country.every((r) => r.canManage)).toBe(true);
+      expect(country.some((r) => r.id === sg)).toBe(false);
+      // Global grant is policy data, not a role-name bypass.
+      await owner.query(`INSERT INTO admin.role_grants(principal_id,role_id,scope_type,reason)
+        SELECT '10000000-0000-4000-8000-000000000003',id,'global','catalog synthetic scope' FROM admin.roles WHERE code='venue_manage_test'`);
+      expect((await catalog()).regions).toHaveLength(3);
+      await owner.query(`DELETE FROM admin.role_grants WHERE reason='catalog synthetic scope'`);
+      await owner.query(
+        `UPDATE admin.role_grants SET valid_to=clock_timestamp() WHERE principal_id='10000000-0000-4000-8000-000000000003'`
+      );
+      // Existing session contract requires at least one live grant.
+      await expect(catalog()).rejects.toThrow('unauthenticated');
+      await expect(create(field('tw-revoked-catalog'))).rejects.toThrow('unauthenticated');
+      await owner.query(
+        `UPDATE admin.role_grants SET valid_to=NULL WHERE principal_id='10000000-0000-4000-8000-000000000003'`
+      );
+      await owner.query('UPDATE core.regions SET active=FALSE WHERE id=$1', [tw]);
+      expect(await catalog()).toEqual({ regions: [] });
+      expect(await catalog('v'.repeat(43))).toEqual({ regions: [] });
+      await expect(create(field('tw-disabled-catalog'))).rejects.toMatchObject({ code: '42501' });
+      await owner.query('UPDATE core.regions SET active=TRUE WHERE id=$1', [tw]);
+      await owner.query(
+        `UPDATE admin.sessions SET revoked_at=clock_timestamp() WHERE token_hash=public.digest(repeat('m',43),'sha256')`
+      );
+      await expect(catalog()).rejects.toThrow('unauthenticated');
+    } finally {
+      await owner.query(`DELETE FROM admin.role_grants WHERE reason='catalog synthetic scope';
+        UPDATE admin.role_grants SET valid_to=NULL WHERE principal_id='10000000-0000-4000-8000-000000000003';
+        UPDATE admin.sessions SET revoked_at=NULL WHERE token_hash=public.digest(repeat('m',43),'sha256')`);
+      await owner.query('UPDATE core.regions SET active=TRUE WHERE id=$1', [tw]);
+      if (duplicate) await owner.query('DELETE FROM core.regions WHERE id=$1', [duplicate]);
+    }
+  });
+  it('existing role names acquire manage only from synthetic policy data, and removing that permission rejects create', async () => {
+    // Reflect an already-authorized deployment as DATA in the disposable fixture,
+    // never migrate/promote roles or teach the application a role-name allowlist.
+    const roles = ['super_admin', 'master_admin', 'global_viewer', 'regional_admin'] as const;
+    for (const [index, role] of roles.entries()) {
+      const principal = randomUUID();
+      const credential = ['A', 'B', 'C', 'D'][index]!.repeat(43);
+      let addedPermission = false;
+      await owner.query(
+        `INSERT INTO admin.principals(id,oidc_issuer,oidc_subject,display_name)
+        VALUES($1,'https://synthetic.invalid',$2,'Synthetic catalog role')`,
+        [principal, 'catalog-' + role]
+      );
+      await owner.query(
+        `INSERT INTO admin.role_grants(principal_id,role_id,scope_type,region_id,reason)
+        SELECT $1,id,$3,$4,'Synthetic catalog role only' FROM admin.roles WHERE code=$2`,
+        [
+          principal,
+          role,
+          role === 'regional_admin' ? 'region' : 'global',
+          role === 'regional_admin' ? tw : null
+        ]
+      );
+      await owner.query(
+        `INSERT INTO admin.sessions(token_hash,principal_id,expires_at)
+        VALUES(public.digest($1,'sha256'),$2,clock_timestamp()+interval '1 day')`,
+        [credential, principal]
+      );
+      const catalog = () => readVenueManagementRegions(runtime, randomUUID(), credential, 'en');
+      try {
+        expect((await catalog()).regions.every((r) => !r.canManage)).toBe(true);
+        const inserted = await owner.query(
+          `INSERT INTO admin.role_permissions(role_id,permission_id)
+          SELECT r.id,p.id FROM admin.roles r CROSS JOIN admin.permissions p
+          WHERE r.code=$1 AND p.code='venue_attendance.field.manage' ON CONFLICT DO NOTHING RETURNING role_id`,
+          [role]
+        );
+        addedPermission = inserted.rowCount === 1;
+        expect(addedPermission).toBe(true);
+        const authorized = (await catalog()).regions;
+        expect(authorized).toHaveLength(role === 'regional_admin' ? 1 : 2);
+        expect(authorized.every((r) => r.canManage && r.canRead)).toBe(true);
+        await owner.query(
+          `DELETE FROM admin.role_permissions rp USING admin.roles r,admin.permissions p
+          WHERE rp.role_id=r.id AND rp.permission_id=p.id AND r.code=$1 AND p.code='venue_attendance.field.manage'`,
+          [role]
+        );
+        addedPermission = false;
+        expect((await catalog()).regions.every((r) => !r.canManage)).toBe(true);
+        await expect(
+          execute(
+            {
+              action: 'create',
+              regionId: tw,
+              field: field('tw-revoked-role-' + index),
+              reason: 'Synthetic revoked policy'
+            },
+            credential
+          )
+        ).rejects.toMatchObject({ code: '42501' });
+      } finally {
+        if (addedPermission)
+          await owner.query(
+            `DELETE FROM admin.role_permissions rp USING admin.roles r,admin.permissions p
+          WHERE rp.role_id=r.id AND rp.permission_id=p.id AND r.code=$1 AND p.code='venue_attendance.field.manage'`,
+            [role]
+          );
+        await owner.query('DELETE FROM admin.sessions WHERE principal_id=$1', [principal]);
+        await owner.query('DELETE FROM admin.role_grants WHERE principal_id=$1', [principal]);
+        await owner.query('DELETE FROM admin.principals WHERE id=$1', [principal]);
+      }
+    }
   });
   it('55-chain readiness independently rejects missing ACLs, unsafe owner roles and disabled FORCE RLS', async () => {
     const enabled = { enabled: true, publicOrigin: 'https://synthetic.invalid' } as const;

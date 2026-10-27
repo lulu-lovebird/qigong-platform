@@ -4,6 +4,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { adminContentSecurityPolicy } from './admin-branding.js';
 import { resolveAdminLocale } from './admin-locale.js';
+import { localeSchema } from './ui-localization.js';
+import { readVenueManagementRegions } from './venue-admin-capabilities.js';
 import { renderVenueManagementPage } from './venue-management-page.js';
 import {
   runVenueManagement,
@@ -81,13 +83,18 @@ export const registerVenueManagementRoutes = (
     },
     async (request, reply) => {
       headers(reply);
-      if (request.headers.origin !== adminOrigin || !options.validCsrf(request))
+      if (
+        request.headers.origin !== adminOrigin ||
+        !options.validCsrf(request) ||
+        (request.headers['sec-fetch-site'] !== undefined &&
+          request.headers['sec-fetch-site'] !== 'same-origin')
+      )
         return reply.code(403).send({ error: 'invalid_csrf_or_origin' });
       const session = options.sessionFor(request);
       if (!session || !/^[A-Za-z0-9_-]{43}$/.test(session))
         return reply.code(401).send({ error: 'unauthenticated' });
       const action = z
-        .object({ action: z.enum(['list', 'get', 'capabilities', 'create', 'update']) })
+        .object({ action: z.enum(['regions', 'list', 'get', 'capabilities', 'create', 'update']) })
         .strict()
         .safeParse(request.params);
       // Strict input prevents client action/principal/version ambiguity.
@@ -99,6 +106,22 @@ export const registerVenueManagementRoutes = (
         'action' in request.body
       )
         return reply.code(400).send({ error: 'invalid_request' });
+      if (action.data.action === 'regions') {
+        const parsed = z.object({ lang: localeSchema.optional() }).strict().safeParse(request.body);
+        if (!parsed.success || !z.object({}).strict().safeParse(request.query).success)
+          return reply.code(400).send({ error: 'invalid_request' });
+        try {
+          return await readVenueManagementRegions(
+            pool,
+            request.id,
+            session,
+            parsed.data.lang ?? resolveAdminLocale({}, request.headers.cookie)
+          );
+        } catch (error) {
+          const failure = venueManagementError(error);
+          return reply.code(failure.status).send({ error: failure.error });
+        }
+      }
       const parsed = venueManagementOperationSchema.safeParse({
         ...request.body,
         action: action.data.action

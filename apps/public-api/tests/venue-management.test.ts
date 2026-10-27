@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import type { Pool } from '@qigong/database';
 import { describe, expect, it, vi } from 'vitest';
 import { renderVenueManagementPage } from '../src/venue-management-page.js';
+import { registerAdminRoutes } from '../src/admin-auth.js';
 import {
   registerVenueManagementRoutes,
   venueManagementError
@@ -196,6 +197,7 @@ class Element {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
   }
   async event(type: string) {
+    await new Promise<void>((r) => setImmediate(r));
     for (const fn of this.listeners.get(type) ?? []) await fn({ preventDefault() {} });
     for (let i = 0; i < 10; i++) await new Promise<void>((r) => setImmediate(r));
   }
@@ -203,14 +205,37 @@ class Element {
   select() {}
 }
 const all = (e: Element): Element[] => [e, ...e.children.flatMap(all)];
+const region = {
+  id,
+  displayName: '<Synthetic region>',
+  countryName: 'Synthetic country',
+  code: 'synthetic-one',
+  canRead: true,
+  canManage: true
+};
+const secondRegion = {
+  ...region,
+  id: '20000000-0000-4000-8000-000000000001',
+  code: 'synthetic-two'
+};
+interface BrowserOptions {
+  html?: string;
+  regions?: (typeof region)[];
+  listStatus?: number;
+  http?: (
+    path: string,
+    init: RequestInit
+  ) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
+}
 function browser(
   status = 200,
   manage = true,
   failedSaveStatus?: number,
   clipboardAvailable = true,
-  confirmDisable = true
+  confirmDisable = true,
+  options: BrowserOptions = {}
 ) {
-  const html = renderVenueManagementPage();
+  const html = options.html ?? renderVenueManagementPage();
   const elements = new Map<string, Element>();
   for (const match of html.matchAll(/<(\w+)\b([^>]*\bid="([^"]+)"[^>]*)>/g)) {
     const e = new Element(match[1]);
@@ -225,15 +250,18 @@ function browser(
       unknown
     >;
     calls.push({ action, body });
+    if (options.http) return options.http(path, init);
     const responseStatus = ['create', 'update'].includes(action)
       ? (failedSaveStatus ?? status)
-      : status;
+      : action === 'list'
+        ? (options.listStatus ?? status)
+        : status;
     return {
       ok: responseStatus === 200,
       status: responseStatus,
       json: async () =>
-        action === 'capabilities'
-          ? { canRead: true, canManage: manage }
+        action === 'regions'
+          ? { regions: options.regions ?? [{ ...region, canManage: manage }] }
           : action === 'list'
             ? { fields: [row] }
             : { field: { ...row, version: 4 } }
@@ -261,8 +289,10 @@ function browser(
     if (!e) throw new Error('missing ' + id);
     return e;
   };
-  get('vm-region').value = id;
-  return { html, get, calls, copy, print, confirm, transport: fetch };
+  const ready = (async () => {
+    for (let i = 0; i < 10; i++) await new Promise<void>((r) => setImmediate(r));
+  })();
+  return { html, get, calls, copy, print, confirm, ready, transport: fetch };
 }
 describe('venue management browser controller (in-memory transport, not DB evidence)', () => {
   it('safe DOM displays hostile names literally; copy/print truthful URLs, immutable code and version save', async () => {
@@ -395,16 +425,25 @@ describe('venue management browser controller (in-memory transport, not DB evide
       if (!confirmed) expect(b.get('vm-status').textContent).toContain('已取消停用');
     }
   );
-  it('new venues use the successfully authorized region, not an unsubmitted filter edit', async () => {
+  it('initial singleton can create before any list request; UUID exists only in option values and payload', async () => {
     const b = browser();
-    await b.get('vm-load').event('click');
-    b.get('vm-region').value = '20000000-0000-4000-8000-000000000001';
+    await b.ready;
+    expect(b.calls.map((c) => c.action)).toEqual(['regions']);
+    expect(b.get('vm-region').value).toBe(id);
+    expect(b.get('vm-add').disabled).toBe(false);
     await b.get('vm-add').event('click');
+    expect(b.get('vm-editor').disabled).toBe(false);
     expect(b.get('vm-region_id').value).toBe(id);
     expect(b.get('vm-code').readOnly).toBe(false);
+    expect(b.get('vm-region_id').textContent).not.toContain(id);
+    expect(b.get('vm-region_id').textContent).toContain(region.displayName);
     await b.get('vm-form').event('submit');
-    expect(b.calls.at(-1)).toMatchObject({ action: 'create', body: { regionId: id } });
+    expect(b.calls.at(-1)).toMatchObject({
+      action: 'create',
+      body: { regionId: id, field: { region_id: id } }
+    });
     expect(b.get('vm-status').textContent).toContain('已儲存');
+    expect(b.calls.some((c) => c.action === 'list')).toBe(false);
   });
   it('view does not permit mutation, can inspect links', async () => {
     const b = browser(200, false);
@@ -417,8 +456,289 @@ describe('venue management browser controller (in-memory transport, not DB evide
     expect(b.get('vm-active').disabled).toBe(true);
     expect(b.get('vm-save').disabled).toBe(true);
     await b.get('vm-form').event('submit');
-    expect(b.calls.map((c) => c.action)).toEqual(['capabilities', 'list']);
+    expect(b.calls.map((c) => c.action)).toEqual(['regions', 'list']);
     expect(b.get('vm-sign').textContent).toContain(row.urls.link);
+  });
+
+  it('multiple same-name regions remain unambiguous; target determines create scope without a successful list', async () => {
+    const b = browser(200, true, undefined, true, true, {
+      regions: [region, secondRegion],
+      listStatus: 503
+    });
+    await b.ready;
+    expect(b.get('vm-region').value).toBe('');
+    expect(b.get('vm-add').disabled).toBe(false);
+    await b.get('vm-add').event('click');
+    expect(b.get('vm-region_id').value).toBe('');
+    expect(b.get('vm-save').disabled).toBe(true);
+    expect(b.get('vm-region_id').textContent).toContain('synthetic-one');
+    expect(b.get('vm-region_id').textContent).toContain('synthetic-two');
+    b.get('vm-region_id').value = secondRegion.id;
+    await b.get('vm-region_id').event('change');
+    expect(b.get('vm-region').value).toBe(secondRegion.id);
+    expect(b.get('vm-status').textContent).toContain('場地清單載入失敗');
+    expect(b.get('vm-save').disabled).toBe(false);
+    await b.get('vm-form').event('submit');
+    expect(b.calls.at(-1)).toMatchObject({
+      action: 'create',
+      body: { regionId: secondRegion.id, field: { region_id: secondRegion.id } }
+    });
+  });
+  it.each([403, 404, 503])(
+    'list HTTP %i does not revoke independent create capability',
+    async (listStatus) => {
+      const b = browser(200, true, undefined, true, true, { listStatus });
+      await b.get('vm-load').event('click');
+      expect(b.get('vm-add').disabled).toBe(false);
+      await b.get('vm-add').event('click');
+      await b.get('vm-form').event('submit');
+      expect(b.calls.at(-1)?.action).toBe('create');
+    }
+  );
+  it('read-only filter can be queried while create selects the independent manageable region', async () => {
+    const b = browser(200, true, undefined, true, true, {
+      regions: [{ ...region, canManage: false }, secondRegion]
+    });
+    await b.ready;
+    b.get('vm-region').value = id;
+    await b.get('vm-region').event('change');
+    await all(b.get('vm-list'))
+      .find((e) => e.tag === 'button')!
+      .event('click');
+    expect(b.get('vm-save').disabled).toBe(true);
+    expect(b.get('vm-region_id').disabled).toBe(true);
+    expect(b.get('vm-add').disabled).toBe(false);
+    await b.get('vm-add').event('click');
+    expect(b.get('vm-region_id').value).toBe(secondRegion.id);
+    expect(b.get('vm-name_zh_tw').readOnly).toBe(false);
+    await b.get('vm-form').event('submit');
+    expect(b.calls.at(-1)).toMatchObject({ action: 'create', body: { regionId: secondRegion.id } });
+  });
+  it('filter selection updates a new target without erasing text; update retains its real source scope', async () => {
+    const b = browser(200, true, undefined, true, true, { regions: [region, secondRegion] });
+    await b.ready;
+    await b.get('vm-add').event('click');
+    b.get('vm-name_zh_tw').value = 'Preserved new draft';
+    b.get('vm-region').value = id;
+    await b.get('vm-region').event('change');
+    expect(b.get('vm-name_zh_tw').value).toBe('Preserved new draft');
+    expect(b.get('vm-region_id').value).toBe(id);
+    await all(b.get('vm-list'))
+      .find((e) => e.tag === 'button')!
+      .event('click');
+    b.get('vm-region_id').value = secondRegion.id;
+    await b.get('vm-region_id').event('change');
+    await b.get('vm-form').event('submit');
+    expect(b.calls.at(-1)).toMatchObject({
+      action: 'update',
+      body: { regionId: id, id, version: 3, field: { region_id: secondRegion.id } }
+    });
+  });
+  it('empty directory, unavailable directory and retry are distinct and never fake success', async () => {
+    const empty = browser(200, true, undefined, true, true, { regions: [] });
+    await empty.ready;
+    expect(empty.get('vm-status').textContent).toContain('沒有可用的授權地區');
+    expect(empty.get('vm-add').disabled).toBe(true);
+    await empty.get('vm-add').event('click');
+    expect(empty.get('vm-editor').disabled).toBe(true);
+    const failed = browser(503);
+    await failed.ready;
+    expect(failed.get('vm-status').textContent).toContain('地區目錄載入失敗');
+    expect(failed.get('vm-add').disabled).toBe(true);
+    failed.transport.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ regions: [region] })
+    });
+    await failed.get('vm-regions-retry').event('click');
+    expect(failed.get('vm-add').disabled).toBe(false);
+  });
+  it('keeps add disabled until directory session/capabilities resolve, not merely HTML session', async () => {
+    let finish:
+      ((response: { ok: boolean; status: number; json(): Promise<unknown> }) => void) | undefined;
+    const b = browser(200, true, undefined, true, true, {
+      http: async () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    });
+    await b.ready;
+    expect(b.get('vm-add').disabled).toBe(true);
+    await b.get('vm-add').event('click');
+    expect(b.get('vm-editor').disabled).toBe(true);
+    finish!({ ok: true, status: 200, json: async () => ({ regions: [region] }) });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(b.get('vm-add').disabled).toBe(false);
+    await b.get('vm-add').event('click');
+    expect(b.get('vm-editor').disabled).toBe(false);
+  });
+  it('refresh reflects revoked manage permission without discarding the draft; network list failure alone does not lock add', async () => {
+    const b = browser();
+    await b.ready;
+    b.transport.mockRejectedValueOnce(new Error('synthetic list network failure'));
+    await b.get('vm-load').event('click');
+    expect(b.get('vm-add').disabled).toBe(false);
+    await b.get('vm-add').event('click');
+    b.get('vm-name_zh_tw').value = 'Draft before permission revocation';
+    b.transport.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ regions: [{ ...region, canManage: false }] })
+    });
+    await b.get('vm-regions-retry').event('click');
+    expect(b.get('vm-add').disabled).toBe(true);
+    expect(b.get('vm-save').disabled).toBe(true);
+    expect(b.get('vm-name_zh_tw').value).toBe('Draft before permission revocation');
+    expect(b.get('vm-name_zh_tw').readOnly).toBe(true);
+    await b.get('vm-form').event('submit');
+    expect(b.calls.some((c) => c.action === 'create')).toBe(false);
+  });
+  it('expired create preserves the draft, locks mutations and exposes login/retry', async () => {
+    const b = browser(200, true, 401);
+    await b.get('vm-add').event('click');
+    b.get('vm-name_zh_tw').value = 'Expired context draft';
+    await b.get('vm-form').event('submit');
+    expect(b.get('vm-name_zh_tw').value).toBe('Expired context draft');
+    expect(b.get('vm-add').disabled).toBe(true);
+    expect(b.get('vm-save').disabled).toBe(true);
+    expect(b.get('vm-status').textContent).toContain('重新登入');
+    expect(b.html).toContain('href="/admin/auth/login"');
+    await b.get('vm-form').event('submit');
+    expect(b.calls.filter((c) => c.action === 'create')).toHaveLength(1);
+  });
+  it('rejects malformed/duplicate directories and preserves input on a failed refresh', async () => {
+    const b = browser();
+    await b.get('vm-add').event('click');
+    b.get('vm-name_zh_tw').value = 'Draft survives refresh';
+    for (const regions of [[region, region], [{ ...region, canManage: 'true' }]]) {
+      b.transport.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ regions }) });
+      await b.get('vm-regions-retry').event('click');
+      expect(b.get('vm-status').textContent).toContain('目錄回應無效');
+      expect(b.get('vm-add').disabled).toBe(true);
+      expect(b.get('vm-name_zh_tw').value).toBe('Draft survives refresh');
+    }
+  });
+  it('does not duplicate create while pending, and ignores stale list output after create', async () => {
+    const b = browser();
+    await b.ready;
+    let completeList: ((r: Awaited<ReturnType<typeof b.transport>>) => void) | undefined;
+    b.transport.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          completeList = resolve;
+        })
+    );
+    await b.get('vm-load').event('click');
+    expect(b.get('vm-add').disabled).toBe(false);
+    await b.get('vm-add').event('click');
+    let completeCreate: typeof completeList;
+    b.transport.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          completeCreate = resolve;
+        })
+    );
+    await b.get('vm-form').event('submit');
+    await b.get('vm-form').event('submit');
+    expect(b.transport).toHaveBeenCalledTimes(3);
+    expect(b.get('vm-add').disabled).toBe(true);
+    completeCreate!({
+      ok: true,
+      status: 200,
+      json: async () => ({ field: { ...row, version: 4 } })
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    completeList!({ ok: true, status: 200, json: async () => ({ fields: [] }) });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(b.get('vm-status').textContent).toContain('已儲存');
+    expect(b.get('vm-list').textContent).toContain(row.name_zh_tw);
+  });
+  it('served controller traverses actual admin-auth routes: auto directory, failed list, direct create, revoked session', async () => {
+    let active = true;
+    const operations: unknown[][] = [];
+    const query = vi.fn(async (sql: string, values?: unknown[]) => {
+      if (sql.includes('session_principal'))
+        return { rows: [{ principal_id: active ? id : null, principal: active ? id : null }] };
+      if (sql.includes('WITH eligible')) return { rows: [region] };
+      if (sql.includes('admin.venue_management(')) {
+        if (values?.[1] === 'list') throw new Error('synthetic list unavailable');
+        operations.push(values ?? []);
+        return {
+          rows: [{ data: { field: { ...field, id, version: 1, created_at: '', updated_at: '' } } }]
+        };
+      }
+      return { rows: [] };
+    });
+    const pool = { connect: async () => ({ query, release() {} }) } as unknown as Pool;
+    const app = Fastify({ genReqId: () => id });
+    registerAdminRoutes(
+      app,
+      pool,
+      {
+        callbackUrl: origin + '/admin/auth/callback',
+        begin: async () => new URL(origin),
+        complete: async () => ({ iss: origin, sub: 'synthetic' })
+      },
+      undefined,
+      {},
+      undefined,
+      { management: { enabled: true, publicOrigin: origin } }
+    );
+    const cookie = `__Host-qigong-admin=${'s'.repeat(43)}; __Host-qigong-admin-csrf=${'c'.repeat(43)}`;
+    try {
+      const page = await app.inject({ url: '/admin/venue-management', headers: { cookie } });
+      expect(page.statusCode).toBe(200);
+      const b = browser(200, true, undefined, true, true, {
+        html: page.body,
+        http: async (path, init) => {
+          if (typeof init.body !== 'string') throw new Error('expected JSON body');
+          const response = await app.inject({
+            method: 'POST',
+            url: path,
+            headers: { origin, cookie, 'x-csrf-token': 'c'.repeat(43) },
+            payload: JSON.parse(init.body) as object
+          });
+          return {
+            ok: response.statusCode < 300,
+            status: response.statusCode,
+            json: async () => response.json<unknown>()
+          };
+        }
+      });
+      await b.ready;
+      expect(b.calls.map((c) => c.action)).toEqual(['regions']);
+      await b.get('vm-load').event('click');
+      expect(b.get('vm-add').disabled).toBe(false);
+      await b.get('vm-add').event('click');
+      for (const key of [
+        'code',
+        'name_zh_tw',
+        'address',
+        'latitude',
+        'longitude',
+        'radius_meters',
+        'timezone'
+      ] as const)
+        b.get('vm-' + key).value = String(field[key]);
+      b.get('vm-reason').value = 'Synthetic create';
+      await b.get('vm-form').event('submit');
+      expect(b.get('vm-status').textContent).toContain('已儲存，版本 1');
+      expect(operations).toHaveLength(1);
+      expect(operations[0]?.slice(0, 3)).toEqual(['s'.repeat(43), 'create', id]);
+      active = false;
+      await b.get('vm-add').event('click');
+      b.get('vm-name_zh_tw').value = 'Unsaved after session revocation';
+      b.get('vm-latitude').value = '25';
+      b.get('vm-longitude').value = '121';
+      b.get('vm-code').value = 'tw-synthetic-new';
+      b.get('vm-reason').value = 'Synthetic attempt';
+      await b.get('vm-form').event('submit');
+      expect(b.get('vm-status').textContent).toContain('登入失效');
+      expect(b.get('vm-name_zh_tw').value).toBe('Unsaved after session revocation');
+      expect(operations).toHaveLength(1);
+    } finally {
+      await app.close();
+    }
   });
 
   it('aligns venue form textboxes with tabular grid, paired coordinates/time, and clear a11y associations', () => {
@@ -475,6 +795,12 @@ describe('venue management browser controller (in-memory transport, not DB evide
       expect(html).toMatch(new RegExp(`<label[^>]*for="${id}"`));
     }
 
+    expect(html).toMatch(/<select id="vm-region"/);
+    expect(html).toMatch(/<select id="vm-region_id"/);
+    expect(html).not.toMatch(/<input[^>]*id="vm-region(?:_id)?"/);
+    expect(html).not.toContain('36 字元');
+    // Native selects retain keyboard semantics; visible text is appended via textContent.
+    expect(html).toContain('aria-describedby="vm-status"');
     // Required vs optional indicators
     expect(html).toMatch(/id="vm-code"[^>]*required/);
     expect(html).toMatch(/id="vm-name_zh_tw"[^>]*required/);
