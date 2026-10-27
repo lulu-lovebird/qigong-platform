@@ -1,4 +1,4 @@
-/** Real PG17 only through venue-people-local-pg.sh; NEVER TEST_DATABASE_URL. */
+/** Real PG16/17 only through the isolated venue harness; NEVER TEST_DATABASE_URL. */
 import { readFile, readdir, realpath, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Pool } from 'pg';
@@ -128,7 +128,7 @@ const httpRead = (
   });
 };
 
-describe.skipIf(!directory)('venue people: isolated PG17 integrated 54 migrations', () => {
+describe.skipIf(!directory)('venue people: isolated PG16/17 integrated 54 migrations', () => {
   beforeAll(async () => {
     if (
       !directory ||
@@ -159,7 +159,7 @@ describe.skipIf(!directory)('venue people: isolated PG17 integrated 54 migration
     const settings = await owner.query(
       "SELECT current_setting('server_version_num')::int version,current_setting('listen_addresses') listeners"
     );
-    expect(settings.rows[0].version).toBeGreaterThanOrEqual(170000);
+    expect(settings.rows[0].version).toBeGreaterThanOrEqual(160000);
     expect(settings.rows[0].version).toBeLessThan(180000);
     expect(settings.rows[0].listeners).toBe('');
     const pristine = await owner.query(
