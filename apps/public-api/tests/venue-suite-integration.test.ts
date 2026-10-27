@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp, checkStartupReadiness } from '../src/app.js';
 import type { AdminAuthProvider } from '../src/admin-auth.js';
 import { venueSuiteMigrationVersion, type VenueSuiteConfig } from '../src/venue-suite.js';
+import { venueDebugMigrationVersion } from '../src/venue-debug.js';
 
 const origin = 'https://synthetic.invalid';
 const subject = 'U' + 'a'.repeat(32);
@@ -25,7 +26,7 @@ const line = {
   liffId: '123-synthetic',
   verifyIdentity: vi.fn(async () => ({ subject }))
 };
-const fixture = (version = venueSuiteMigrationVersion, capable = true) => {
+const fixture = (version = venueDebugMigrationVersion, capable = true) => {
   const managed: { value: { code: string; name: string; active: boolean } | null; fail: boolean } =
     {
       value: { code: 'tw-test-one', name: '<Synthetic venue>', active: true },
@@ -38,6 +39,7 @@ const fixture = (version = venueSuiteMigrationVersion, capable = true) => {
     fail: false,
     revoked: false
   };
+  const unavailableFunctions = new Set<string>();
   const query = vi.fn(async (sql: string, values?: unknown[]) => {
     if (sql.includes(' AS management,')) {
       if (permissions.fail) throw new Error('private permission diagnostics');
@@ -98,7 +100,22 @@ const fixture = (version = venueSuiteMigrationVersion, capable = true) => {
       if (managed.fail) throw new Error('private diagnostics');
       return { rows: [{ data: managed.value }] };
     }
-    if (sql.includes(' AS ready')) return { rows: [{ ready: capable }] };
+    if (sql.includes(' AS ready')) {
+      const functions = values?.[0];
+      return {
+        rows: [
+          {
+            ready:
+              capable &&
+              Array.isArray(functions) &&
+              !functions.some(
+                (signature: unknown) =>
+                  typeof signature === 'string' && unavailableFunctions.has(signature)
+              )
+          }
+        ]
+      };
+    }
     if (sql.includes('schema_migrations')) return { rows: [{ version }] };
     if (sql.includes('FROM pg_roles'))
       return {
@@ -161,7 +178,7 @@ const fixture = (version = venueSuiteMigrationVersion, capable = true) => {
     connect: async () => ({ query, release: vi.fn() }),
     query: async () => ({ rows: [] })
   } as unknown as Pool;
-  return { pool, query, managed, permissions };
+  return { pool, query, managed, permissions, unavailableFunctions };
 };
 const apps: ReturnType<typeof buildApp>[] = [];
 const appFor = (
@@ -190,7 +207,7 @@ afterEach(async () => {
 });
 
 describe('venue suite through buildApp', () => {
-  it.each(['0051_venue_qr_attendance.sql', venueSuiteMigrationVersion])(
+  it.each(['0051_venue_qr_attendance.sql', venueSuiteMigrationVersion, venueDebugMigrationVersion])(
     'supports %s with all new features default off',
     async (version) => {
       const app = appFor(fixture(version), {});
@@ -218,7 +235,8 @@ describe('venue suite through buildApp', () => {
     '0052_venue_personal_history.sql',
     '0053_venue_management.sql',
     '0054_unknown.sql',
-    '0055_future.sql'
+    '0055_future.sql',
+    '0056_future.sql'
   ])('does not admit unknown/transition schema %s', async (version) => {
     expect(await checkStartupReadiness(fixture(version).pool)).toMatchObject({
       ready: false,
@@ -227,6 +245,63 @@ describe('venue suite through buildApp', () => {
     const app = appFor(fixture(version));
     await expect(app.ready()).rejects.toThrow('venue suite readiness failed');
   });
+  it.each([venueSuiteMigrationVersion, venueDebugMigrationVersion])(
+    'keeps independently authorized administration and history operational on %s with debug off',
+    async (version) => {
+      const app = appFor(fixture(version));
+      expect((await app.inject('/health/ready')).statusCode).toBe(200);
+      const cookie = '__Host-qigong-admin=' + session + '; __Host-qigong-admin-csrf=' + csrf;
+      expect(
+        (await app.inject({ url: '/admin/api/venue-suite', headers: { cookie } })).json()
+      ).toEqual({ management: true, people: true });
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/admin/api/venue-suite/capabilities',
+            headers: { cookie, origin, 'x-csrf-token': csrf },
+            payload: { regionId: personId }
+          })
+        ).json()
+      ).toMatchObject({ canReadPeople: true, canExportPeople: false });
+      expect((await app.inject('/admin/field-checkin')).statusCode).toBe(404);
+      expect((await app.inject('/line/venue-checkin?venue=tw-location-test')).body).not.toContain(
+        'id="preview-debug-token"'
+      );
+    }
+  );
+  it('probes all four independent capabilities on exact 55 without inferring readiness from version', async () => {
+    const suite = { history: enabled, management: enabled, people: enabled };
+    const f = fixture();
+    expect(await checkStartupReadiness(f.pool, true, suite, true)).toMatchObject({ ready: true });
+    const contracts = [
+      ['history', 'platform.venue_personal_history(text,text,text,text,bigint)'],
+      ['management', 'admin.venue_management(text,text,uuid,uuid,integer,jsonb,text)'],
+      [
+        'people',
+        'admin.venue_people_read(text,uuid,date,date,uuid,uuid,text,text,text,text,integer,integer,boolean)'
+      ],
+      [
+        'debug',
+        'platform.venue_debug_checkin(text,text,double precision,double precision,bigint,text)'
+      ]
+    ] as const;
+    for (const [feature, signature] of contracts) {
+      f.unavailableFunctions.add(signature);
+      expect(await checkStartupReadiness(f.pool, true, suite, true)).toMatchObject({
+        ready: false,
+        reason: 'venue_feature_not_ready',
+        capability: { feature, ready: false }
+      });
+      f.unavailableFunctions.clear();
+    }
+    for (const version of [venueSuiteMigrationVersion, '0055_other.sql', '0056_future.sql'])
+      expect(await checkStartupReadiness(fixture(version).pool, true, suite, true)).toMatchObject({
+        ready: false,
+        reason: 'schema_version_mismatch'
+      });
+  });
+
   it('does not infer history readiness from QR-compatible 0051 or from version alone', async () => {
     await expect(appFor(fixture('0051_venue_qr_attendance.sql')).ready()).rejects.toThrow();
     await expect(appFor(fixture(venueSuiteMigrationVersion, false)).ready()).rejects.toThrow();
