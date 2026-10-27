@@ -7,7 +7,7 @@ Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 
 - Integration branch：`feature/venue-history-admin-integration`。
 - Base：`origin/main@56284208942acb182651c02983011f80b8921a47`；fetch 後仍相同，沒有 migration 編號衝突。
-- 本文件的已驗證 source/test head：`24761de`；文件提交的最終 HEAD 由交接回覆提供，避免文件自引用。
+- 原整合的已驗證 source/test head：`24761de`；本次工具可攜性修補基於乾淨 `b9446be`，限本文件與下列四個工具／測試檔。最終 commit SHA 由交接回覆提供，避免文件自引用。
 - 原 `feature/venue-attendance-qr` 保持 `74b979ebb197832d88519e18d22c9a7a68047721`，未改寫。
 - 只本地 cherry-pick、source/tests/docs commits；未 push、開 PR、遠端 merge、部署或重啟 runtime。
 - 沒有 SSH／DO、正式或手機 DB、LINE 外部 API／Console／Rich Menu／webhook 設定操作。
@@ -56,6 +56,7 @@ Settings 與 people 的原 PG tests 各有一次 cherry-pick 衝突：保留上�
 | `bcda57e`（2）  | M/0054_venue_people_read.sql；T/venue-people-postgres.test.ts                                                                                                             |
 | `24761de`（2）  | T/startup-log-privacy.test.ts；T/venue-management-postgres.test.ts                                                                                                        |
 | 本文件批次（5） | O/venue-history-admin-integration.md；A/venue-personal-history-v1.md；O/line-venue-history.md；O/venue-management-settings.md；A/venue-people-admin-v1.md                 |
+| 可攜性（5）     | D/venue-history-postgres.test.ts；D/local-pg-tools.ts；D/local-pg-tools.test.ts；scripts/test-venue-suite-local-pg.sh；O/venue-history-admin-integration.md               |
 
 ## 真實路由與現有 exports 接線
 
@@ -119,6 +120,38 @@ env -i HOME="$HOME" PATH=/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/usr/bi
 - 曾修正：standalone migration 數量／fixture delete guard／0053 衝突錯誤碼預期，以及全量測試首次發現的導覽四群組固定預期。每項在下一輪通過；未放寬 production 權限或拿掉 assertions。沒有任何失敗連續超過 3 輪。
 - 早期逐原 commit 檢查使用各交付既有 `/tmp/venue-history-*`／`venue-management-*`／`venue-people-pg.*`／`venue-qr-pg.*` 獨立合成 harness；都已清理，沒有使用既有 cluster。最後整合驗證已改用本次要求的 `/tmp/venue-suite-*`。
 
+## Review P1：可攜工具修補（本地，非 CI 通過證據）
+
+- `local-pg-tools.ts` 由 history harness 與 shell runner 共用。使用明確、可信的絕對 `PG_BIN_DIR`，否則只搜尋 PATH 的絕對目錄；不內建 Homebrew／CPU／Linux 路徑，不安裝工具，也不從 service PostgreSQL／連線 URL 猜 host tools。
+- 同一目錄必須有可執行的 `postgres`、`initdb`、`pg_ctl`、`createdb`；逐一用乾淨環境檢查版本，必須同為 PG16 或同為 PG17。顯式目錄無效／缺工具、工具失敗、版本不符均 **fail**，不得假裝缺工具而 skip。PATH／PG_BIN_DIR 是操作員可信 executable 配置，不是來自 HTTP 的輸入。
+- 保留 Node24 與現有 pnpm；父環境只帶入選定 PATH／工具目錄，子命令使用 allowlist，不繼承 PG connection、DB URL、NODE preload 或秘密；不讀 `.env`。shell 的 `TEST_DATABASE_URL` 仍只指向本次新建 socket cluster。
+- history 的 setup／teardown hooks 全收進專屬 suite。只有 PATH 找不到 host `initdb` 且沒有指定 PG_BIN_DIR 時，明確輸出 `SKIP ... NOT RUN`，17 個專屬測試列 **skipped，不是 passed**。runner 對此退出 **77**；設定錯誤退出 **1**。沒有更改其他 `TEST_DATABASE_URL` 測試的執行條件或 CI service 契約。
+- `focused` 現在包括工具單元測試、history、settings、people、QR；`full` 執行完整 verify 與兩組額外 tsc；`all` 包含兩者。新增 SQL 檢查每個 shell cluster 的 `listen_addresses=''`。維持新建 0700 `/tmp/venue-suite-*`、0700 socket、host auth reject、marker／owner／mode／PID data/socket/port 核對與限本次 cluster 的 cleanup。
+
+### 可重現命令與 CI 實跑策略
+
+```sh
+# 本機已存在的工具；明確選 PG17。沒有安裝或使用既有 DB。
+env -i HOME="$HOME" PATH=/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/usr/bin:/bin \
+  LANG=C LC_ALL=C TZ=UTC PG_BIN_DIR=/opt/homebrew/opt/postgresql@17/bin \
+  bash scripts/test-venue-suite-local-pg.sh all
+
+# 可攜 runner 範例：Node24/pnpm 與 host PG tools 須預先配置；以非 root 執行。
+# 在隔離 runner/container 各跑一次 major=16、17；路徑由 runner 操作員提供。
+# env -i HOME="$HOME" PATH="/trusted/node24/bin:/trusted/pnpm/bin:/usr/bin:/bin" \
+#   LANG=C LC_ALL=C TZ=UTC PG_BIN_DIR="/usr/lib/postgresql/$major/bin" \
+#   bash scripts/test-venue-suite-local-pg.sh all
+```
+
+- 一般 CI 即使有 PostgreSQL service，也可能沒有 host `initdb`：應繼續原 `TEST_DATABASE_URL` 的 DB tests，不把專屬 history skip 算進通過數。
+- **仍需核准／執行的 CI 覆蓋門檻**：預配 Node24/pnpm 與 PG16／17 binaries、可寫 `/tmp` 的非 root 隔離 runner/container，按上列 matrix 執行 `all`。必須 exit 0 且 focused history/settings/people/QR 真正執行；exit 77 代表缺覆蓋，該門檻不得視為成功。本輪沒有修改 CI、下載工具或聲稱 Linux／PG16 CI 已通過。
+- 本機 PG17 已分別驗證顯式 PG_BIN_DIR 與 PATH-only 偵測，完整 54-chain 上 history **17**、settings **12**、people **11**、QR **10 passed**。25 個工具測試涵蓋 PG16/17 合成 executable、Linux／Intel Mac 形狀路徑、空格、錯誤配置／版本、隱私、runner exit77/1 與隔離護欄；合成 PG16 不是 PG16 migration 執行證據。
+- 無 host tools 的 history 實跑顯示 **17 skipped / NOT RUN**，沒有初始化 cluster。本機沒有 PG16，不自行安裝；PG16 fresh/upgrade 與 server 隔離實跑仍待辦。
+- 本批 `all` 在 Node **v24.22.1**／PG **17.11** 上 exit 0：`pnpm verify` 的 formatter／lint／typecheck／全 tests／build 全過；`tsc -p tsconfig.eslint.json --noEmit`（全 source/tests）與 `tsc -p tsconfig.receipt-health.json --noEmit` 也通過。workspace **3021 passed / 43 skipped**：config 2、identity 6、database 561 / 10 skipped、API 2452 / 33 skipped。33 個 marker 專屬 tests 已由 focused 另跑 33/33 passed；10 個原有 PENDING 仍是 skipped，沒有當 pass。
+- 另以本次新建的 0700 socket-only PG17 fixture 模擬「有 service URL、無 host tools」：test child 不帶 PG_BIN_DIR，PATH 不含 initdb，`pnpm -r test` exit 0；**3004 passed / 60 skipped**（database **544 passed / 27 skipped**，API 2452 / 33 skipped，config 2、identity 6）。與完整 run 相差的 17 正是 history 專屬 harness，其他 URL DB tests 仍執行，不是整個 database package 被跳過。該 fixture 只用本次生成的 URL，完成後經 marker／owner／mode／PID 核對清理。
+- 本批沒有測試失敗或動用修復重試；所有本次 `/tmp/venue-suite-*` cluster 均已清理。上述是本機證據，不是遠端 CI／PG16 證據。
+- 本輪不做可選的公開 lookup warning，不變更任何 production source、安全 policy、0047–0054、package／lock 或 CI；未開子代理或獨立 review。沒有可呼叫的 `allow_tool: false` hook，因此不聲稱已觸發／通過。
+
 ## PR 摘要與下一步（父先審，不自動 PR）
 
 **建議 PR title：** `feat: integrate learner venue history and scoped venue attendance administration`。
@@ -128,7 +161,7 @@ env -i HOME="$HOME" PATH=/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/usr/bi
 仍待：
 
 1. 對 `5628420..HEAD` 做獨立 security review，優先 0052–0054 RLS/ACL、session/Origin、IDOR、撤權／並行邊界；本輪沒有宣稱 cross-family review。
-2. PG16 fresh/upgrade/rehearsal 及 production-like default ACL 演練。現有 history 專屬 harness 明確需要本機 Homebrew PG17，**不是 Linux/PG16 CI 已通過證據**；PR 前要核准可攜 harness/CI runner 執行策略，不能以新增 skip 解決。
+2. PG16 fresh/upgrade/rehearsal 及 production-like default ACL 演練。可攜 harness 已支援可信 PG_BIN_DIR／PATH 的 PG16/17，**不是 Linux/PG16 CI 已通過證據**；PR 前仍要核准並實跑上述隔離 CI matrix，不能以 generic CI 的專屬 harness skip 取代。
 3. 人工實測官方 LIFF／外部登入、iOS/Android、三語、手機寬度／縮放／讀屏。不得直接套 Rich Menu 或修改 Console。
 4. QR 圖片編碼依賴仍未獲批准：目前只有 QR 目標網址／列印文字牌，沒有外部 QR service、假圖或未驗證自製編碼器。新增套件／lock 必須另取得人類批准。
 5. 人工補簽／作廢仍 disabled；獨立寫入 permission、actor/idempotency/version/audit 契約通過後才另案接線。

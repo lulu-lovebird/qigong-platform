@@ -1,4 +1,4 @@
-/** Self-contained PG17 cluster; never reads .env/TEST_DATABASE_URL or contacts LINE.
+/** Self-contained PG16/17 cluster; never reads .env/TEST_DATABASE_URL or contacts LINE.
  * Developed with ❤️ by Bean, Bird & Badminton Tech Consulting */
 import { execFileSync } from 'node:child_process';
 import {
@@ -17,6 +17,7 @@ import { resolve } from 'node:path';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runMigrations } from '../src/migrations.js';
+import { discoverLocalPgTools, localPgEnvironment } from './local-pg-tools.js';
 import { withRequestContext } from '../src/request-context.js';
 import {
   createVenueHistory,
@@ -24,7 +25,10 @@ import {
 } from '../../../apps/public-api/src/venue-history.js';
 
 const repo = fileURLToPath(new URL('../../../', import.meta.url));
-const pgBin = '/opt/homebrew/opt/postgresql@17/bin';
+const localPg = discoverLocalPgTools(process.env);
+const suite = localPg ? describe : describe.skip;
+if (!localPg)
+  console.warn('SKIP: local PostgreSQL initdb tools unavailable; isolated history harness NOT RUN');
 const subject = 'U' + 'a'.repeat(32);
 const otherSubject = 'U' + 'b'.repeat(32);
 const person = '20000000-0000-4000-8000-000000000001';
@@ -45,9 +49,15 @@ const runtimePool = () => {
   return runtime;
 };
 // Explicit local tool environment: no DB URLs/services, options, credentials or inherited preloads.
-const toolEnv = { PATH: process.env.PATH ?? '/usr/bin:/bin', LC_ALL: 'C', LANG: 'C' };
-const command = (name: string, args: string[]) =>
-  execFileSync(resolve(pgBin, name), args, { env: toolEnv, stdio: 'pipe', timeout: 30000 });
+const toolEnv = localPgEnvironment(process.env.PATH ?? '/usr/bin:/bin');
+const command = (name: string, args: string[]) => {
+  if (!localPg) throw new Error('Local PostgreSQL tools unavailable');
+  return execFileSync(resolve(localPg.directory, name), args, {
+    env: toolEnv,
+    stdio: 'pipe',
+    timeout: 30000
+  });
+};
 const guardedRoot = async () => {
   if (!root || !/^\/tmp\/venue-suite-history-[A-Za-z0-9]+$/.test(root))
     throw new Error('unsafe harness path');
@@ -89,77 +99,78 @@ const sqlRuntime = (sql: string, values?: unknown[]) =>
     (client) => client.query(sql, values)
   );
 
-beforeAll(async () => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(() => {
-      throw new Error('External APIs forbidden');
-    })
-  );
-  expect(command('postgres', ['--version']).toString()).toMatch(/PostgreSQL\) 17\./);
-  root = await mkdtemp('/tmp/venue-suite-history-');
-  await chmod(root, 0o700);
-  await writeFile(resolve(root, marker), root, { mode: 0o600 });
-  await guardedRoot();
-  await mkdir(resolve(root, 'socket'), { mode: 0o700 });
-  command('initdb', [
-    '-D',
-    resolve(root, 'data'),
-    '--username=venue_history_owner',
-    '--encoding=UTF8',
-    '--no-locale',
-    '--auth-local=trust',
-    '--auth-host=reject'
-  ]);
-  command('pg_ctl', [
-    '-D',
-    resolve(root, 'data'),
-    '-l',
-    resolve(root, 'server.log'),
-    '-o',
-    `-F -k ${root}/socket -p ${port} -c listen_addresses='' -c unix_socket_permissions=0700`,
-    '-w',
-    'start'
-  ]);
-  started = true;
-  const pid = (await readFile(resolve(root, 'data/postmaster.pid'), 'utf8')).split('\n');
-  expect([resolve(root, 'data'), resolve(await realpath(root), 'data')]).toContain(pid[1]);
-  expect(pid[3]).toBe(String(port));
-  expect(pid[4]).toBe(resolve(root, 'socket'));
-  const options = {
-    host: resolve(root, 'socket'),
-    port,
-    user: 'venue_history_owner',
-    database: 'postgres',
-    password: '',
-    ssl: false,
-    max: 4
-  };
-  owner = new Pool(options);
-  expect(
-    (await owner.query("SELECT current_setting('listen_addresses') value")).rows[0]?.value
-  ).toBe('');
-  expect(
-    (
-      await owner.query(
-        "SELECT 1 FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema')"
-      )
-    ).rowCount
-  ).toBe(0);
-  const migrations = resolve(repo, 'migrations');
-  const files = (await readdir(migrations)).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort();
-  expect(files).toHaveLength(54);
-  const result = await runMigrations(owner, migrations, 'synthetic-history-only');
-  expect(result.applied).toEqual(files);
-  expect(result.currentVersion).toBe('0054_venue_people_read.sql');
-  expect((await runMigrations(owner, migrations)).applied).toEqual([]);
-  expect((await owner.query('SELECT 1 FROM core.field_attendance')).rowCount).toBe(0);
-  expect((await owner.query('SELECT 1 FROM platform.venue_history_context')).rowCount).toBe(0);
-  // Existing fixture is exclusively synthetic and only enters this fresh cluster.
-  await owner.query(
-    await readFile(resolve(repo, 'apps/public-api/tests/fixtures/venue-qr-synthetic.sql'), 'utf8')
-  );
-  await owner.query(`
+suite('isolated PG16/17 history: 54 migrations + real nonowner RLS', () => {
+  beforeAll(async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => {
+        throw new Error('External APIs forbidden');
+      })
+    );
+    expect(command('postgres', ['--version']).toString()).toMatch(/PostgreSQL\) (16|17)\./);
+    root = await mkdtemp('/tmp/venue-suite-history-');
+    await chmod(root, 0o700);
+    await writeFile(resolve(root, marker), root, { mode: 0o600 });
+    await guardedRoot();
+    await mkdir(resolve(root, 'socket'), { mode: 0o700 });
+    command('initdb', [
+      '-D',
+      resolve(root, 'data'),
+      '--username=venue_history_owner',
+      '--encoding=UTF8',
+      '--no-locale',
+      '--auth-local=trust',
+      '--auth-host=reject'
+    ]);
+    command('pg_ctl', [
+      '-D',
+      resolve(root, 'data'),
+      '-l',
+      resolve(root, 'server.log'),
+      '-o',
+      `-F -k ${root}/socket -p ${port} -c listen_addresses='' -c unix_socket_permissions=0700`,
+      '-w',
+      'start'
+    ]);
+    started = true;
+    const pid = (await readFile(resolve(root, 'data/postmaster.pid'), 'utf8')).split('\n');
+    expect([resolve(root, 'data'), resolve(await realpath(root), 'data')]).toContain(pid[1]);
+    expect(pid[3]).toBe(String(port));
+    expect(pid[4]).toBe(resolve(root, 'socket'));
+    const options = {
+      host: resolve(root, 'socket'),
+      port,
+      user: 'venue_history_owner',
+      database: 'postgres',
+      password: '',
+      ssl: false,
+      max: 4
+    };
+    owner = new Pool(options);
+    expect(
+      (await owner.query("SELECT current_setting('listen_addresses') value")).rows[0]?.value
+    ).toBe('');
+    expect(
+      (
+        await owner.query(
+          "SELECT 1 FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema')"
+        )
+      ).rowCount
+    ).toBe(0);
+    const migrations = resolve(repo, 'migrations');
+    const files = (await readdir(migrations)).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort();
+    expect(files).toHaveLength(54);
+    const result = await runMigrations(owner, migrations, 'synthetic-history-only');
+    expect(result.applied).toEqual(files);
+    expect(result.currentVersion).toBe('0054_venue_people_read.sql');
+    expect((await runMigrations(owner, migrations)).applied).toEqual([]);
+    expect((await owner.query('SELECT 1 FROM core.field_attendance')).rowCount).toBe(0);
+    expect((await owner.query('SELECT 1 FROM platform.venue_history_context')).rowCount).toBe(0);
+    // Existing fixture is exclusively synthetic and only enters this fresh cluster.
+    await owner.query(
+      await readFile(resolve(repo, 'apps/public-api/tests/fixtures/venue-qr-synthetic.sql'), 'utf8')
+    );
+    await owner.query(`
     INSERT INTO identity.people(id,preferred_name) VALUES('${otherPerson}','Other synthetic learner');
     INSERT INTO identity.platform_identities(id,person_id,platform,external_subject_id)
       VALUES('${otherIdentity}','${otherPerson}','line','${otherSubject}');
@@ -173,11 +184,11 @@ beforeAll(async () => {
       SELECT 'line',platform.privacy_subject_hash('line','${otherSubject}'),version,document_hash,'zh_TW',FALSE
       FROM platform.learner_privacy_policies WHERE state='active';
   `);
-  runtime = new Pool({ ...options, user: 'venue_qr_test_login' });
-}, 120000);
+    runtime = new Pool({ ...options, user: 'venue_qr_test_login' });
+  }, 120000);
 
-beforeEach(async () => {
-  await ownerPool().query(`
+  beforeEach(async () => {
+    await ownerPool().query(`
     UPDATE identity.people SET status='active' WHERE id='${person}';
     UPDATE identity.platform_identities SET revoked_at=NULL WHERE person_id='${person}';
     UPDATE identity.person_interaction_channels SET valid_to=NULL WHERE person_id='${person}';
@@ -198,29 +209,28 @@ beforeEach(async () => {
       SELECT '50000000-0000-4000-8000-000000000001','${otherPerson}',id,'qr_gps','2026-10-26T00:00:00Z','2026-10-26','Asia/Taipei',
         'PRIVATE SYNTHETIC NOTE',25,121 FROM core.practice_fields WHERE code='tw-test-one';
   `);
-});
+  });
 
-afterAll(async () => {
-  vi.unstubAllGlobals();
-  await runtime?.end();
-  await owner?.end();
-  if (!root) return;
-  const safe = await guardedRoot();
-  if (started) {
-    const pid = (await readFile(resolve(safe, 'data/postmaster.pid'), 'utf8')).split('\n');
-    const actual = await realpath(safe);
-    if (
-      ![safe + '/data', actual + '/data'].includes(pid[1] ?? '') ||
-      pid[3] !== String(port) ||
-      ![safe + '/socket', actual + '/socket'].includes(pid[4] ?? '')
-    )
-      throw new Error('refusing cleanup of mismatched cluster');
-    command('pg_ctl', ['-D', resolve(safe, 'data'), '-m', 'immediate', '-w', 'stop']);
-  }
-  await rm(safe, { recursive: true });
-}, 30000);
+  afterAll(async () => {
+    vi.unstubAllGlobals();
+    await runtime?.end();
+    await owner?.end();
+    if (!root) return;
+    const safe = await guardedRoot();
+    if (started) {
+      const pid = (await readFile(resolve(safe, 'data/postmaster.pid'), 'utf8')).split('\n');
+      const actual = await realpath(safe);
+      if (
+        ![safe + '/data', actual + '/data'].includes(pid[1] ?? '') ||
+        pid[3] !== String(port) ||
+        ![safe + '/socket', actual + '/socket'].includes(pid[4] ?? '')
+      )
+        throw new Error('refusing cleanup of mismatched cluster');
+      command('pg_ctl', ['-D', resolve(safe, 'data'), '-m', 'immediate', '-w', 'stop']);
+    }
+    await rm(safe, { recursive: true });
+  }, 30000);
 
-describe('isolated PG17 personal history: 54 migrations + real nonowner RLS', () => {
   it('counts lifetime attendance/local days, month count independent of venue and no other learner', async () => {
     const result = await readHistory('2026-10');
     expect(result.totals).toEqual({ attendanceCount: 25, attendanceDays: 24, monthCount: 24 });
@@ -411,7 +421,9 @@ describe('isolated PG17 personal history: 54 migrations + real nonowner RLS', ()
         )
       ).rejects.toMatchObject({ code: '22023' });
     }
-    await expect(readHistory(null, null, 1, otherPerson)).rejects.toMatchObject({ code: '22023' });
+    await expect(readHistory(null, null, 1, otherPerson)).rejects.toMatchObject({
+      code: '22023'
+    });
     await expect(readHistory(null, null, 1, 'U' + 'f'.repeat(32))).rejects.toMatchObject({
       code: '42501'
     });
