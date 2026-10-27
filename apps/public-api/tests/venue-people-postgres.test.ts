@@ -324,7 +324,9 @@ describe.skipIf(!directory)('venue people: isolated PG17 integrated 54 migration
       expect(all.totals.attendanceDays).toBe(2);
     } finally {
       await owner.query(
-        "DELETE FROM core.field_attendance WHERE field_id IN (SELECT id FROM core.practice_fields WHERE code IN ('vp-test-east','vp-test-west')); DELETE FROM core.practice_fields WHERE code IN ('vp-test-east','vp-test-west')"
+        // Fixture owner removes only its synthetic attendance. 0053 correctly
+        // forbids field deletion, even for this owner; fields die with the cluster.
+        "DELETE FROM core.field_attendance WHERE field_id IN (SELECT id FROM core.practice_fields WHERE code IN ('vp-test-east','vp-test-west'))"
       );
     }
   });
