@@ -231,6 +231,10 @@ describe('history language preference contract (real bootstrap, mocked SDK and n
         expect(vm.history.replaceState.mock.calls.every((call) => call[2] === base)).toBe(true);
       } else {
         expect(vm.location.replace).toHaveBeenCalledWith(base + '?lang=' + locale);
+        expect(vm.get('status').textContent).toBe('正在切換介面語言，請稍候。');
+        expect(vm.get('retry').hidden).toBe(true);
+        expect(vm.get('language').disabled).toBe(true);
+        expect(vm.get('apply').disabled).toBe(true);
         expect(vm.fetch).not.toHaveBeenCalled();
         const next = browser(base + '?lang=' + locale);
         await settle();
@@ -393,6 +397,14 @@ describe('history language preference contract (real bootstrap, mocked SDK and n
     expect(vm.location.replace).toHaveBeenCalledWith(
       base + '?month=2026-10&venue=tw-test-one&page=2&lang=en'
     );
+    expect(vm.fetch).toHaveBeenCalledOnce();
+    expect(vm.get('language').disabled).toBe(true);
+    expect(vm.get('apply').disabled).toBe(true);
+    await vm.submit();
+    vm.get('language').value = 'zh_CN';
+    vm.get('language').onchange?.();
+    await settle();
+    expect(vm.preferences).toHaveBeenCalledOnce();
     expect(vm.fetch).toHaveBeenCalledOnce();
     expect(vm.forbidden).not.toHaveBeenCalled();
   });
@@ -764,7 +776,17 @@ describe('actual inline controller in VM with mocked SDK and fetch', () => {
     vm.get('month').value = '';
     vm.get('venue').value = '';
     await vm.submit();
-    expect(JSON.parse(String(vm.fetch.mock.calls[4]?.[1].body))).toEqual({
+    expect(vm.fetch).toHaveBeenCalledTimes(4);
+    expect(vm.get('apply').disabled).toBe(true);
+    expect(vm.forbidden).not.toHaveBeenCalled();
+  });
+  it('clears both filters before navigation and reloads page one', async () => {
+    const vm = browser(base + '?month=2026-10&venue=tw-test-one&page=2&lang=zh_TW');
+    await settle();
+    vm.get('month').value = '';
+    vm.get('venue').value = '';
+    await vm.submit();
+    expect(JSON.parse(String(vm.fetch.mock.calls[1]?.[1].body))).toEqual({
       idToken: 'mock-token-memory-only',
       page: 1
     });

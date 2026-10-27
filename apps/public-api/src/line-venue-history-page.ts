@@ -287,6 +287,7 @@ language.onchange=async()=>{
   const selectedLocale=language.value;
   if(!ready||busy||!['zh_TW','zh_CN','en'].includes(selectedLocale)||selectedLocale===historyInitial.lang){language.value=historyInitial.lang;return;}
   busy=true;controls();
+  let navigating=false;
   try{
     const currentToken=liff.getIDToken()||'';
     if(!liff.isLoggedIn()||!currentToken){ready=false;idToken='';language.value=historyInitial.lang;fail(historyText.loginError);return;}
@@ -294,9 +295,10 @@ language.onchange=async()=>{
     if(!response.ok)throw new Error('language');
     document.cookie='__Host-qigong-learner-locale='+selectedLocale+'; Path=/; Max-Age=31536000; Secure; SameSite=Lax';
     location.replace(canonicalUrl(selectedLocale));
-  }catch{language.value=historyInitial.lang;status.textContent=historyText.languageFailed;}finally{busy=false;controls();}
+    navigating=true;
+  }catch{language.value=historyInitial.lang;status.textContent=historyText.languageFailed;}finally{if(!navigating){busy=false;controls();}}
 };
-lineReady.then(()=>{ready=true;void load();}).catch(()=>{fail(linePrimaryRedirect?lineLoginText.primary:historyText.loginError);main.setAttribute('aria-busy','false');controls();});
+lineReady.then(()=>{ready=true;void load();}).catch(error=>{if(error?.message===lineLoginText.switching){busy=true;retry.hidden=true;status.textContent=lineLoginText.switching;controls();return;}fail(linePrimaryRedirect?lineLoginText.primary:historyText.loginError);main.setAttribute('aria-busy','false');controls();});
 </script>`
     : ''
 }</body></html>`;
