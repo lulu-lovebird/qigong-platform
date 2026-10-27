@@ -148,8 +148,23 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 55→56 chain', () =>
   });
   afterEach(() => vi.unstubAllGlobals());
   afterAll(async () => {
-    await runtime?.end();
-    await owner?.end();
+    try {
+      if (directory && runtime) {
+        const pgLog = await readFile(directory + '/server.log', 'utf8');
+        expect(pgLog).toContain('venue_debug_denied');
+        for (const value of [
+          hash,
+          fixtureToken,
+          'synthetic-identity-private',
+          '-25.1234567',
+          '121.9876543'
+        ])
+          expect(pgLog).not.toContain(value);
+      }
+    } finally {
+      await runtime?.end();
+      await owner?.end();
+    }
   });
   it('migration keeps configuration operator-only and constrains finite CKS authority', async () => {
     for (const sql of [

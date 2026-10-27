@@ -38,7 +38,7 @@ start() {
   printf '%s\n' "$root" >"$root/venue-debug-owner-marker"
   clean initdb -D "$root/data" --username="$owner" --encoding=UTF8 --no-locale --auth-local=trust --auth-host=reject >"$root/init.log" 2>&1
   # Disable parameter/statement diagnostics: proof and GPS are ephemeral.
-  clean pg_ctl -D "$root/data" -l "$root/server.log" -o "-F -k $root/socket -p $port -c listen_addresses='' -c unix_socket_permissions=0700 -c log_parameter_max_length=0 -c log_parameter_max_length_on_error=0 -c log_min_error_statement=panic" -w start >/dev/null
+  clean pg_ctl -D "$root/data" -l "$root/server.log" -o "-F -k $root/socket -p $port -c listen_addresses='' -c unix_socket_permissions=0700 -c log_parameter_max_length=0 -c log_parameter_max_length_on_error=0 -c log_min_error_statement=panic -c log_error_verbosity=terse" -w start >/dev/null
 }
 if [[ ${1:-debug} != full ]]; then
   start venue_debug_owner 55485
