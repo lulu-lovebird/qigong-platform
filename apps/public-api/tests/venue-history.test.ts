@@ -37,7 +37,7 @@ const fixture = () => {
     if (sql.includes('resolve_line_learner_identity')) return { rows: [{ data: state.mapping }] };
     if (sql.includes('privacy_usage'))
       return { rows: [{ data: { active: false, reflectionConsent: true } }] };
-    if (sql === historySql) {
+    if (sql === historySql || sql.includes('platform.venue_debug_history')) {
       if (state.historyError) throw state.historyError;
       return { rows: [{ data: state.data }] };
     }
@@ -67,6 +67,37 @@ beforeEach(() =>
 afterEach(() => vi.unstubAllGlobals());
 
 describe('venue personal history backend contract', () => {
+  it('test view requires labeled own records and zero formal totals; normal view rejects tests', async () => {
+    const f = fixture();
+    const entry = {
+      id: '44444444-4444-4444-8444-444444444444',
+      venueCode: 'tw-location-test',
+      venueName: 'Synthetic',
+      checkedInAt: '2026-10-27T00:00:00Z',
+      venueLocalDate: '2026-10-27',
+      venueTimezone: 'Asia/Taipei',
+      isTest: true,
+      verificationMode: 'distance_debug'
+    };
+    f.state.data = { ...empty, entries: [entry] };
+    expect((await f.history(requestId, { idToken: token, view: 'test' })).status).toBe(200);
+    expect(f.query).toHaveBeenCalledWith(
+      'SELECT platform.venue_debug_history($1,$2,$3,$4,$5) AS data',
+      ['line', subject, null, null, 1]
+    );
+    expect((await f.history(requestId, { idToken: token })).status).toBe(503);
+    f.state.data = {
+      ...empty,
+      totals: { attendanceCount: 1, attendanceDays: 1, monthCount: 1 },
+      entries: [entry]
+    };
+    expect((await f.history(requestId, { idToken: token, view: 'test' })).status).toBe(503);
+    f.state.data = {
+      ...empty,
+      entries: [{ ...entry, isTest: undefined, verificationMode: undefined }]
+    };
+    expect((await f.history(requestId, { idToken: token, view: 'test' })).status).toBe(503);
+  });
   it.each([
     null,
     {},
