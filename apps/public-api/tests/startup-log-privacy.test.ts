@@ -366,6 +366,38 @@ describe('running API lifecycle', () => {
     );
   });
 
+  it('forwards independently enabled venue suite configuration to both build and readiness', async () => {
+    const origin = 'https://synthetic.invalid';
+    await runPublicApi(
+      {
+        VENUE_HISTORY_ENABLED: 'true',
+        VENUE_HISTORY_PUBLIC_ORIGIN: origin,
+        VENUE_MANAGEMENT_ENABLED: 'true',
+        VENUE_MANAGEMENT_PUBLIC_ORIGIN: origin,
+        VENUE_PEOPLE_ENABLED: 'true',
+        VENUE_PEOPLE_PUBLIC_ORIGIN: origin,
+        LINE_CHANNEL_SECRET: 'synthetic-secret-at-least-16',
+        LINE_CHANNEL_ACCESS_TOKEN: 'synthetic-token-at-least-20',
+        LINE_LOGIN_CHANNEL_ID: '123',
+        LINE_LIFF_ID: '123-synthetic'
+      },
+      exit
+    );
+    const enabled = { enabled: true, publicOrigin: origin };
+    const venueSuite = { history: enabled, management: enabled, people: enabled };
+    expect(mocks.build).toHaveBeenCalledWith(expect.objectContaining({ venueSuite }));
+    expect(mocks.readiness).toHaveBeenCalledExactlyOnceWith({ end }, false, venueSuite);
+    expect(listen).toHaveBeenCalledOnce();
+  });
+  it.each(['HISTORY', 'MANAGEMENT', 'PEOPLE'])(
+    'rejects enabled %s without a trusted origin before allocating a pool',
+    async (feature) => {
+      await runPublicApi({ ['VENUE_' + feature + '_ENABLED']: 'true' }, exit);
+      expect(mocks.pool).not.toHaveBeenCalled();
+      expect(mocks.build).not.toHaveBeenCalled();
+      expect(exit).toHaveBeenCalledExactlyOnceWith(1);
+    }
+  );
   it('does not enable omitted channels or change development version fallback', async () => {
     await runPublicApi({}, exit);
     expect(mocks.readiness).toHaveBeenCalledExactlyOnceWith({ end }, false);

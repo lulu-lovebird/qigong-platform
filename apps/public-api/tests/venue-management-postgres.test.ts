@@ -569,6 +569,9 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
     try {
       await app.ready();
       expect((await app.inject('/health/ready')).statusCode).toBe(200);
+      expect((await app.inject('/line/venue-checkin?venue=tw-test-one')).body).toContain(
+        'id="preview-history"'
+      );
       expect((await app.inject('/line/venue-history?lang=en')).body).toContain(
         'My group practice history'
       );
@@ -653,7 +656,18 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
       expect((await app.inject('/admin/venue-people')).statusCode).toBe(401);
       expect((await app.inject('/admin/fields')).statusCode).toBe(404);
       expect((await app.inject('/admin/venue-manual')).statusCode).toBe(404);
+      await owner.query(
+        "UPDATE admin.sessions SET revoked_at=clock_timestamp() WHERE token_hash=public.digest(repeat('v',43),'sha256')"
+      );
+      expect((await read()).statusCode).toBe(401);
+      expect((await call('list', { regionId: tw }, 'v'.repeat(43))).statusCode).toBe(401);
+      expect(
+        (await app.inject({ url: '/admin/venue-people', headers: headers() })).statusCode
+      ).toBe(401);
     } finally {
+      await owner.query(
+        "UPDATE admin.sessions SET revoked_at=NULL WHERE token_hash=public.digest(repeat('v',43),'sha256')"
+      );
       await app.close();
     }
   });
