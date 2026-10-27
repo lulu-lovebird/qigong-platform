@@ -59,7 +59,7 @@ const command = (name: string, args: string[]) => {
   });
 };
 const guardedRoot = async () => {
-  if (!root || !/^\/tmp\/venue-suite-history-[A-Za-z0-9]+$/.test(root))
+  if (!root || !/^\/tmp\/venue-debug-[A-Za-z0-9]+$/.test(root))
     throw new Error('unsafe harness path');
   const actual = await realpath(root);
   if (actual !== root && actual !== '/private' + root)
@@ -99,7 +99,7 @@ const sqlRuntime = (sql: string, values?: unknown[]) =>
     (client) => client.query(sql, values)
   );
 
-suite('isolated PG16/17 history: 54 migrations + real nonowner RLS', () => {
+suite('isolated PG16/17 history: 55 migrations + real nonowner RLS', () => {
   beforeAll(async () => {
     vi.stubGlobal(
       'fetch',
@@ -108,7 +108,7 @@ suite('isolated PG16/17 history: 54 migrations + real nonowner RLS', () => {
       })
     );
     expect(command('postgres', ['--version']).toString()).toMatch(/PostgreSQL\) (16|17)\./);
-    root = await mkdtemp('/tmp/venue-suite-history-');
+    root = await mkdtemp('/tmp/venue-debug-');
     await chmod(root, 0o700);
     await writeFile(resolve(root, marker), root, { mode: 0o600 });
     await guardedRoot();
@@ -159,10 +159,10 @@ suite('isolated PG16/17 history: 54 migrations + real nonowner RLS', () => {
     ).toBe(0);
     const migrations = resolve(repo, 'migrations');
     const files = (await readdir(migrations)).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort();
-    expect(files).toHaveLength(54);
+    expect(files).toHaveLength(55);
     const result = await runMigrations(owner, migrations, 'synthetic-history-only');
     expect(result.applied).toEqual(files);
-    expect(result.currentVersion).toBe('0054_venue_people_read.sql');
+    expect(result.currentVersion).toBe('0055_venue_distance_debug.sql');
     expect((await runMigrations(owner, migrations)).applied).toEqual([]);
     expect((await owner.query('SELECT 1 FROM core.field_attendance')).rowCount).toBe(0);
     expect((await owner.query('SELECT 1 FROM platform.venue_history_context')).rowCount).toBe(0);
