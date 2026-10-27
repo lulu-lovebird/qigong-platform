@@ -11,7 +11,7 @@
 - **變更檔案限制**：嚴格控制於 3 檔（<= 5 檔上限）：
   1. `apps/public-api/src/venue-management-page.ts`（表單 renderer、結構標記與 CSS 表格化排版、行動端約束修正）
   2. `apps/public-api/tests/venue-management.test.ts`（表單排版契約、欄位成對佈局、無障礙 label 關聯、標籤星號相鄰及響應式斷言測試）
-  3. `docs/operations/venue-form-ui-alignment.md`（本交接紀錄、根因分析與 DOM 幾何真機驗證文件）
+  3. `docs/operations/venue-form-ui-alignment.md`（本交接紀錄、根因分析與 Chrome 裝置模擬驗證文件）
 - **完全不修改**：
   - 資料庫 / migration（0001–0055 保持原樣）
   - 後端 API 路由與 Controller（`apps/public-api/src/venue-management-routes.ts`、`venue-management.ts`）
@@ -20,13 +20,13 @@
   - LINE / Telegram / WhatsApp 各平台入口與 RichMenu
   - `package.json` / `pnpm-lock.yaml`（未安裝新依賴、無 lockfile 修改）
 - **完整保留現有前端介面元素契約**：
-  - 全部 29 個既有 DOM 元素 ID 100% 相同：`vm-root`, `vm-region`, `vm-load`, `vm-add`, `vm-status`, `vm-search`, `vm-filter`, `vm-list`, `vm-form`, `vm-editor`, `vm-version`, `vm-code`, `vm-name_zh_tw`, `vm-name_en`, `vm-address`, `vm-region_id`, `vm-latitude`, `vm-longitude`, `vm-radius_meters`, `vm-timezone`, `vm-day-0`～`vm-day-6`, `vm-start`, `vm-end`, `vm-active`, `vm-reason`, `vm-save`, `vm-links`, `vm-print`, `vm-sign`。
+  - 全部 35 個既有 DOM 元素 ID 保留，另新增 2 個標題 ID（共 37 個唯一 ID）；既有清單為：`vm-root`, `vm-region`, `vm-load`, `vm-add`, `vm-status`, `vm-search`, `vm-filter`, `vm-list`, `vm-form`, `vm-editor`, `vm-version`, `vm-code`, `vm-name_zh_tw`, `vm-name_en`, `vm-address`, `vm-region_id`, `vm-latitude`, `vm-longitude`, `vm-radius_meters`, `vm-timezone`, `vm-day-0`～`vm-day-6`, `vm-start`, `vm-end`, `vm-active`, `vm-reason`, `vm-save`, `vm-links`, `vm-print`, `vm-sign`。
   - 所有唯讀控制（`vm-code` 編輯既有場地時 readonly）、必填屬性（`required`）、數字精度（`step="any"`）、時段格式正規表達式（`pattern="([01][0-9]|2[0-3]):[0-5][0-9]"` 與 `pattern="(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)"`）、異動原因長度（`maxlength="500"`）完全保留。
   - 前端 controller 邏輯不變，完全無 unescaped `innerHTML` XSS 風險，嚴格採用 safe DOM `textContent` 與 `value` 操作。
 
 ---
 
-## 2. 行動端真機瀏覽器問題精確根因分析（Root Cause Analysis）
+## 2. Chrome 行動裝置模擬問題根因分析（Root Cause Analysis）
 
 在檢視原始截圖 `/tmp/venue-management-mobile-full.png`（390x2000）時發現的三大問題，經由真實 Chrome DOM 幾何與 CSS 計算分析，定位出精確根因：
 
@@ -40,7 +40,7 @@
    - 經由語法分析發現，先前提交中開放時段的 HTML 標記存在一段重複的 `vm-start`/`vm-end` 片段與多餘的 `</div>` 閉合標籤，導致 `<form id="vm-form">`、`<section id="vm-root">` 及 `.shell` 在開放時段後提早閉合。
    - 此錯誤將後續的 `.vm-form-actions`、`#vm-save`、`.vm-links-panel` 擠出 `#vm-root` 外部直接掛載至 `<body>`，脫離了 `#vm-root` 的 scoped CSS 保護。
 3. **修正策略**：
-   - 剔除 HTML 重複片段，使所有 65 個 HTML 標籤層級完全對稱平衡。
+   - 剔除 HTML 重複片段，修正表單與根容器提早閉合。
    - 為 `#vm-root` 內的所有 fieldset、input、select、card、panel 全面施加 `min-width: 0; min-inline-size: 0; box-sizing: border-box; overflow-wrap: anywhere; word-break: break-word;`。
    - 絕不使用 `overflow-x: hidden` 掩飾問題，在真實 Chrome CDP 裝置模擬下於 320/390/768/1280 視口全面達成 `document.documentElement.scrollWidth <= window.innerWidth` 且 `overflowCount: 0`。
 
@@ -85,7 +85,7 @@
        display: inline-block;
      }
      ```
-   - 藉由 `inline-flex` 搭配 `flex-direction: row` 與 `align-items: baseline`，文字與紅色星號保持在同一水平基準線上；`white-space: nowrap` 確保星號永遠不單獨斷行。
+   - 藉由 `inline-flex` 搭配 `flex-direction: row` 與 `align-items: baseline`，在下列已測視口中文字與紅色星號保持同列；`white-space: nowrap` 僅作用於星號本身，不保證所有字型與極窄視口皆不換行。
 
 ---
 
@@ -136,7 +136,7 @@
 
 ---
 
-## 5. 真機 Chrome CDP DOM 幾何驗證與測試結果
+## 5. Chrome CDP 裝置模擬與本地驗證結果（非實體手機）
 
 ### 5.1 本地 Node 24 靜態檢查與單元測試
 
@@ -144,8 +144,12 @@
 - `pnpm lint`：**PASS**（ESLint 通過無警告）
 - `pnpm typecheck`：**PASS**（4 個 workspace packages TypeScript 編譯無錯誤）
 - `pnpm build`：**PASS**（`packages/config`, `identity`, `database`, `apps/public-api` 全數 build 成功）
-- `pnpm --filter @qigong/public-api test tests/venue-management.test.ts`：**25 passed (25)**
-- 全倉 `pnpm test`：**81 test files passed, 2243 tests passed (0 failed)**
+- `pnpm --filter @qigong/public-api exec vitest run tests/venue-management.test.ts`：**25 passed (25)**。
+- 2026-10-27 發布前重跑：Node **24.22.1**、pnpm **10.15.1**；frozen install、build、`tsc -p tsconfig.eslint.json --noEmit`、`tsc -p tsconfig.receipt-health.json` 及完整 `pnpm verify` 通過。
+- 完整 verify 使用全新 Unix-socket-only PG17 合成測試庫（非正式 DB）：**157 test files passed、4 skipped；3057 tests passed、54 skipped、0 failed**（config 2、identity 6、database 561、API 2488）。Skipped 不計為通過。
+- 額外 fresh PG17 focused runner：工具 25、history 17、management 14、people 11、QR 10，共 **77 passed、0 skipped**。
+- 首次完整驗證因 PG 工具探索將 `/opt/homebrew/bin` 放到 PATH 首位，子程序誤用 Node26，使 3 個既有 Node24 CLI 測試失敗。明確指定 PG17 專用工具目錄後重跑成功；未改產品或刪減斷言。
+- 發布前 source/compiled render 比對：controller source 與 inline scripts byte-identical；35 個舊 ID 全保留、37 個新 ID 唯一；既有 type/required/step/pattern/maxlength/disabled/readonly 屬性相同。
 
 ### 5.2 真實 Chrome 瀏覽器 CDP DOM 幾何與佈局指標（Layout Metrics）
 
@@ -161,9 +165,9 @@
 
 - **結論**：所有測試解析度均嚴格滿足 `document.documentElement.scrollWidth <= window.innerWidth`，無任何水平爆版或邊界裁切（`overflowCount: 0`）。查詢工具列垂直空白由 250px 大幅修復為標準的 12px 間距。
 
-### 5.3 實體驗證截圖檔案清單
+### 5.3 本機裝置模擬截圖檔案清單
 
-所有截圖均產自本機 Chrome headless 搭配 Device Emulation：
+所有截圖均產自本機 Chrome headless 搭配 Device Emulation，並非實體手機／iOS Safari 或正式登入頁驗收：
 
 - **桌面端修復截圖**（1280x900 Viewport）：`/tmp/venue-management-desktop-fixed.png`
 - **行動端修復截圖**（390x844 Viewport）：`/tmp/venue-management-mobile-fixed.png`
