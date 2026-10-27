@@ -36,6 +36,9 @@ class Element {
   click() {
     this.emit('click');
   }
+  set innerHTML(_value: string) {
+    throw new Error('unsafe HTML');
+  }
 }
 const nodes = (element: Element): Element[] => [element, ...element.children.flatMap(nodes)];
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
@@ -57,31 +60,11 @@ const result = (patch = {}) => ({
 });
 const harness = () => {
   const elements = new Map<string, Element>();
-  for (const id of [
-    'filters',
-    'records',
-    'status',
-    'summary',
-    'previous',
-    'next',
-    'back',
-    'pagination',
-    'region',
-    'venue',
-    'month',
-    'from',
-    'until',
-    'search',
-    'sort',
-    'direction',
-    'limit',
-    'read',
-    'export'
-  ])
-    elements.set(
-      id,
-      new Element(['read', 'export', 'previous', 'next', 'back'].includes(id) ? 'button' : 'div')
-    );
+  for (const match of renderVenuePeoplePage().matchAll(/<(\w+)\b([^>]*\bid="([^"]+)"[^>]*)>/g)) {
+    const element = new Element(match[1]);
+    element.disabled = /\bdisabled\b/.test(match[2]!);
+    elements.set(match[3]!, element);
+  }
   const get = (id: string) => elements.get(id)!;
   get('region').value = '01000000-0000-4000-8000-000000000003';
   get('month').value = '2026-10';
@@ -106,9 +89,25 @@ const harness = () => {
   });
   const revokeObjectURL = vi.fn(),
     createObjectURL = vi.fn(() => 'blob:synthetic');
+  const capabilities = vi.fn(async (path: string, options: { body: string }) => {
+    expect(path).toBe('/admin/api/venue-suite/capabilities');
+    expect(JSON.parse(options.body)).toEqual({ regionId: get('region').value.trim() });
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ canReadPeople: true, canExportPeople: true })
+    };
+  });
+  const authorize = async () => {
+    get('verify').click();
+    await flush();
+  };
   runInNewContext(venuePeoplePageScript, {
     document,
-    fetch,
+    fetch: (path: string, options: { body: string }) =>
+      path === '/admin/api/venue-suite/capabilities'
+        ? capabilities(path, options)
+        : fetch(path, options),
     URL: { createObjectURL, revokeObjectURL },
     setTimeout: (fn: () => void) => fn()
   });
@@ -116,9 +115,12 @@ const harness = () => {
     get,
     document,
     fetch,
+    capabilities,
+    authorize,
     createObjectURL,
     revokeObjectURL,
     submit: async () => {
+      if (get('read').disabled) await authorize();
       get('filters').emit('submit');
       await flush();
     }
@@ -227,6 +229,7 @@ describe('venue people real browser controller in minimal DOM', () => {
     h.get('from').value = '2026-10-01';
     h.get('until').value = '2026-10-02';
     h.get('search').value = ' Synthetic ';
+    await h.authorize();
     h.get('export').click();
     await flush();
     expect(h.fetch.mock.calls[0]![0]).toBe('/admin/venue-people/api/export');
@@ -285,8 +288,95 @@ describe('venue people real browser controller in minimal DOM', () => {
     await h.submit();
     expect(h.get('status').textContent).toContain('並非查無資料');
   });
+  it('requires scoped capabilities and never turns manual writing on', async () => {
+    const h = harness();
+    expect(h.get('read').disabled).toBe(true);
+    expect(h.get('export').disabled).toBe(true);
+    h.get('filters').emit('submit');
+    h.get('export').click();
+    expect(h.fetch).not.toHaveBeenCalled();
+    h.capabilities.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ canReadPeople: false, canExportPeople: true })
+    });
+    await h.authorize();
+    expect(h.capabilities).toHaveBeenCalledWith(
+      '/admin/api/venue-suite/capabilities',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: expect.objectContaining({ 'x-csrf-token': 'c'.repeat(43) }),
+        body: JSON.stringify({ regionId: h.get('region').value })
+      })
+    );
+    expect(h.get('read').disabled).toBe(true);
+    expect(h.get('export').disabled).toBe(false);
+    expect(h.get('permissions').textContent).toContain('無讀取權限');
+    h.get('export').click();
+    await flush();
+    expect(h.fetch.mock.calls[0]?.[0]).toBe('/admin/venue-people/api/export');
+    expect(h.get('manual-add').disabled).toBe(true);
+    expect(h.get('manual-void').disabled).toBe(true);
+    h.capabilities.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ canReadPeople: false, canExportPeople: false })
+    });
+    await h.authorize();
+    expect(h.get('read').disabled).toBe(true);
+    expect(h.get('export').disabled).toBe(true);
+    expect(h.get('status').textContent).toContain('未授權');
+    h.capabilities.mockRejectedValueOnce(new Error('private diagnostics'));
+    await h.authorize();
+    expect(h.get('status').textContent).toContain('驗證失敗');
+    expect(h.get('status').textContent).not.toContain('private');
+  });
+  it('clears stale records on filter edits and requires fresh capabilities when region changes', async () => {
+    const h = harness();
+    await h.submit();
+    expect(h.get('records').children.length).toBeGreaterThan(0);
+    h.get('search').value = 'Another';
+    h.get('filters').emit('input');
+    expect(h.get('records').children).toEqual([]);
+    expect(h.get('next').disabled).toBe(true);
+    expect(h.get('read').disabled).toBe(false);
+    h.get('region').value = '01000000-0000-4000-8000-000000000004';
+    h.get('filters').emit('input');
+    expect(h.get('read').disabled).toBe(true);
+    expect(h.get('export').disabled).toBe(true);
+    expect(h.get('permissions').textContent).toContain('區域已變更');
+    h.get('filters').emit('submit');
+    h.get('export').click();
+    expect(h.fetch).toHaveBeenCalledTimes(1);
+  });
+  it('retains the displayed page on CSV success, and retries failed reads without false empty state', async () => {
+    const h = harness();
+    await h.submit();
+    h.get('next').click();
+    await flush();
+    const pagination = h.get('pagination').textContent;
+    h.get('export').click();
+    await flush();
+    expect(h.get('pagination').textContent).toBe(pagination);
+    expect(h.get('records').children.length).toBeGreaterThan(0);
+    h.fetch.mockRejectedValueOnce(new Error('network'));
+    h.get('retry').click();
+    await flush();
+    expect(h.get('records').children).toEqual([]);
+    expect(h.get('retry').disabled).toBe(false);
+    expect(h.get('status').textContent).toContain('並非查無資料');
+    h.get('retry').click();
+    await flush();
+    expect(JSON.parse(h.fetch.mock.calls.at(-1)![1].body)).toMatchObject({
+      page: 2,
+      mode: 'people'
+    });
+    expect(h.get('status').textContent).toBe('查詢完成。');
+  });
   it('prevents duplicate requests while pending, then resumes controls', async () => {
     const h = harness();
+    await h.authorize();
     let resolve: ((value: Awaited<ReturnType<typeof h.fetch>>) => void) | undefined;
     h.fetch.mockImplementationOnce(
       () =>
