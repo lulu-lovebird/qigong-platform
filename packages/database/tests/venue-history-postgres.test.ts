@@ -148,10 +148,10 @@ beforeAll(async () => {
   ).toBe(0);
   const migrations = resolve(repo, 'migrations');
   const files = (await readdir(migrations)).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort();
-  expect(files).toHaveLength(52);
+  expect(files).toHaveLength(54);
   const result = await runMigrations(owner, migrations, 'synthetic-history-only');
   expect(result.applied).toEqual(files);
-  expect(result.currentVersion).toBe('0052_venue_personal_history.sql');
+  expect(result.currentVersion).toBe('0054_venue_people_read.sql');
   expect((await runMigrations(owner, migrations)).applied).toEqual([]);
   expect((await owner.query('SELECT 1 FROM core.field_attendance')).rowCount).toBe(0);
   expect((await owner.query('SELECT 1 FROM platform.venue_history_context')).rowCount).toBe(0);
@@ -220,7 +220,7 @@ afterAll(async () => {
   await rm(safe, { recursive: true });
 }, 30000);
 
-describe('isolated PG17 personal history: 52 migrations + real nonowner RLS', () => {
+describe('isolated PG17 personal history: 54 migrations + real nonowner RLS', () => {
   it('counts lifetime attendance/local days, month count independent of venue and no other learner', async () => {
     const result = await readHistory('2026-10');
     expect(result.totals).toEqual({ attendanceCount: 25, attendanceDays: 24, monthCount: 24 });

@@ -55,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0051_venue_qr_attendance.sql'
+      '0054_venue_people_read.sql'
     );
 
     expect(first.applied).toEqual([
@@ -109,13 +109,16 @@ describeWithDatabase('repository migrations', () => {
       '0048_practice_fields_and_nfc_attendance.sql',
       '0049_nfc_attendance_security_quarantine.sql',
       '0050_venue_attendance_security_contract.sql',
-      '0051_venue_qr_attendance.sql'
+      '0051_venue_qr_attendance.sql',
+      '0052_venue_personal_history.sql',
+      '0053_venue_management.sql',
+      '0054_venue_people_read.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0051_venue_qr_attendance.sql',
+      currentVersion: '0054_venue_people_read.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0051_venue_qr_attendance.sql',
+      maximumVersion: '0054_venue_people_read.sql',
       ready: true
     });
   });

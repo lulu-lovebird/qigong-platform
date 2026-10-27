@@ -2,7 +2,14 @@ import pg from 'pg';
 import { afterAll, afterEach, beforeAll } from 'vitest';
 
 const baseUrl = process.env.TEST_DATABASE_URL;
-const venueRoles = ['qigong_venue_qr_writer', 'qigong_venue_qr_reader'] as const;
+const venueRoles = [
+  'qigong_venue_qr_writer',
+  'qigong_venue_qr_reader',
+  'qigong_venue_history_reader',
+  'qigong_venue_manager',
+  'qigong_venue_config_guard',
+  'qigong_venue_people_reader'
+] as const;
 const preexistingOids = new Set<number>();
 
 interface VenueRole extends pg.QueryResultRow {
@@ -61,7 +68,7 @@ beforeAll(async () => {
   });
 });
 
-// 0051 intentionally refuses existing roles. Dropping a fixture database removes its
+// 0051–0054 intentionally refuse existing roles. Dropping a fixture database removes its
 // objects but not its cluster-wide roles. Run after suite-owned DB teardown, never
 // DROP OWNED/CASCADE or reuse/relax the production migration's fail-closed guard.
 const removeOrphanedFixtureRoles = async (): Promise<void> => {
