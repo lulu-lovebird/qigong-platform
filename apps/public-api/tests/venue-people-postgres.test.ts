@@ -175,6 +175,9 @@ describe.skipIf(!directory)('venue people: isolated PG17 integrated 54 migration
       venuePeopleMigrationVersion
     ]);
     expect(files).toHaveLength(54);
+    // Adversarial default ACL exists ONLY in this fresh disposable cluster.
+    await owner.query(`CREATE ROLE venue_people_default_acl_fixture NOLOGIN NOINHERIT;
+      ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO venue_people_default_acl_fixture`);
     const result = await runMigrations(owner, migrations, 'synthetic-venue-people-only');
     expect(result.applied).toEqual(files);
     expect(result.currentVersion).toBe(venuePeopleMigrationVersion);
@@ -224,6 +227,17 @@ describe.skipIf(!directory)('venue people: isolated PG17 integrated 54 migration
       "SELECT has_function_privilege('qigong_worker_runtime','admin.venue_people_read(text,uuid,date,date,uuid,uuid,text,text,text,text,integer,integer,boolean)','EXECUTE') worker,has_function_privilege('venue_people_test_login','admin.venue_people_read(text,uuid,date,date,uuid,uuid,text,text,text,text,integer,integer,boolean)','EXECUTE') login"
     );
     expect(acl.rows[0]).toEqual({ worker: false, login: false });
+    const inherited = await owner.query<{ allowed: boolean }>(
+      `SELECT has_function_privilege('venue_people_default_acl_fixture',signature,'EXECUTE') allowed
+       FROM unnest(ARRAY[
+         'platform.venue_personal_history(text,text,text,text,bigint)',
+         'admin.venue_management(text,text,uuid,uuid,integer,jsonb,text)',
+         'admin.venue_management_lookup(text)',
+         'admin.venue_people_read(text,uuid,date,date,uuid,uuid,text,text,text,text,integer,integer,boolean)'
+       ]) signature`
+    );
+    expect(inherited.rows).toHaveLength(4);
+    expect(inherited.rows.every((row) => !row.allowed)).toBe(true);
   });
   it('view includes names without learner.read or k5; totals span all pages and exclude learner home/channel joins', async () => {
     const result = await read(query({ limit: 1, sort: 'count' }));

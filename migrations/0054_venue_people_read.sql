@@ -135,7 +135,17 @@ BEGIN
 END $$;
 ALTER FUNCTION admin.venue_people_read(TEXT,UUID,DATE,DATE,UUID,UUID,TEXT,TEXT,TEXT,TEXT,INTEGER,INTEGER,BOOLEAN)
   OWNER TO qigong_venue_people_reader;
-REVOKE ALL ON FUNCTION admin.venue_people_read(TEXT,UUID,DATE,DATE,UUID,UUID,TEXT,TEXT,TEXT,TEXT,INTEGER,INTEGER,BOOLEAN) FROM PUBLIC;
+-- Match 0052/0053: clear arbitrary inherited default EXECUTE ACLs, not
+-- only PUBLIC. The new owner is retained; no role membership is granted.
+DO $$ DECLARE f RECORD; g RECORD; BEGIN
+  SELECT p.oid,p.proowner,p.oid::regprocedure signature INTO STRICT f FROM pg_proc p
+    WHERE p.oid='admin.venue_people_read(text,uuid,date,date,uuid,uuid,text,text,text,text,integer,integer,boolean)'::regprocedure;
+  EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC CASCADE',f.signature);
+  FOR g IN SELECT DISTINCT r.rolname FROM pg_proc p CROSS JOIN LATERAL aclexplode(p.proacl) a
+    JOIN pg_roles r ON r.oid=a.grantee WHERE p.oid=f.oid AND a.grantee<>f.proowner LOOP
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I CASCADE',f.signature,g.rolname);
+  END LOOP;
+END $$;
 GRANT EXECUTE ON FUNCTION admin.venue_people_read(TEXT,UUID,DATE,DATE,UUID,UUID,TEXT,TEXT,TEXT,TEXT,INTEGER,INTEGER,BOOLEAN)
   TO qigong_api_runtime;
 -- No table ownership, runtime SELECT, role membership, BYPASSRLS or writes to attendance.
