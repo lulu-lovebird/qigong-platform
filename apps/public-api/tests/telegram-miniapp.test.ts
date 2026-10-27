@@ -52,9 +52,10 @@ suite('Telegram static launch and verified exchange', () => {
     root = database.pool;
     dispose = () => database.dispose();
     await runMigrations(root, directory, 'http-workspace');
-    role = 'qigong_workspace_http_' + randomUUID().replaceAll('-', '');
+    const login = 'qigong_workspace_http_' + randomUUID().replaceAll('-', '');
     const password = randomBytes(24).toString('hex');
-    await root.query(`CREATE ROLE ${role} LOGIN NOINHERIT NOBYPASSRLS PASSWORD '${password}'`);
+    await root.query(`CREATE ROLE ${login} LOGIN NOINHERIT NOBYPASSRLS PASSWORD '${password}'`);
+    role = login;
     await root.query(`GRANT qigong_api_runtime,qigong_worker_runtime TO ${role}`);
     const connection = new URL(database.databaseUrl);
     connection.username = role;
@@ -142,12 +143,15 @@ suite('Telegram static launch and verified exchange', () => {
     vi.unstubAllGlobals();
   });
   afterAll(async () => {
-    await runtime?.end();
-    if (role) {
-      await root.query(`DROP OWNED BY ${role}`);
-      await root.query(`DROP ROLE ${role}`);
+    try {
+      await runtime?.end();
+    } finally {
+      try {
+        if (role) await root.query(`DROP ROLE ${role}`);
+      } finally {
+        await dispose?.();
+      }
     }
-    await dispose?.();
   });
 
   const launch = (values: Record<string, unknown> = {}, origin = true) =>

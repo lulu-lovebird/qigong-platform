@@ -39,6 +39,8 @@ const fixture = (
     channelInvites?: boolean;
     achievements?: boolean;
     management?: boolean;
+    suiteManagement?: boolean;
+    suitePeople?: boolean;
     admin?: boolean;
     mobile?: boolean;
     fail?: boolean;
@@ -62,6 +64,8 @@ const fixture = (
       link.hidden = /\bhidden\b/.test(attrs);
       const page = /data-journal-nav="([^"]+)"/.exec(attrs)?.[1];
       if (page) link.dataset.journalNav = page;
+      const suite = /data-venue-suite-nav="([^"]+)"/.exec(attrs)?.[1];
+      if (suite) link.dataset.venueSuiteNav = suite;
       if (attrs.includes('data-line-invites-nav')) link.dataset.invites = 'true';
       if (attrs.includes('data-channel-invites-nav')) link.dataset.channelInvites = 'true';
       if (attrs.includes('data-achievements-nav')) link.dataset.achievements = 'true';
@@ -86,21 +90,23 @@ const fixture = (
     if (options.fail) throw Error('Synthetic transport failure');
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     return Response.json(
-      url.includes('achievement-management')
-        ? { canManage: options.management ?? false }
-        : url.includes('channel-invites')
-          ? { canManage: options.channelInvites ?? options.allowed ?? false }
-          : url.includes('line-invites')
-            ? { canManage: options.allowed ?? false }
-            : url.includes('achievements')
-              ? { canReadAchievements: options.achievements ?? options.allowed ?? false }
-              : {
-                  canReadJournal: options.allowed ?? false,
-                  canManageTags: options.allowed ?? false,
-                  canManageLearners: options.allowed ?? false,
-                  canReadShared: options.allowed ?? false,
-                  canPublishPrivacy: options.allowed ?? false
-                }
+      url.includes('venue-suite')
+        ? { management: options.suiteManagement ?? false, people: options.suitePeople ?? false }
+        : url.includes('achievement-management')
+          ? { canManage: options.management ?? false }
+          : url.includes('channel-invites')
+            ? { canManage: options.channelInvites ?? options.allowed ?? false }
+            : url.includes('line-invites')
+              ? { canManage: options.allowed ?? false }
+              : url.includes('achievements')
+                ? { canReadAchievements: options.achievements ?? options.allowed ?? false }
+                : {
+                    canReadJournal: options.allowed ?? false,
+                    canManageTags: options.allowed ?? false,
+                    canManageLearners: options.allowed ?? false,
+                    canReadShared: options.allowed ?? false,
+                    canPublishPrivacy: options.allowed ?? false
+                  }
     );
   });
   const document = {
@@ -119,7 +125,9 @@ const fixture = (
                 ? links.filter((link) => link.dataset.achievements)
                 : selector === '[data-achievement-management-nav]'
                   ? links.filter((link) => link.dataset.management)
-                  : []
+                  : selector === '[data-venue-suite-nav]'
+                    ? links.filter((link) => link.dataset.venueSuiteNav)
+                    : []
   };
   const context = vm.createContext({
     document,
@@ -167,7 +175,17 @@ describe('Compact grouped admin navigation', () => {
     async (locale) => {
       const f = fixture(locale, { allowed: true, admin: true });
       await settle();
-      expect([...f.groups.keys()]).toEqual(['reports', 'learners', 'journal', 'settings']);
+      expect([...f.groups.keys()]).toEqual([
+        'reports',
+        'learners',
+        'journal',
+        'settings',
+        'venue-suite'
+      ]);
+      expect(f.groups.get('venue-suite')?.links.map((link) => link.href)).toEqual([
+        '/admin/venue-management?lang=' + locale,
+        '/admin/venue-people'
+      ]);
       const expected = {
         reports: ['/admin/', '/admin/leaderboard', '/admin/achievements', '/admin/method-analysis'],
         learners: [
@@ -245,6 +263,26 @@ describe('Compact grouped admin navigation', () => {
     expect(failed.links.find((link) => link.dataset.management)?.hidden).toBe(true);
     expect([...manager.groups.values()].every((group) => !group.open)).toBe(true);
   });
+  it('shows only independently enabled suite shell links, leaving disabled or failed flags hidden', async () => {
+    const settings = fixture('en', { suiteManagement: true });
+    const people = fixture('en', { suitePeople: true });
+    const disabled = fixture('en', { allowed: true });
+    const failed = fixture('en', { suiteManagement: true, suitePeople: true, fail: true });
+    await settle();
+    for (const [view, key] of [
+      [settings, 'management'],
+      [people, 'people']
+    ] as const) {
+      expect(view.groups.get('venue-suite')?.hidden).toBe(false);
+      expect(view.links.find((link) => link.dataset.venueSuiteNav === key)?.hidden).toBe(false);
+      expect(
+        view.links.find((link) => link.dataset.venueSuiteNav && link.dataset.venueSuiteNav !== key)
+          ?.hidden
+      ).toBe(true);
+    }
+    expect(disabled.groups.get('venue-suite')?.hidden).toBe(true);
+    expect(failed.groups.get('venue-suite')?.hidden).toBe(true);
+  });
   it('keeps capability links and empty headings hidden on failed permission requests', async () => {
     const f = fixture('en', { fail: true });
     await settle();
@@ -273,9 +311,9 @@ describe('Compact grouped admin navigation', () => {
     async (locale) => {
       const f = fixture(locale, { allowed: true, admin: true });
       await settle();
-      expect(f.groups.size).toBe(4);
+      expect(f.groups.size).toBe(5);
       expect([...f.groups.values()].every((group) => !group.open)).toBe(true);
-      expect(f.html.match(/name="admin-navigation-groups"/g)).toHaveLength(4);
+      expect(f.html.match(/name="admin-navigation-groups"/g)).toHaveLength(5);
       expect(f.html).toContain('data-current-group="true"');
       expect(f.html).toContain('.nav-group:not([open]) > .nav-group-links { display:none; }');
       expect(f.html).toContain(".nav-group-title::after { content:'+';");

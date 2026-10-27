@@ -126,6 +126,13 @@ export const renderAdminShell = (
   const languageSwitcher = uiTemplate(
     locale
   )`<div class="languages"><select id="admin-language" aria-label="${text.language}">${languageOptions(locale)}</select></div>`;
+  const suiteLabels =
+    locale === 'en'
+      ? ['Group Practice Attendance', 'Venues', 'Participants / CSV']
+      : locale === 'zh_CN'
+        ? ['团练场出席管理', '场地设置', '人员／CSV']
+        : ['團練場出席管理', '場地設定', '人員／CSV'];
+  const suiteNavigation = `<details class="nav-group" name="admin-navigation-groups" data-nav-group="venue-suite" aria-labelledby="nav-group-venue-suite" hidden><summary class="nav-group-title" id="nav-group-venue-suite">${suiteLabels[0]}</summary><div class="nav-group-links"><a href="/admin/venue-management${adminLocaleQuery(locale)}" data-venue-suite-nav="management" hidden>${suiteLabels[1]}</a><a href="/admin/venue-people" data-venue-suite-nav="people" hidden>${suiteLabels[2]}</a></div></details>`;
   const navigationMarkup = navigationGroups
     .map((group) => {
       const items = group.pages
@@ -148,7 +155,7 @@ export const renderAdminShell = (
 <style>
 ${adminBrandStyles}
 ${adminLayoutStyles}
-</style></head><body><a class="skip" href="#main">${text.skip}</a><div class="shell"><aside class="sidebar"><div class="brand"><div class="brand-title">${renderAdminLogo(locale)}<span class="brand-title-text">${text.brand}</span></div><small>${text.brandSubtitle}</small></div>${languageSwitcher}<details id="admin-nav-disclosure" class="nav-disclosure" open><summary>${text.navigation}<span>${pageLabel}</span></summary><nav id="admin-navigation" aria-label="${text.navigation}">${navigationMarkup}</nav></details><button id="logout" type="button">${text.logout}</button></aside>
+</style></head><body><a class="skip" href="#main">${text.skip}</a><div class="shell"><aside class="sidebar"><div class="brand"><div class="brand-title">${renderAdminLogo(locale)}<span class="brand-title-text">${text.brand}</span></div><small>${text.brandSubtitle}</small></div>${languageSwitcher}<details id="admin-nav-disclosure" class="nav-disclosure" open><summary>${text.navigation}<span>${pageLabel}</span></summary><nav id="admin-navigation" aria-label="${text.navigation}">${navigationMarkup}${suiteNavigation}</nav></details><button id="logout" type="button">${text.logout}</button></aside>
 <div class="workspace"><header><div><h1>${pageLabel}</h1><span class="muted">${text.scope}</span></div></header><div id="main">${content}</div><footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer></div></div>
 <script>
 (() => {
@@ -168,6 +175,7 @@ ${adminLayoutStyles}
   if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-achievement-management-nav]').length)fetch('/admin/api/achievement-management/capabilities',{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-achievement-management-nav]'))a.hidden=c?.canManage!==true;refreshNavigationGroups();}).catch(refreshNavigationGroups);
   if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-fields-nav]').length)fetch('/admin/api/fields/capabilities',{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-fields-nav]'))a.hidden=c?.canManage!==true;refreshNavigationGroups();}).catch(refreshNavigationGroups);
   if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-attendance-nav]').length)fetch('/admin/api/attendance/capabilities',{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-attendance-nav]'))a.hidden=c?.canRead!==true;refreshNavigationGroups();}).catch(refreshNavigationGroups);
+  if(typeof document.querySelectorAll==='function'&&document.querySelectorAll('[data-venue-suite-nav]').length)fetch('/admin/api/venue-suite',{credentials:'same-origin',cache:'no-store'}).then(r=>r.ok?r.json():null).then(c=>{for(const a of document.querySelectorAll('[data-venue-suite-nav]'))a.hidden=c?.[a.dataset.venueSuiteNav]!==true;refreshNavigationGroups();}).catch(refreshNavigationGroups);
   const mayLeave=()=>typeof window==='undefined'||!window.qigongJournalMayLeave||window.qigongJournalMayLeave();
   language.addEventListener('change',() => {
     const next=language.value;

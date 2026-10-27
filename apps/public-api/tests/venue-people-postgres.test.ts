@@ -1,0 +1,525 @@
+/** Real PG16/17 only through the isolated venue harness; NEVER TEST_DATABASE_URL. */
+import { readFile, readdir, realpath, stat } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { Pool } from 'pg';
+import Fastify from 'fastify';
+import { registerVenuePeopleRoutes } from '../src/venue-people-routes.js';
+import { withRequestContext } from '@qigong/database';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { runMigrations } from '../../../packages/database/src/migrations.js';
+import {
+  createVenuePeopleService,
+  venuePeopleMigrationVersion
+} from '../src/venue-people-service.js';
+import {
+  encodeVenuePeopleCsv,
+  parseVenuePeopleQuery,
+  type VenuePeopleQuery
+} from '../src/venue-people-helpers.js';
+
+const directory = process.env.VENUE_PEOPLE_ISOLATED_PG_DIR;
+const regionId = '01000000-0000-4000-8000-000000000003';
+const otherRegion = '01000000-0000-4000-8000-000000000004';
+const personId = '20000000-0000-4000-8000-000000000001';
+const fieldId = '30000000-0000-4000-8000-000000000001';
+const otherField = '30000000-0000-4000-8000-000000000003';
+const viewer = 'v'.repeat(43),
+  exporter = 'e'.repeat(43),
+  mixed = 'm'.repeat(43);
+const query = (patch: Partial<VenuePeopleQuery> = {}): VenuePeopleQuery => ({
+  ...parseVenuePeopleQuery({
+    mode: 'people',
+    regionId,
+    fieldId: null,
+    personId: null,
+    period: { month: '2026-10' },
+    search: '',
+    sort: 'recent',
+    direction: 'desc',
+    page: 1,
+    limit: 20
+  }),
+  ...patch
+});
+let owner: Pool, runtime: Pool;
+const read = (q = query(), exporting = false, token = exporting ? exporter : viewer) =>
+  createVenuePeopleService(runtime).read(crypto.randomUUID(), token, q, exporting);
+const direct = (
+  patch: Partial<VenuePeopleQuery> = {},
+  token = viewer,
+  personContext?: string,
+  principalId?: string
+) => {
+  const q = query(patch);
+  return withRequestContext(
+    runtime,
+    'qigong_api_runtime',
+    {
+      requestId: crypto.randomUUID(),
+      ...(personContext ? { personId: personContext } : {}),
+      ...(principalId ? { principalId } : {})
+    },
+    (client) =>
+      client.query(
+        'SELECT admin.venue_people_read($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,FALSE) data',
+        [
+          token,
+          q.regionId,
+          q.from,
+          q.until,
+          q.fieldId,
+          q.personId,
+          q.search,
+          q.mode,
+          q.sort,
+          q.direction,
+          q.page,
+          q.limit
+        ]
+      )
+  );
+};
+
+const origin = 'https://synthetic.invalid';
+const httpApp = () => {
+  const app = Fastify({ logger: false, genReqId: () => crypto.randomUUID() });
+  registerVenuePeopleRoutes(app, {
+    config: { enabled: true, publicOrigin: origin },
+    service: createVenuePeopleService(runtime),
+    pagePrincipalFor: async (request) =>
+      withRequestContext(
+        runtime,
+        'qigong_api_runtime',
+        { requestId: request.id },
+        async (client) => {
+          const token =
+            request.headers.cookie?.match(
+              /(?:^|;\s*)__Host-qigong-admin=([A-Za-z0-9_-]{43})(?:;|$)/
+            )?.[1] ?? '';
+          return (
+            (
+              await client.query<{ principal: string | null }>(
+                'SELECT admin.session_principal($1) principal',
+                [token]
+              )
+            ).rows[0]?.principal ?? null
+          );
+        }
+      )
+  });
+  return app;
+};
+const httpRead = (
+  app: ReturnType<typeof httpApp>,
+  token = viewer,
+  exporting = false,
+  patch: Partial<VenuePeopleQuery> = {}
+) => {
+  const { from, until, ...rest } = query(patch);
+  return app.inject({
+    method: 'POST',
+    url: '/admin/venue-people/api/' + (exporting ? 'export' : 'read'),
+    headers: {
+      origin,
+      cookie: '__Host-qigong-admin=' + token + '; __Host-qigong-admin-csrf=' + 'c'.repeat(43),
+      'x-csrf-token': 'c'.repeat(43)
+    },
+    payload: { ...rest, period: { from, until } }
+  });
+};
+
+describe.skipIf(!directory)('venue people: isolated PG16/17 integrated 54 migrations', () => {
+  beforeAll(async () => {
+    if (
+      !directory ||
+      !/^\/tmp\/(?:venue-people-pg\.|venue-suite-people-)[A-Za-z0-9]+$/.test(directory)
+    )
+      throw new Error('isolated harness required');
+    const actual = await realpath(directory);
+    if (actual !== directory && actual !== '/private' + directory)
+      throw new Error('unexpected cluster path');
+    const info = await stat(directory);
+    expect(info.mode & 0o077).toBe(0);
+    expect(info.uid).toBe(process.getuid?.());
+    expect(
+      (await readFile(resolve(directory, 'isolated-venue-people-marker'), 'utf8')).trim()
+    ).toBe(directory);
+    const pid = (await readFile(resolve(directory, 'data/postmaster.pid'), 'utf8')).split('\n');
+    expect([directory + '/data', actual + '/data']).toContain(pid[1]);
+    expect(pid[3]).toBe('55483');
+    expect([directory + '/socket', actual + '/socket']).toContain(pid[4]);
+    const options = {
+      host: directory + '/socket',
+      port: 55483,
+      database: 'postgres',
+      ssl: false,
+      max: 4
+    };
+    owner = new Pool({ ...options, user: 'venue_people_owner' });
+    const settings = await owner.query(
+      "SELECT current_setting('server_version_num')::int version,current_setting('listen_addresses') listeners"
+    );
+    expect(settings.rows[0].version).toBeGreaterThanOrEqual(160000);
+    expect(settings.rows[0].version).toBeLessThan(180000);
+    expect(settings.rows[0].listeners).toBe('');
+    const pristine = await owner.query(
+      "SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%' AND c.relkind IN ('r','p')"
+    );
+    expect(pristine.rowCount).toBe(0);
+    const migrations = resolve(process.cwd(), '../../migrations');
+    const files = (await readdir(migrations)).filter((f) => /^\d{4}_.+\.sql$/.test(f)).sort();
+    expect(files.filter((f) => Number(f.slice(0, 4)) <= 51)).toHaveLength(51);
+    expect(files.filter((f) => Number(f.slice(0, 4)) > 51)).toEqual([
+      '0052_venue_personal_history.sql',
+      '0053_venue_management.sql',
+      venuePeopleMigrationVersion
+    ]);
+    expect(files).toHaveLength(54);
+    // Adversarial default ACL exists ONLY in this fresh disposable cluster.
+    await owner.query(`CREATE ROLE venue_people_default_acl_fixture NOLOGIN NOINHERIT;
+      ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO venue_people_default_acl_fixture`);
+    const result = await runMigrations(owner, migrations, 'synthetic-venue-people-only');
+    expect(result.applied).toEqual(files);
+    expect(result.currentVersion).toBe(venuePeopleMigrationVersion);
+    expect((await runMigrations(owner, migrations)).applied).toEqual([]);
+    expect((await owner.query('SELECT 1 FROM core.practice_fields')).rowCount).toBe(0);
+    await owner.query(
+      await readFile(new URL('./fixtures/venue-people-synthetic.sql', import.meta.url), 'utf8')
+    );
+    runtime = new Pool({ ...options, user: 'venue_people_test_login' });
+  }, 120000);
+  afterAll(async () => {
+    await runtime?.end();
+    await owner?.end();
+  });
+
+  it('uses isolated nonowner NOLOGIN NOBYPASSRLS role, FORCE and no memberships or runtime table grants', async () => {
+    const roles = await owner.query(
+      "SELECT rolsuper,rolbypassrls,rolcanlogin FROM pg_roles WHERE rolname='qigong_venue_people_reader'"
+    );
+    expect(roles.rows).toEqual([{ rolsuper: false, rolbypassrls: false, rolcanlogin: false }]);
+    expect(
+      (
+        await owner.query(
+          "SELECT 1 FROM pg_auth_members WHERE roleid=(SELECT oid FROM pg_roles WHERE rolname='qigong_venue_people_reader') OR member=(SELECT oid FROM pg_roles WHERE rolname='qigong_venue_people_reader')"
+        )
+      ).rowCount
+    ).toBe(0);
+    const tables = await owner.query(
+      "SELECT relrowsecurity,relforcerowsecurity,pg_get_userbyid(relowner) owner FROM pg_class WHERE oid IN ('core.practice_fields'::regclass,'core.field_attendance'::regclass,'identity.people'::regclass)"
+    );
+    for (const table of tables.rows) {
+      expect(table.relrowsecurity).toBe(true);
+      expect(table.relforcerowsecurity).toBe(true);
+      expect(table.owner).not.toBe('qigong_venue_people_reader');
+    }
+    await expect(
+      withRequestContext(runtime, 'qigong_api_runtime', { requestId: crypto.randomUUID() }, (c) =>
+        c.query('SELECT * FROM core.field_attendance')
+      )
+    ).rejects.toMatchObject({ code: '42501' });
+    await expect(
+      withRequestContext(runtime, 'qigong_api_runtime', { requestId: crypto.randomUUID() }, (c) =>
+        c.query('SET LOCAL ROLE qigong_venue_people_reader')
+      )
+    ).rejects.toMatchObject({ code: '42501' });
+    const acl = await owner.query(
+      "SELECT has_function_privilege('qigong_worker_runtime','admin.venue_people_read(text,uuid,date,date,uuid,uuid,text,text,text,text,integer,integer,boolean)','EXECUTE') worker,has_function_privilege('venue_people_test_login','admin.venue_people_read(text,uuid,date,date,uuid,uuid,text,text,text,text,integer,integer,boolean)','EXECUTE') login"
+    );
+    expect(acl.rows[0]).toEqual({ worker: false, login: false });
+    const inherited = await owner.query<{ allowed: boolean }>(
+      `SELECT has_function_privilege('venue_people_default_acl_fixture',signature,'EXECUTE') allowed
+       FROM unnest(ARRAY[
+         'platform.venue_personal_history(text,text,text,text,bigint)',
+         'admin.venue_management(text,text,uuid,uuid,integer,jsonb,text)',
+         'admin.venue_management_lookup(text)',
+         'admin.venue_people_read(text,uuid,date,date,uuid,uuid,text,text,text,text,integer,integer,boolean)'
+       ]) signature`
+    );
+    expect(inherited.rows).toHaveLength(4);
+    expect(inherited.rows.every((row) => !row.allowed)).toBe(true);
+  });
+  it('view includes names without learner.read or k5; totals span all pages and exclude learner home/channel joins', async () => {
+    const result = await read(query({ limit: 1, sort: 'count' }));
+    expect(result.total).toBe(3);
+    expect(result.totals).toEqual({ attendanceCount: 5, attendanceDays: 4, learnerCount: 3 });
+    expect(result.rows).toEqual([
+      {
+        personId,
+        name: '=SYNTHETIC()',
+        attendanceCount: 3,
+        attendanceDays: 2,
+        latestDate: '2026-10-02'
+      }
+    ]);
+    const page2 = await read(query({ page: 2, limit: 1, sort: 'count' }));
+    expect(page2.total).toBe(3);
+    expect(page2.rows).toHaveLength(1);
+    expect(page2.rows[0]?.personId).not.toBe(personId);
+    expect((await read(query({ page: 4, limit: 1 }))).rows).toEqual([]);
+  });
+  it('supports stable ordering, literal name search, venue/month/date filters and half-open local day', async () => {
+    const asc = await read(query({ sort: 'name', direction: 'asc' }));
+    expect(asc.rows.map((r) => r.name)).toEqual(['=SYNTHETIC()', 'Beta', 'Gamma']);
+    expect((await read(query({ sort: 'recent' }))).rows.map((r) => r.name)).toEqual([
+      'Gamma',
+      'Beta',
+      '=SYNTHETIC()'
+    ]);
+    const filtered = await read(query({ fieldId, search: 'synthetic' }));
+    expect(filtered.totals).toEqual({ attendanceCount: 2, attendanceDays: 2, learnerCount: 1 });
+    expect((await read(query({ search: "%' OR true --" }))).total).toBe(0);
+    expect((await read(query({ from: '2026-10-01', until: '2026-10-02' }))).totals).toEqual({
+      attendanceCount: 2,
+      attendanceDays: 1,
+      learnerCount: 1
+    });
+    expect(
+      (await read(query({ from: '2026-09-01', until: '2026-10-01' }))).totals.attendanceCount
+    ).toBe(1);
+  });
+  it('same-person detail returns authorized venue subset only; no identity channel, contacts, GPS or notes', async () => {
+    const result = await read(query({ mode: 'detail', personId }));
+    expect(result.total).toBe(3);
+    if (result.mode !== 'detail') throw new Error('wrong mode');
+    expect(new Set(result.rows.map((r) => r.fieldId))).toEqual(
+      new Set([fieldId, '30000000-0000-4000-8000-000000000002'])
+    );
+    expect(result.rows.every((r) => r.timezone === 'Asia/Taipei')).toBe(true);
+    expect(result.rows.some((r) => r.checkedInAt === '2026-09-30T16:00:00.000000Z')).toBe(true);
+    expect(
+      result.rows.every(
+        (r) =>
+          !('channel' in r) && !('distanceMeters' in r) && !('phone' in r) && !('studentNote' in r)
+      )
+    ).toBe(true);
+    expect((await read(query({ mode: 'detail', personId, fieldId }))).total).toBe(2);
+    expect(
+      (await read(query({ mode: 'detail', personId: '20000000-0000-4000-8000-000000000099' })))
+        .total
+    ).toBe(0);
+  });
+  it('filters venue-local calendar labels across the date line, not a Taipei instant window', async () => {
+    await owner.query(
+      `INSERT INTO core.practice_fields(id,region_id,code,name_zh_tw,latitude,longitude,radius_meters,timezone,active_time_rules)
+      SELECT v.id,$1,v.code,'合成日期線場地',25,121,100,v.zone,'{"day_of_week":[0,1,2,3,4,5,6],"start_time":"00:00","end_time":"24:00"}'::jsonb
+      FROM (VALUES ('50000000-0000-4000-8000-000000000001'::uuid,'vp-test-east','Etc/GMT-14'),('50000000-0000-4000-8000-000000000002'::uuid,'vp-test-west','Etc/GMT+12')) v(id,code,zone)`,
+      [regionId]
+    );
+    try {
+      await owner.query(
+        `INSERT INTO core.field_attendance(person_id,field_id,checkin_method,checkin_at,attendance_date,attendance_timezone)
+        SELECT $1,id,'qr_gps','2026-09-30T12:00:00Z',('2026-09-30T12:00:00Z'::timestamptz AT TIME ZONE timezone)::date,timezone
+        FROM core.practice_fields WHERE code IN ('vp-test-east','vp-test-west')`,
+        [personId]
+      );
+      const east = await read(
+        query({
+          mode: 'detail',
+          personId,
+          fieldId: '50000000-0000-4000-8000-000000000001',
+          from: '2026-10-01',
+          until: '2026-10-02'
+        })
+      );
+      expect(east.total).toBe(1);
+      if (east.mode !== 'detail') throw new Error('wrong mode');
+      expect(east.rows[0]).toMatchObject({ date: '2026-10-01', timezone: 'Etc/GMT-14' });
+      const west = await read(
+        query({
+          mode: 'detail',
+          personId,
+          fieldId: '50000000-0000-4000-8000-000000000002',
+          from: '2026-10-01',
+          until: '2026-10-02'
+        })
+      );
+      expect(west.total).toBe(0);
+      const all = await read(
+        query({ mode: 'detail', personId, from: '2026-09-30', until: '2026-10-02' })
+      );
+      expect(all.totals.attendanceDays).toBe(2);
+    } finally {
+      await owner.query(
+        // Fixture owner removes only its synthetic attendance. 0053 correctly
+        // forbids field deletion, even for this owner; fields die with the cluster.
+        "DELETE FROM core.field_attendance WHERE field_id IN (SELECT id FROM core.practice_fields WHERE code IN ('vp-test-east','vp-test-west'))"
+      );
+    }
+  });
+  it('separates view and export permissions and their region scopes in both directions', async () => {
+    await expect(read(query(), true, viewer)).rejects.toMatchObject({ code: '42501' });
+    await expect(read(query(), false, exporter)).rejects.toMatchObject({ code: '42501' });
+    expect((await read(query(), true, exporter)).total).toBe(3);
+    expect((await read(query(), false, mixed)).total).toBe(3);
+    await expect(read(query(), true, mixed)).rejects.toMatchObject({ code: '42501' });
+    await expect(read(query({ regionId: otherRegion }), false, mixed)).rejects.toMatchObject({
+      code: '42501'
+    });
+    expect((await read(query({ regionId: otherRegion }), true, mixed)).total).toBe(1);
+    await expect(read(query({ regionId: otherRegion }))).rejects.toMatchObject({ code: '42501' });
+    await expect(read(query({ fieldId: otherField }))).rejects.toMatchObject({ code: '42501' });
+  });
+  it('rejects forged/absent sessions, person context, conflicting principal and illegal SQL selectors', async () => {
+    await expect(
+      direct({}, 'forged', undefined, '10000000-0000-4000-8000-000000000001')
+    ).rejects.toMatchObject({ code: '28000' });
+    await expect(direct({}, viewer, personId)).rejects.toMatchObject({ code: '42501' });
+    await expect(
+      direct({}, viewer, undefined, '10000000-0000-4000-8000-000000000002')
+    ).rejects.toMatchObject({ code: '42501' });
+    for (const patch of [
+      { page: 0 },
+      { until: '2028-01-01' },
+      { search: '\nx' },
+      { from: 'infinity' },
+      { personId }
+    ])
+      await expect(direct(patch)).rejects.toMatchObject({ code: '22023' });
+  });
+  it('revalidates revoked permission/session every call instead of trusting a cached principal', async () => {
+    await owner.query(
+      "UPDATE admin.role_grants SET valid_to=clock_timestamp() WHERE principal_id='10000000-0000-4000-8000-000000000001'"
+    );
+    try {
+      await expect(read()).rejects.toMatchObject({ code: '28000' });
+    } finally {
+      await owner.query(
+        "UPDATE admin.role_grants SET valid_to=NULL WHERE principal_id='10000000-0000-4000-8000-000000000001'"
+      );
+    }
+    await owner.query(
+      "DELETE FROM admin.role_permissions WHERE role_id=(SELECT id FROM admin.roles WHERE code='vp_view')"
+    );
+    try {
+      await expect(read()).rejects.toMatchObject({ code: '42501' });
+    } finally {
+      await owner.query(
+        "INSERT INTO admin.role_permissions SELECT r.id,p.id FROM admin.roles r CROSS JOIN admin.permissions p WHERE r.code='vp_view' AND p.code='checkin.read'"
+      );
+    }
+    await owner.query(
+      "UPDATE admin.sessions SET revoked_at=clock_timestamp() WHERE token_hash=public.digest(repeat('v',43),'sha256')"
+    );
+    try {
+      await expect(read()).rejects.toMatchObject({ code: '28000' });
+    } finally {
+      await owner.query('UPDATE admin.sessions SET revoked_at=NULL');
+    }
+  });
+  it('real HTTP cookie/session + CSRF flow preserves SQL authorization and scoped detail', async () => {
+    const app = httpApp();
+    try {
+      const list = await httpRead(app);
+      expect(list.statusCode).toBe(200);
+      expect(list.json().totals.attendanceCount).toBe(5);
+      expect((await httpRead(app, viewer, true)).statusCode).toBe(403);
+      expect((await httpRead(app, exporter)).statusCode).toBe(403);
+      const csv = await httpRead(app, exporter, true);
+      expect(csv.statusCode).toBe(200);
+      expect(csv.body).toContain("'=SYNTHETIC()");
+      expect((await httpRead(app, mixed, false, { regionId: otherRegion })).statusCode).toBe(403);
+      expect((await httpRead(app, mixed, true, { regionId: otherRegion })).statusCode).toBe(200);
+      const detail = await httpRead(app, viewer, false, { mode: 'detail', personId });
+      expect(detail.json().total).toBe(3);
+      expect(
+        (await httpRead(app, viewer, false, { mode: 'detail', personId, fieldId: otherField }))
+          .statusCode
+      ).toBe(403);
+      expect(
+        (
+          await app.inject({
+            url: '/admin/venue-people',
+            headers: { cookie: '__Host-qigong-admin=' + viewer }
+          })
+        ).statusCode
+      ).toBe(200);
+      await owner.query(
+        "UPDATE admin.sessions SET revoked_at=clock_timestamp() WHERE token_hash=public.digest(repeat('v',43),'sha256')"
+      );
+      expect((await httpRead(app)).statusCode).toBe(401);
+      expect(
+        (
+          await app.inject({
+            url: '/admin/venue-people',
+            headers: { cookie: '__Host-qigong-admin=' + viewer }
+          })
+        ).statusCode
+      ).toBe(401);
+      await owner.query('UPDATE admin.sessions SET revoked_at=NULL');
+      await owner.query(
+        "UPDATE admin.sessions SET expires_at=clock_timestamp()-interval '1 second' WHERE token_hash=public.digest(repeat('v',43),'sha256')"
+      );
+      expect((await httpRead(app)).statusCode).toBe(401);
+      await owner.query("UPDATE admin.sessions SET expires_at=clock_timestamp()+interval '1 day'");
+      await owner.query(
+        "DELETE FROM admin.role_permissions WHERE role_id=(SELECT id FROM admin.roles WHERE code='vp_view')"
+      );
+      expect((await httpRead(app)).statusCode).toBe(403);
+    } finally {
+      await owner.query(
+        "UPDATE admin.sessions SET revoked_at=NULL,expires_at=clock_timestamp()+interval '1 day'"
+      );
+      await owner.query(
+        "INSERT INTO admin.role_permissions SELECT r.id,p.id FROM admin.roles r CROSS JOIN admin.permissions p WHERE r.code='vp_view' AND p.code='checkin.read' ON CONFLICT DO NOTHING"
+      );
+      await app.close();
+    }
+  });
+  it('CSV ignores pagination, guards formula names, and audit contains only counts/mode/region', async () => {
+    const result = await read(query({ page: 9999, limit: 1 }), true);
+    expect(result.rows).toHaveLength(3);
+    expect(encodeVenuePeopleCsv(result)).toContain("'=SYNTHETIC()");
+    const audit = await owner.query<{
+      metadata: Record<string, unknown>;
+      target_id: string | null;
+      before_data: unknown;
+      after_data: unknown;
+    }>(
+      "SELECT metadata,target_id,before_data,after_data FROM audit.events WHERE action IN ('venue.people_read','venue.people_export')"
+    );
+    expect(audit.rowCount).toBeGreaterThan(0);
+    for (const row of audit.rows) {
+      expect(Object.keys(row.metadata).sort()).toEqual(['mode', 'rowCount']);
+      expect(row.target_id).toBeNull();
+      expect(row.before_data).toBeNull();
+      expect(row.after_data).toBeNull();
+    }
+  });
+  it('exports exactly 1000 but refuses 1001 explicitly, no silently truncated success', async () => {
+    await owner.query(
+      "INSERT INTO identity.people(id,preferred_name) SELECT ('40000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'Synthetic bulk '||n FROM generate_series(1,998) n"
+    );
+    await owner.query(
+      "INSERT INTO core.field_attendance(person_id,field_id,checkin_method,checkin_at,attendance_date,attendance_timezone) SELECT id,$1,'qr_gps','2026-10-10T00:00:00Z','2026-10-10','Asia/Taipei' FROM identity.people WHERE preferred_name LIKE 'Synthetic bulk %'",
+      [fieldId]
+    );
+    try {
+      const hundred = await read(query({ search: 'Synthetic bulk' }), true);
+      expect(hundred.total).toBe(998);
+      // Three original learners plus 997 bulk learners => exactly 1000.
+      await owner.query(
+        "DELETE FROM core.field_attendance WHERE person_id='40000000-0000-4000-8000-000000000998'"
+      );
+      expect((await read(query(), true)).total).toBe(1000);
+      await owner.query(
+        "INSERT INTO core.field_attendance(person_id,field_id,checkin_method,checkin_at,attendance_date,attendance_timezone) VALUES ('40000000-0000-4000-8000-000000000998',$1,'qr_gps','2026-10-10T00:00:00Z','2026-10-10','Asia/Taipei')",
+        [fieldId]
+      );
+      await expect(read(query(), true)).rejects.toMatchObject({ code: '54000' });
+      const app = httpApp();
+      try {
+        const response = await httpRead(app, exporter, true);
+        expect(response.statusCode).toBe(413);
+        expect(response.json()).toEqual({ error: 'export_too_large', maximumRows: 1000 });
+      } finally {
+        await app.close();
+      }
+      expect((await read()).total).toBe(1001);
+    } finally {
+      await owner.query(
+        "DELETE FROM core.field_attendance WHERE person_id IN (SELECT id FROM identity.people WHERE preferred_name LIKE 'Synthetic bulk %'); DELETE FROM identity.people WHERE preferred_name LIKE 'Synthetic bulk %'"
+      );
+    }
+  });
+});

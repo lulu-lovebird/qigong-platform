@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { localeSchema, resolveLocale } from './ui-localization.js';
 import { lineBotTexts } from './line-ui-localization.js';
 import { helpUrl, helpLabel, isHelpCommand } from './learner-help-content.js';
@@ -23,6 +23,7 @@ import {
 import { lineApplicationPage } from './line-application-page.js';
 import { renderChannelWorkspacePage } from './channel-workspace-pages.js';
 import { renderVenuePreview, venuePreviewRequest } from './line-venue-checkin-page.js';
+import { renderLineVenueHistoryPage, venueHistoryRequest } from './line-venue-history-page.js';
 import { registerChannelWorkspace } from './channel-workspace.js';
 import {
   beginLearnerPrivacy,
@@ -64,7 +65,8 @@ export const registerLineOnboarding = (
   app: FastifyInstance,
   pool: Pool,
   config: LineConfig,
-  venueCheckinEnabled = false
+  venueCheckinEnabled = false,
+  venueHistoryEnabled = false
 ) => {
   const liffBase = `https://liff.line.me/${encodeURIComponent(config.liffId)}`;
   const replyHelp = createHelpReplyGuard();
@@ -151,10 +153,39 @@ export const registerLineOnboarding = (
         renderVenuePreview(
           config.liffId,
           preview.kind === 'preview' ? preview.entry : null,
-          venueCheckinEnabled ? 'checkin' : 'preview'
+          venueCheckinEnabled ? 'checkin' : 'preview',
+          venueHistoryEnabled
         )
       );
   };
+  const historyPage = (request: FastifyRequest, reply: FastifyReply) => {
+    const history = venueHistoryRequest(request.url, request.headers.cookie);
+    reply
+      .header('cache-control', 'no-store')
+      .header('referrer-policy', 'no-referrer')
+      .header('x-robots-tag', 'noindex, nofollow')
+      .header('x-content-type-options', 'nosniff')
+      .header('permissions-policy', 'geolocation=(), camera=(), microphone=()')
+      .header(
+        'content-security-policy',
+        "default-src 'none'; script-src 'unsafe-inline' https://static.line-scdn.net; style-src 'unsafe-inline'; connect-src 'self' https://api.line.me; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+      );
+    if (!venueHistoryEnabled)
+      return reply
+        .code(503)
+        .type('text/html; charset=utf-8')
+        .send(
+          '<!doctype html><title>我的團練紀錄</title><h1>我的團練紀錄</h1><p>服務尚未開放。</p><footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer>'
+        );
+    if (history.kind !== 'history') reply.code(400);
+    return reply.type('text/html; charset=utf-8').send(
+      renderLineVenueHistoryPage({
+        liffId: config.liffId,
+        entry: history.kind === 'history' ? history.entry : null
+      })
+    );
+  };
+  app.get('/line/venue-history', historyPage);
   // Primary state selects a preview only; SDK init still owns the redirect.
   // No NFC gate, verifier, legacy renderer, DB or attendance service is involved.
   app.get('/line/venue-checkin', (request, reply) => {
@@ -164,6 +195,8 @@ export const registerLineOnboarding = (
   });
   // The configured LIFF endpoint must initialize the SDK, including primary redirects.
   app.get('/line/', (request, reply) => {
+    const history = venueHistoryRequest(request.url, request.headers.cookie);
+    if (history.kind !== 'none') return historyPage(request, reply);
     const preview = venuePreviewRequest(request.url, request.headers.cookie);
     if (preview.kind !== 'none') {
       if (preview.kind === 'invalid') reply.code(400);

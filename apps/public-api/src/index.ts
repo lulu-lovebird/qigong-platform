@@ -123,6 +123,21 @@ export const runPublicApi = async (
     const venueQr = venueQrEnabled
       ? { enabled: true as const, publicOrigin: z.url().parse(source.VENUE_QR_PUBLIC_ORIGIN) }
       : undefined;
+    const venueFeature = (enabled: string | undefined, publicOrigin: string | undefined) =>
+      z.enum(['true', 'false']).default('false').parse(enabled) === 'true'
+        ? { enabled: true as const, publicOrigin: z.url().parse(publicOrigin) }
+        : undefined;
+    const history = venueFeature(source.VENUE_HISTORY_ENABLED, source.VENUE_HISTORY_PUBLIC_ORIGIN);
+    const management = venueFeature(
+      source.VENUE_MANAGEMENT_ENABLED,
+      source.VENUE_MANAGEMENT_PUBLIC_ORIGIN
+    );
+    const people = venueFeature(source.VENUE_PEOPLE_ENABLED, source.VENUE_PEOPLE_PUBLIC_ORIGIN);
+    const venueSuite = {
+      ...(history ? { history } : {}),
+      ...(management ? { management } : {}),
+      ...(people ? { people } : {})
+    };
     const whatsapp = loadWhatsAppConfig(source);
     phase = 'api_pool_failed';
     const { attachPoolErrorHandler, createPool } = await import('@qigong/database');
@@ -145,6 +160,7 @@ export const runPublicApi = async (
       ...(telegramOnboarding ? { telegramOnboarding } : {}),
       ...(line ? { line } : {}),
       ...(venueQr ? { venueQr } : {}),
+      ...(Object.keys(venueSuite).length ? { venueSuite } : {}),
       ...(whatsapp ? { whatsapp } : {}),
       inviteTransports,
       serviceVersion: source.SERVICE_VERSION || 'development'
@@ -152,7 +168,9 @@ export const runPublicApi = async (
     process.on('SIGINT', interrupt);
     process.on('SIGTERM', terminate);
     phase = 'api_readiness_failed';
-    const readiness = await checkStartupReadiness(pool, venueQrEnabled);
+    const readiness = Object.keys(venueSuite).length
+      ? await checkStartupReadiness(pool, venueQrEnabled, venueSuite)
+      : await checkStartupReadiness(pool, venueQrEnabled);
     if (!readiness.ready) throw new Error('startup readiness failed');
     if (!stopping) {
       phase = 'api_listen_failed';

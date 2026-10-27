@@ -108,7 +108,7 @@ const currentReport = async (
 
 describe.skipIf(!directory)('isolated real PG: full migrations + synthetic LINE/RLS/QR/CSV', () => {
   beforeAll(async () => {
-    if (!directory || !/^\/tmp\/venue-qr-pg\.[A-Za-z0-9]+$/.test(directory))
+    if (!directory || !/^\/tmp\/(?:venue-qr-pg\.|venue-suite-qr-)[A-Za-z0-9]+$/.test(directory))
       throw new Error('isolated harness directory required');
     const actual = await realpath(directory);
     if (actual !== directory && actual !== '/private' + directory)
@@ -145,12 +145,13 @@ describe.skipIf(!directory)('isolated real PG: full migrations + synthetic LINE/
       resolve(process.cwd(), '../../migrations'),
       'synthetic-local-qr'
     );
-    expect(result.currentVersion).toBe(venueQrMigrationVersion);
+    expect(result.currentVersion).toBe('0054_venue_people_read.sql');
+    expect(result.applied).toContain(venueQrMigrationVersion);
     const migrationFiles = (await readdir(resolve(process.cwd(), '../../migrations')))
       .filter((file) => /^\d{4}_[a-z0-9_]+\.sql$/.test(file))
       .sort();
     expect(result.applied).toEqual(migrationFiles);
-    expect(migrationFiles).toHaveLength(51);
+    expect(migrationFiles).toHaveLength(54);
     expect(
       (await runMigrations(owner, resolve(process.cwd(), '../../migrations'))).applied
     ).toEqual([]);
@@ -307,12 +308,12 @@ describe.skipIf(!directory)('isolated real PG: full migrations + synthetic LINE/
     expect((await checkin(app)).statusCode).toBe(200);
     await expect(
       owner.query("UPDATE core.practice_fields SET timezone='UTC' WHERE code='tw-test-one'")
-    ).rejects.toMatchObject({ code: 'P0001' });
+    ).rejects.toMatchObject({ code: '40001', message: 'venue_region_timezone_frozen' });
     await expect(
       owner.query("UPDATE core.practice_fields SET region_id=$1 WHERE code='tw-test-one'", [
         otherRegionId
       ])
-    ).rejects.toMatchObject({ code: 'P0001' });
+    ).rejects.toMatchObject({ code: '40001', message: 'venue_region_timezone_frozen' });
   });
   it('denies revoked consent and invalid LINE mock; no reflection consent is needed', async () => {
     const app = makeApp();
