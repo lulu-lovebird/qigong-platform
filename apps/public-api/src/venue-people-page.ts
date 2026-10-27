@@ -64,8 +64,8 @@ controls();
 const hash = (value: string) => createHash('sha256').update(value).digest('base64');
 export const venuePeopleContentSecurityPolicy = `default-src 'none'; script-src 'sha256-${hash(venuePeoplePageScript)}'; style-src 'sha256-${hash(styles)}'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`;
 export const renderVenuePeoplePage =
-  (): string => `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>團練場人員與出席紀錄</title><style>${styles}</style></head><body>
-<a class="skip" href="#main">跳至查詢</a><header><a href="/admin/">返回後台</a><h1>團練場人員與出席紀錄</h1></header><main id="main">
+  (): string => `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>團練場出席管理 · 人員與出席紀錄</title><style>${styles}</style></head><body>
+<a class="skip" href="#main">跳至查詢</a><header><a href="/admin/">返回後台</a><h1>團練場出席管理 · 人員與出席紀錄</h1></header><main id="main">
 <p>僅顯示在授權場地出席的既有學員；不含教練／志工名冊。查看姓名及出席沿用 checkin.read，CSV 另需 stats.export，兩者區域權限分開判定。</p>
 <p>月份預設依 Asia/Taipei 今日月份。月份／日期均篩選每筆場地當地曆日 attendance_date（起日含、結束日不含），不是 Taipei 的 UTC 時間窗。跨場同日次數分計、日數依當地日期標籤去重；累計與最近出席皆限完整篩選範圍，不是生涯總數。</p>
 <form id="filters"><label>場地所屬區域 UUID（必填）<input id="region" required maxlength="36"></label><label>場地 UUID（選填；空白表示此區域授權場地）<input id="venue" maxlength="36"></label><label>月份<input id="month" type="month" value="${venuePeopleTaipeiMonth()}" required></label><label>起日（含；與結束日一起填時取代月份）<input id="from" type="date"></label><label>結束日（不含）<input id="until" type="date"></label><label>搜尋既有學員姓名<input id="search" type="search" maxlength="80"></label>

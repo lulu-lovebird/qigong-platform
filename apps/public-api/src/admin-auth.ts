@@ -649,12 +649,15 @@ export const registerAdminRoutes = (
         validCsrf: venueValidCsrf,
         principalFor: venuePrincipalFor
       });
-    if (venueSuite.people)
+    if (venueSuite.people) {
+      if (venueSuite.people.publicOrigin !== adminOrigin)
+        throw new Error('venue people origin must match the configured admin origin');
       registerVenuePeopleRoutes(app, {
-        config: { enabled: true, publicOrigin: adminOrigin },
+        config: venueSuite.people,
         service: createVenuePeopleService(pool),
         pagePrincipalFor: venuePrincipalFor
       });
+    }
   }
 
   if (venueQr?.enabled) {
