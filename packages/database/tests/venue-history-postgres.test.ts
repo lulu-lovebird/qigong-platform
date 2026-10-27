@@ -49,7 +49,7 @@ const toolEnv = { PATH: process.env.PATH ?? '/usr/bin:/bin', LC_ALL: 'C', LANG: 
 const command = (name: string, args: string[]) =>
   execFileSync(resolve(pgBin, name), args, { env: toolEnv, stdio: 'pipe', timeout: 30000 });
 const guardedRoot = async () => {
-  if (!root || !/^\/tmp\/venue-history-[A-Za-z0-9]+$/.test(root))
+  if (!root || !/^\/tmp\/venue-suite-history-[A-Za-z0-9]+$/.test(root))
     throw new Error('unsafe harness path');
   const actual = await realpath(root);
   if (actual !== root && actual !== '/private' + root)
@@ -97,7 +97,7 @@ beforeAll(async () => {
     })
   );
   expect(command('postgres', ['--version']).toString()).toMatch(/PostgreSQL\) 17\./);
-  root = await mkdtemp('/tmp/venue-history-');
+  root = await mkdtemp('/tmp/venue-suite-history-');
   await chmod(root, 0o700);
   await writeFile(resolve(root, marker), root, { mode: 0o600 });
   await guardedRoot();

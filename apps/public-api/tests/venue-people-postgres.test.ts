@@ -130,7 +130,10 @@ const httpRead = (
 
 describe.skipIf(!directory)('venue people: isolated PG17 integrated 54 migrations', () => {
   beforeAll(async () => {
-    if (!directory || !/^\/tmp\/venue-people-pg\.[A-Za-z0-9]+$/.test(directory))
+    if (
+      !directory ||
+      !/^\/tmp\/(?:venue-people-pg\.|venue-suite-people-)[A-Za-z0-9]+$/.test(directory)
+    )
       throw new Error('isolated harness required');
     const actual = await realpath(directory);
     if (actual !== directory && actual !== '/private' + directory)

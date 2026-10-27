@@ -108,7 +108,7 @@ const currentReport = async (
 
 describe.skipIf(!directory)('isolated real PG: full migrations + synthetic LINE/RLS/QR/CSV', () => {
   beforeAll(async () => {
-    if (!directory || !/^\/tmp\/venue-qr-pg\.[A-Za-z0-9]+$/.test(directory))
+    if (!directory || !/^\/tmp\/(?:venue-qr-pg\.|venue-suite-qr-)[A-Za-z0-9]+$/.test(directory))
       throw new Error('isolated harness directory required');
     const actual = await realpath(directory);
     if (actual !== directory && actual !== '/private' + directory)

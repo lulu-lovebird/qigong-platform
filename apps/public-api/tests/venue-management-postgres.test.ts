@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runMigrations, withRequestContext } from '@qigong/database';
+import { buildApp } from '../src/app.js';
 import {
   lookupManagedVenue,
   runVenueManagement,
@@ -50,7 +51,7 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
     return result.field;
   };
   beforeAll(async () => {
-    if (!root || !/^\/tmp\/venue-management-[A-Za-z0-9]+$/.test(root))
+    if (!root || !/^\/tmp\/(?:venue-management-|venue-suite-management-)[A-Za-z0-9]+$/.test(root))
       throw new Error('isolated root required');
     expect((await stat(root)).mode & 0o777).toBe(0o700);
     expect((await readFile(root + '/venue-management-marker', 'utf8')).trim()).toBe(root);
@@ -63,7 +64,8 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
     );
     expect(migrations.applied).toContain('0053_venue_management.sql');
     expect(migrations.applied).toContain('0052_venue_personal_history.sql');
-    expect(migrations.applied).toHaveLength(53);
+    expect(migrations.applied).toHaveLength(54);
+    expect(migrations.currentVersion).toBe('0054_venue_people_read.sql');
     const visibleMigrations = (await readdir(resolve(process.cwd(), '../../migrations')))
       .filter((file) => /^\d{4}_[a-z0-9_]+\.sql$/.test(file))
       .sort();
@@ -523,6 +525,137 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
         )
       ).rowCount
     ).toBe(1);
+  });
+  it('real buildApp mounts all gates: self-only history, private session CRUD, scoped people and independent export', async () => {
+    const origin = 'https://synthetic.invalid';
+    const enabled = { enabled: true, publicOrigin: origin } as const;
+    const verifyIdentity = async () => ({ subject: 'Uaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' });
+    const app = buildApp({
+      pool: runtime,
+      logger: false,
+      line: {
+        channelSecret: 'synthetic-unused-secret',
+        channelAccessToken: 'synthetic-unused-access',
+        loginChannelId: '123',
+        liffId: '123-synthetic',
+        verifyIdentity
+      },
+      adminAuth: {
+        callbackUrl: origin + '/admin/auth/callback',
+        begin: async () => new URL(origin),
+        complete: async () => ({ iss: origin, sub: 'synthetic' })
+      },
+      venueQr: enabled,
+      venueSuite: { history: enabled, management: enabled, people: enabled }
+    });
+    const csrf = 'c'.repeat(43);
+    const headers = (token = 'v'.repeat(43)) => ({
+      origin,
+      cookie: '__Host-qigong-admin=' + token + '; __Host-qigong-admin-csrf=' + csrf,
+      'x-csrf-token': csrf
+    });
+    const people = {
+      mode: 'people',
+      regionId: tw,
+      fieldId: null,
+      personId: null,
+      period: { month: new Date().toISOString().slice(0, 7) },
+      search: '',
+      sort: 'recent',
+      direction: 'desc',
+      page: 1,
+      limit: 20
+    };
+    try {
+      await app.ready();
+      expect((await app.inject('/health/ready')).statusCode).toBe(200);
+      expect((await app.inject('/line/venue-history?lang=en')).body).toContain(
+        'My group practice history'
+      );
+      expect(
+        (await app.inject('/line/?liff.state=' + encodeURIComponent('/venue-history?lang=en')))
+          .statusCode
+      ).toBe(200);
+      const history = await app.inject({
+        method: 'POST',
+        url: '/api/line/venue-history',
+        headers: { origin, 'x-venue-history': '1' },
+        payload: { idToken: 'synthetic' }
+      });
+      expect(history.statusCode).toBe(200);
+      expect(
+        history.json().entries.every((r: { venueCode: string }) => typeof r.venueCode === 'string')
+      ).toBe(true);
+      expect(history.body).not.toContain('personId');
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/api/line/venue-history',
+            headers: { origin, 'x-venue-history': '1' },
+            payload: { idToken: 'synthetic', personId: randomUUID() }
+          })
+        ).statusCode
+      ).toBe(400);
+      const read = (payload = people, token = 'v'.repeat(43), exporting = false) =>
+        app.inject({
+          method: 'POST',
+          url: '/admin/venue-people/api/' + (exporting ? 'export' : 'read'),
+          headers: headers(token),
+          payload
+        });
+      const visible = await read();
+      expect(visible.statusCode).toBe(200);
+      expect(visible.json().rows[0].name).toBe('=SYNTHETIC()');
+      expect((await read({ ...people, regionId: sg })).statusCode).toBe(403);
+      expect((await read(people, 'v'.repeat(43), true)).statusCode).toBe(403);
+      expect((await read(people, 'e'.repeat(43))).statusCode).toBe(403);
+      const exported = await read(people, 'e'.repeat(43), true);
+      expect(exported.statusCode).toBe(200);
+      expect(exported.headers['content-type']).toContain('text/csv');
+      const call = (action: string, payload: object, token = session) =>
+        app.inject({
+          method: 'POST',
+          url: '/admin/api/venue-management/' + action,
+          headers: headers(token),
+          payload
+        });
+      expect((await call('list', { regionId: tw }, 'v'.repeat(43))).statusCode).toBe(200);
+      expect(
+        (
+          await call(
+            'create',
+            { regionId: tw, field: field('tw-real-view-denied'), reason: 'synthetic' },
+            'v'.repeat(43)
+          )
+        ).statusCode
+      ).toBe(403);
+      const created = await call('create', {
+        regionId: tw,
+        field: field('tw-real-build-app'),
+        reason: 'synthetic'
+      });
+      expect(created.statusCode).toBe(201);
+      const saved = created.json().field as { id: string };
+      expect((await call('get', { regionId: tw, id: saved.id }, 'v'.repeat(43))).statusCode).toBe(
+        200
+      );
+      const forbidden = await app.inject({
+        method: 'POST',
+        url: '/admin/api/venue-management/list',
+        headers: { ...headers(), origin: 'https://evil.invalid' },
+        payload: { regionId: tw }
+      });
+      expect(forbidden.statusCode).toBe(403);
+      expect(
+        (await app.inject({ url: '/admin/api/venue-suite', headers: headers() })).json()
+      ).toEqual({ management: true, people: true });
+      expect((await app.inject('/admin/venue-people')).statusCode).toBe(401);
+      expect((await app.inject('/admin/fields')).statusCode).toBe(404);
+      expect((await app.inject('/admin/venue-manual')).statusCode).toBe(404);
+    } finally {
+      await app.close();
+    }
   });
   it('allows unused cross-region move only with both scopes; revocation is checked each operation', async () => {
     const row = await create(field('tw-unused-test'));
