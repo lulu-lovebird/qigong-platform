@@ -78,7 +78,7 @@ const direct = (
   );
 };
 
-describe.skipIf(!directory)('venue people: isolated PG17 base51 + standalone0054', () => {
+describe.skipIf(!directory)('venue people: isolated PG17 integrated 54 migrations', () => {
   beforeAll(async () => {
     if (!directory || !/^\/tmp\/venue-people-pg\.[A-Za-z0-9]+$/.test(directory))
       throw new Error('isolated harness required');
@@ -116,7 +116,12 @@ describe.skipIf(!directory)('venue people: isolated PG17 base51 + standalone0054
     const migrations = resolve(process.cwd(), '../../migrations');
     const files = (await readdir(migrations)).filter((f) => /^\d{4}_.+\.sql$/.test(f)).sort();
     expect(files.filter((f) => Number(f.slice(0, 4)) <= 51)).toHaveLength(51);
-    expect(files.filter((f) => Number(f.slice(0, 4)) > 51)).toEqual([venuePeopleMigrationVersion]);
+    expect(files.filter((f) => Number(f.slice(0, 4)) > 51)).toEqual([
+      '0052_venue_personal_history.sql',
+      '0053_venue_management.sql',
+      venuePeopleMigrationVersion
+    ]);
+    expect(files).toHaveLength(54);
     const result = await runMigrations(owner, migrations, 'synthetic-venue-people-only');
     expect(result.applied).toEqual(files);
     expect(result.currentVersion).toBe(venuePeopleMigrationVersion);
