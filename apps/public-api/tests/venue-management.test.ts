@@ -262,7 +262,7 @@ function browser(
     return e;
   };
   get('vm-region').value = id;
-  return { html, get, calls, copy, print, confirm };
+  return { html, get, calls, copy, print, confirm, transport: fetch };
 }
 describe('venue management browser controller (in-memory transport, not DB evidence)', () => {
   it('safe DOM displays hostile names literally; copy/print truthful URLs, immutable code and version save', async () => {
@@ -341,6 +341,43 @@ describe('venue management browser controller (in-memory transport, not DB evide
       .event('click');
     expect(b.get('vm-save').disabled).toBe(false);
     expect(b.get('vm-version').textContent).toContain('版本 3');
+  });
+  it('unknown network write result requires reload, without losing the draft or blindly retrying', async () => {
+    const b = browser();
+    await b.get('vm-load').event('click');
+    await all(b.get('vm-list'))
+      .find((e) => e.tag === 'button')!
+      .event('click');
+    b.get('vm-name_zh_tw').value = 'Unconfirmed draft';
+    b.transport.mockRejectedValueOnce(new Error('connection lost'));
+    await b.get('vm-form').event('submit');
+    expect(b.get('vm-status').textContent).toContain('結果未確認');
+    expect(b.get('vm-name_zh_tw').value).toBe('Unconfirmed draft');
+    expect(b.get('vm-save').disabled).toBe(true);
+    expect(all(b.get('vm-list')).find((e) => e.tag === 'button')!.disabled).toBe(true);
+    await b.get('vm-form').event('submit');
+    expect(b.transport).toHaveBeenCalledTimes(3);
+  });
+  it('does not duplicate a pending write', async () => {
+    const b = browser();
+    await b.get('vm-load').event('click');
+    await all(b.get('vm-list'))
+      .find((e) => e.tag === 'button')!
+      .event('click');
+    let resolve: ((value: Awaited<ReturnType<typeof b.transport>>) => void) | undefined;
+    b.transport.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolve = r;
+        })
+    );
+    await b.get('vm-form').event('submit');
+    await b.get('vm-form').event('submit');
+    expect(b.transport).toHaveBeenCalledTimes(3);
+    expect(b.get('vm-editor').disabled).toBe(true);
+    resolve!({ ok: true, status: 200, json: async () => ({ field: { ...row, version: 4 } }) });
+    await new Promise<void>((r) => setImmediate(r));
+    expect(b.get('vm-status').textContent).toContain('已儲存，版本 4');
   });
   it.each([true, false])(
     'requires confirmation to disable an existing active venue: %s',

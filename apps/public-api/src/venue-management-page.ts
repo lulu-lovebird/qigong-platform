@@ -121,6 +121,7 @@ function venueManagementController() {
       node('h2', venue.name_zh_tw),
       node('p', venue.code),
       node('p', venue.is_active ? '場地已啟用' : '場地已停用：舊網址不能簽到'),
+      node('p', '網址文字牌（非 QR 圖片）'),
       node('p', venue.urls.link)
     );
     for (const [key, label] of [
@@ -211,7 +212,7 @@ function venueManagementController() {
       const button = document.createElement('button');
       button.type = 'button';
       button.textContent = canManage ? '編輯／網址' : '檢視／網址';
-      button.disabled = busy;
+      button.disabled = busy || requiresReload;
       button.addEventListener('click', () => {
         if (!busy && !requiresReload) {
           edit(venue);
@@ -376,7 +377,7 @@ export const renderVenueManagementPage = (locale: AdminLocale = 'zh_TW'): string
 <form id="vm-form"><fieldset id="vm-editor" disabled><legend>場地資料</legend><p id="vm-version" tabindex="-1"></p>${fields}
 <p>每週時段（以場地時區計算，結束時間不含；同日，可用 24:00）</p>${['日', '一', '二', '三', '四', '五', '六'].map((label, day) => `<label><input id="vm-day-${day}" type="checkbox">週${label}</label>`).join('')}
 <label>開始 HH:mm <input id="vm-start" required pattern="([01][0-9]|2[0-3]):[0-5][0-9]"></label><label>結束 HH:mm <input id="vm-end" required pattern="(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)"></label>
-<label><input id="vm-active" type="checkbox">啟用（取消即停用，保留舊網址與出席）</label><label>本次修改原因（必要，寫入稽核） <input id="vm-reason" required maxlength="500"></label><button id="vm-save" type="submit" disabled>儲存場地</button></fieldset></form>
+<label><input id="vm-active" type="checkbox">啟用（取消即停用，保留舊網址與出席）</label><label>設定異動原因（必要，寫入稽核；勿填學員個資或心得） <input id="vm-reason" required maxlength="500"></label><button id="vm-save" type="submit" disabled>儲存場地</button></fieldset></form>
 <h2>NFC／QR URL 管理</h2><div id="vm-links"></div><p>QR 圖片待編碼套件核准：尚無已核准本地 QR 編碼器，因此沒有 QR 圖片／下載功能。僅提供 QR 目標網址及可列印場地牌，不外送第三方；source 可轉傳，不是出席證明。啟用場地管理時，停用場地的公開入口會拒絕簽到；功能尚未開啟不代表網址已可簽到。</p><button id="vm-print" type="button" disabled>列印選取場地牌（網址，非 QR 圖）</button><section id="vm-sign"></section></section>`,
     `(${venueManagementController.toString()})();`,
     locale
