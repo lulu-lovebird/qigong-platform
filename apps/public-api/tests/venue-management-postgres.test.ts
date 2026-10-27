@@ -12,7 +12,7 @@ import {
 } from '../src/venue-management.js';
 const root = process.env.VENUE_MANAGEMENT_ISOLATED_PG_DIR;
 const suite = root ? describe : describe.skip;
-suite('venue management isolated PostgreSQL: base 0051 + 0053 (no invented 0052)', () => {
+suite('venue management isolated PostgreSQL: integrated migration chain', () => {
   let owner: pg.Pool;
   let runtime: pg.Pool;
   let tw: string;
@@ -60,8 +60,8 @@ suite('venue management isolated PostgreSQL: base 0051 + 0053 (no invented 0052)
       'synthetic-venue-management'
     );
     expect(migrations.applied).toContain('0053_venue_management.sql');
-    expect(migrations.applied).not.toContainEqual(expect.stringMatching(/^0052/));
-    expect(migrations.applied).toHaveLength(52);
+    expect(migrations.applied).toContain('0052_venue_personal_history.sql');
+    expect(migrations.applied).toHaveLength(53);
     expect(
       (await runMigrations(owner, resolve(process.cwd(), '../../migrations'))).applied
     ).toEqual([]);
