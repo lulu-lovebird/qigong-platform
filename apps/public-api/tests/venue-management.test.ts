@@ -499,10 +499,18 @@ describe('venue management browser controller (in-memory transport, not DB evide
     expect(html).toContain('class="vm-editor-panel"');
     expect(html).toContain('class="vm-card vm-links-panel"');
 
-    // Responsive mobile single-column and 48px touch rules
+    // Responsive mobile single-column, query bar auto rows, and 48px touch rules
     expect(html).toContain('@media(max-width:768px)');
+    expect(html).toContain('grid-auto-rows:min-content');
     expect(html).toContain('min-height:48px');
     expect(html).toContain('font-size:1rem');
+
+    // Required asterisks bound inline with white-space nowrap and no unclosed tags
+    expect(html).toContain(
+      '.vm-req{color:#c02020;font-weight:700;margin-left:.15rem;white-space:nowrap;display:inline-block}'
+    );
+    expect((html.match(/id="vm-start"/g) || []).length).toBe(1);
+    expect((html.match(/id="vm-end"/g) || []).length).toBe(1);
 
     // Print stylesheet attribution
     expect(html).toContain('Developed with ❤️ by Bean, Bird & Badminton Tech Consulting');

@@ -352,16 +352,19 @@ export const renderVenueManagementPage = (locale: AdminLocale = 'zh_TW'): string
   return renderAdminShell(
     'fieldSchedule',
     `<style>
-#vm-root{display:flex;flex-direction:column;gap:1.25rem;min-width:0;max-width:100%;overflow-wrap:anywhere;color:var(--brand-primary,#082850)}
+#vm-root,#vm-root *{box-sizing:border-box}
+#vm-root{display:flex;flex-direction:column;gap:1.25rem;min-width:0;min-inline-size:0;max-width:100%;overflow-wrap:anywhere;color:var(--brand-primary,#082850)}
+#vm-root label{display:block;min-width:0;margin:0}
+#vm-root fieldset,#vm-editor,.vm-editor-card{min-width:0;min-inline-size:0}
 .vm-header{border-bottom:2px solid var(--border,#98C0D8);padding-bottom:.75rem}
-.vm-header h1{font-size:1.35rem;line-height:1.3;margin:0 0 .5rem;color:var(--brand-deep,#002048)}
-.vm-intro{margin:0;font-size:.875rem;color:var(--muted,#305888);line-height:1.5}
-.vm-card{background:var(--surface,#fff);border:1px solid var(--border,#98C0D8);border-radius:.5rem;padding:1.1rem;box-shadow:0 1px 3px rgba(8,40,80,.05)}
+.vm-header h1{font-size:1.35rem;line-height:1.3;margin:0 0 .5rem;color:var(--brand-deep,#002048);overflow-wrap:anywhere}
+.vm-intro{margin:0;font-size:.875rem;color:var(--muted,#305888);line-height:1.5;overflow-wrap:anywhere}
+.vm-card{background:var(--surface,#fff);border:1px solid var(--border,#98C0D8);border-radius:.5rem;padding:1.1rem;box-shadow:0 1px 3px rgba(8,40,80,.05);min-width:0;min-inline-size:0}
 .vm-toolbar-card{display:flex;flex-direction:column;gap:.75rem}
-.vm-toolbar-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.75rem}
-.vm-region-group{display:flex;flex-direction:column;gap:.35rem;flex:1 1 20rem;min-width:0}
-.vm-btn-group{display:flex;flex-wrap:wrap;gap:.5rem}
-.vm-btn{font:inherit;font-size:.875rem;font-weight:600;min-height:44px;padding:.5rem 1rem;border-radius:.375rem;border:1px solid transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:.35rem;white-space:nowrap;transition:background-color .15s ease,border-color .15s ease}
+.vm-toolbar-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:.75rem}
+.vm-region-group{display:flex;flex-direction:column;gap:.35rem;min-width:0;min-inline-size:0}
+.vm-btn-group{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+.vm-btn{font:inherit;font-size:.875rem;font-weight:600;min-height:44px;padding:.5rem 1rem;border-radius:.375rem;border:1px solid transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:.35rem;white-space:nowrap;transition:background-color .15s ease,border-color .15s ease;box-sizing:border-box}
 .vm-btn-primary{background:var(--brand-primary,#082850);color:#fff;border-color:var(--brand-deep,#002048)}
 .vm-btn-primary:hover:not(:disabled){background:var(--brand-deep,#002048)}
 .vm-btn-secondary{background:var(--surface,#fff);color:var(--brand-primary,#082850);border-color:var(--brand-secondary,#305888)}
@@ -370,69 +373,71 @@ export const renderVenueManagementPage = (locale: AdminLocale = 'zh_TW'): string
 .vm-btn:focus-visible{outline:3px solid var(--brand-secondary,#305888);outline-offset:2px}
 .vm-status{min-height:1.5rem;margin:0;padding:.65rem .85rem;border-radius:.375rem;background:var(--surface-muted,#eef4f8);border-left:4px solid var(--brand-secondary,#305888);font-size:.875rem;line-height:1.45;overflow-wrap:anywhere}
 .vm-status:empty{display:none}
-.vm-workspace{display:grid;grid-template-columns:minmax(280px,340px) minmax(0,1fr);gap:1.25rem;align-items:start}
-.vm-list-panel{display:flex;flex-direction:column;gap:.75rem}
+.vm-workspace{display:grid;grid-template-columns:minmax(280px,340px) minmax(0,1fr);gap:1.25rem;align-items:start;min-width:0;min-inline-size:0}
+.vm-list-panel{display:flex;flex-direction:column;gap:.75rem;min-width:0;min-inline-size:0}
 .vm-panel-title{font-size:1.05rem;margin:0;color:var(--brand-deep,#002048);font-weight:700}
 .vm-filter-bar{display:flex;flex-direction:column;gap:.5rem}
-.vm-filter-group{display:flex;flex-direction:column;gap:.25rem}
-.vm-list-container{display:flex;flex-direction:column;gap:.65rem;max-height:680px;overflow-y:auto;overscroll-behavior:contain;padding-right:.25rem}
-.vm-list-container article{background:var(--surface,#fff);border:1px solid var(--border,#98C0D8);border-radius:.375rem;padding:.75rem .85rem;margin:0;display:flex;flex-direction:column;gap:.45rem;transition:border-color .15s ease,box-shadow .15s ease}
+.vm-filter-group{display:flex;flex-direction:column;gap:.25rem;min-width:0}
+.vm-list-container{display:flex;flex-direction:column;gap:.65rem;max-height:680px;overflow-y:auto;overscroll-behavior:contain;padding-right:.25rem;min-width:0}
+.vm-list-container article{background:var(--surface,#fff);border:1px solid var(--border,#98C0D8);border-radius:.375rem;padding:.75rem .85rem;margin:0;display:flex;flex-direction:column;gap:.45rem;transition:border-color .15s ease,box-shadow .15s ease;min-width:0;overflow-wrap:anywhere}
 .vm-list-container article:hover{border-color:var(--brand-secondary,#305888);box-shadow:0 2px 6px rgba(8,40,80,.08)}
-.vm-list-container article h3{font-size:.95rem;margin:0;color:var(--brand-deep,#002048)}
-.vm-list-container article p{font-size:.8125rem;color:var(--muted,#305888);margin:0}
+.vm-list-container article h3{font-size:.95rem;margin:0;color:var(--brand-deep,#002048);overflow-wrap:anywhere}
+.vm-list-container article p{font-size:.8125rem;color:var(--muted,#305888);margin:0;overflow-wrap:anywhere}
 .vm-list-container article button{align-self:flex-start;min-height:38px;padding:.3rem .75rem;font-size:.8125rem;border-radius:.3rem;background:var(--surface-muted,#eef4f8);color:var(--brand-primary,#082850);border:1px solid var(--brand-secondary,#305888);font-weight:600;cursor:pointer}
 .vm-list-container article button:hover:not(:disabled){background:var(--brand-secondary,#305888);color:#fff}
-.vm-editor-card{border:1px solid var(--border,#98C0D8);border-radius:.5rem;padding:1.25rem;margin:0;background:var(--surface,#fff)}
+.vm-editor-panel{min-width:0;min-inline-size:0}
+.vm-editor-card{border:1px solid var(--border,#98C0D8);border-radius:.5rem;padding:1.25rem;margin:0;background:var(--surface,#fff);min-width:0;min-inline-size:0}
 .vm-editor-card:disabled{opacity:.7}
 .vm-legend{font-size:1.1rem;font-weight:700;color:var(--brand-deep,#002048);padding:0 .5rem}
-.vm-version-banner{background:var(--surface-muted,#eef4f8);border:1px solid var(--border,#98C0D8);border-radius:.375rem;padding:.65rem .85rem;margin:0 0 1rem;font-size:.875rem;font-weight:600;color:var(--brand-primary,#082850);outline:none}
+.vm-version-banner{background:var(--surface-muted,#eef4f8);border:1px solid var(--border,#98C0D8);border-radius:.375rem;padding:.65rem .85rem;margin:0 0 1rem;font-size:.875rem;font-weight:600;color:var(--brand-primary,#082850);outline:none;overflow-wrap:anywhere}
 .vm-version-banner:focus-visible{outline:3px solid var(--brand-secondary,#305888);outline-offset:2px}
-.vm-form-table{display:flex;flex-direction:column;gap:.85rem;margin-bottom:1.25rem}
-.vm-form-row{display:grid;grid-template-columns:180px minmax(0,1fr);gap:1rem;align-items:start;padding-bottom:.85rem;border-bottom:1px solid var(--surface-muted,#eef4f8)}
+.vm-form-table{display:flex;flex-direction:column;gap:.85rem;margin-bottom:1.25rem;min-width:0;min-inline-size:0}
+.vm-form-row{display:grid;grid-template-columns:180px minmax(0,1fr);gap:1rem;align-items:start;padding-bottom:.85rem;border-bottom:1px solid var(--surface-muted,#eef4f8);min-width:0;min-inline-size:0}
 .vm-form-row:last-child{border-bottom:none;padding-bottom:0}
-.vm-label-col{padding-top:.5rem}
-.vm-field-label{display:block;font-weight:600;font-size:.875rem;color:var(--brand-deep,#002048);line-height:1.35}
-.vm-field-hint{display:block;font-size:.75rem;color:var(--muted,#305888);margin-top:.2rem;line-height:1.3}
-.vm-req{color:#c02020;font-weight:700;margin-left:.15rem}
-.vm-opt{font-size:.75rem;font-weight:400;color:var(--muted,#305888)}
-.vm-control-col{display:flex;flex-direction:column;gap:.35rem;min-width:0}
-.vm-input{width:100%;box-sizing:border-box;font:inherit;font-size:.875rem;min-height:44px;padding:.45rem .75rem;border:1px solid var(--brand-secondary,#305888);border-radius:.35rem;background:#fff;color:var(--brand-primary,#082850)}
-.vm-input:focus-visible,#vm-filter:focus-visible,.vm-checkbox:focus-visible{outline:3px solid var(--brand-secondary,#305888);outline-offset:2px}
-.vm-input[readonly]{background:var(--surface-muted,#eef4f8);border-color:var(--border,#98C0D8);color:var(--brand-primary,#082850);cursor:default}
-.vm-input:disabled{background:#f1f5f9;border-color:#cbd5e1;color:#64748b;cursor:not-allowed}
-.vm-pair-grid{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
-.vm-subfield{display:flex;flex-direction:column;gap:.25rem;min-width:0}
-.vm-sublabel{font-size:.8125rem;font-weight:500;color:var(--brand-secondary,#305888)}
-.vm-days-group{display:flex;flex-wrap:wrap;gap:.4rem}
-.vm-day-pill{display:inline-flex;align-items:center;gap:.35rem;padding:.4rem .65rem;min-height:44px;background:var(--surface-muted,#eef4f8);border:1px solid var(--border,#98C0D8);border-radius:.35rem;cursor:pointer;font-size:.875rem;user-select:none}
+.vm-label-col{padding-top:.5rem;min-width:0;min-inline-size:0}
+#vm-root .vm-field-label,#vm-root .vm-sublabel{display:inline-flex;flex-direction:row;align-items:baseline;flex-wrap:wrap;column-gap:.2rem;row-gap:0;font-weight:600;font-size:.875rem;color:var(--brand-deep,#002048);line-height:1.35;min-width:0}
+#vm-root .vm-sublabel{font-size:.8125rem;font-weight:500;color:var(--brand-secondary,#305888)}
+#vm-root .vm-field-hint{display:block;font-size:.75rem;color:var(--muted,#305888);margin-top:.2rem;line-height:1.3;overflow-wrap:anywhere}
+#vm-root .vm-req{color:#c02020;font-weight:700;margin-left:.15rem;white-space:nowrap;display:inline-block}
+#vm-root .vm-opt{font-size:.75rem;font-weight:400;color:var(--muted,#305888)}
+.vm-control-col{display:flex;flex-direction:column;gap:.35rem;min-width:0;min-inline-size:0}
+#vm-root .vm-input{width:100%;box-sizing:border-box;font:inherit;font-size:.875rem;min-height:44px;padding:.45rem .75rem;border:1px solid var(--brand-secondary,#305888);border-radius:.35rem;background:#fff;color:var(--brand-primary,#082850);max-width:100%}
+#vm-root .vm-input:focus-visible,#vm-filter:focus-visible,.vm-checkbox:focus-visible{outline:3px solid var(--brand-secondary,#305888);outline-offset:2px}
+#vm-root .vm-input[readonly]{background:var(--surface-muted,#eef4f8);border-color:var(--border,#98C0D8);color:var(--brand-primary,#082850);cursor:default}
+#vm-root .vm-input:disabled{background:#f1f5f9;border-color:#cbd5e1;color:#64748b;cursor:not-allowed}
+.vm-pair-grid{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;min-width:0;min-inline-size:0}
+.vm-subfield{display:flex;flex-direction:column;gap:.25rem;min-width:0;min-inline-size:0}
+.vm-days-group{display:flex;flex-wrap:wrap;gap:.4rem;min-width:0}
+.vm-day-pill{display:inline-flex;align-items:center;gap:.35rem;padding:.4rem .65rem;min-height:44px;background:var(--surface-muted,#eef4f8);border:1px solid var(--border,#98C0D8);border-radius:.35rem;cursor:pointer;font-size:.875rem;user-select:none;box-sizing:border-box}
 .vm-day-pill:hover{border-color:var(--brand-secondary,#305888)}
 .vm-day-pill:has(input:checked){background:#e0ecf6;border-color:var(--brand-secondary,#305888);font-weight:600}
-.vm-checkbox{width:1.15rem;height:1.15rem;min-height:0;cursor:pointer;accent-color:var(--brand-primary,#082850);margin:0}
-.vm-toggle-label{display:inline-flex;align-items:center;gap:.5rem;min-height:44px;cursor:pointer;font-size:.875rem;font-weight:500}
+.vm-checkbox{width:1.15rem;height:1.15rem;min-height:0;cursor:pointer;accent-color:var(--brand-primary,#082850);margin:0;flex-shrink:0}
+.vm-toggle-label{display:inline-flex;align-items:center;gap:.5rem;min-height:44px;cursor:pointer;font-size:.875rem;font-weight:500;box-sizing:border-box}
 .vm-form-actions{display:flex;justify-content:flex-end;padding-top:.75rem;border-top:1px solid var(--border,#98C0D8)}
 .vm-btn-save{min-width:140px}
-.vm-links-panel{display:flex;flex-direction:column;gap:.75rem}
-.vm-links-grid{display:flex;flex-direction:column;gap:.75rem}
-.vm-links-grid label{display:flex;flex-direction:column;gap:.35rem;font-weight:600;font-size:.875rem}
-.vm-links-grid input{font:inherit;font-size:.875rem;min-height:44px;padding:.45rem .75rem;border:1px solid var(--border,#98C0D8);border-radius:.35rem;background:var(--surface-muted,#eef4f8)}
-.vm-links-grid button{align-self:flex-start;min-height:44px;padding:.4rem .85rem;font-size:.8125rem;font-weight:600;background:var(--surface,#fff);color:var(--brand-primary,#082850);border:1px solid var(--brand-secondary,#305888);border-radius:.35rem;cursor:pointer}
+.vm-links-panel{display:flex;flex-direction:column;gap:.75rem;min-width:0;min-inline-size:0}
+.vm-links-grid{display:flex;flex-direction:column;gap:.75rem;min-width:0;min-inline-size:0}
+.vm-links-grid label{display:flex;flex-direction:column;gap:.35rem;font-weight:600;font-size:.875rem;min-width:0}
+.vm-links-grid input{font:inherit;font-size:.875rem;min-height:44px;padding:.45rem .75rem;border:1px solid var(--border,#98C0D8);border-radius:.35rem;background:var(--surface-muted,#eef4f8);max-width:100%;box-sizing:border-box}
+.vm-links-grid button{align-self:flex-start;min-height:44px;padding:.4rem .85rem;font-size:.8125rem;font-weight:600;background:var(--surface,#fff);color:var(--brand-primary,#082850);border:1px solid var(--brand-secondary,#305888);border-radius:.35rem;cursor:pointer;box-sizing:border-box}
 .vm-links-grid button:hover{background:var(--surface-muted,#eef4f8)}
-.vm-signboard{border:2px dashed var(--brand-secondary,#305888);border-radius:.5rem;padding:1.25rem;background:#fff}
-.vm-signboard h2{font-size:1.2rem;margin:0 0 .5rem;color:var(--brand-deep,#002048)}
-.vm-signboard p{margin:.35rem 0;font-size:.9rem}
+.vm-signboard{border:2px dashed var(--brand-secondary,#305888);border-radius:.5rem;padding:1.25rem;background:#fff;min-width:0;min-inline-size:0;overflow-wrap:anywhere}
+.vm-signboard h2{font-size:1.2rem;margin:0 0 .5rem;color:var(--brand-deep,#002048);overflow-wrap:anywhere}
+.vm-signboard p{margin:.35rem 0;font-size:.9rem;overflow-wrap:anywhere}
 @media(max-width:1024px){.vm-workspace{grid-template-columns:1fr}}
 @media(max-width:768px){
+.vm-toolbar-row{grid-template-columns:1fr;grid-auto-rows:min-content;align-items:stretch;gap:.75rem}
+.vm-region-group{width:100%;min-height:0}
+.vm-btn-group{display:flex;flex-direction:column;gap:.5rem;width:100%}
 .vm-form-row{grid-template-columns:1fr;gap:.35rem;padding-bottom:.75rem}
 .vm-label-col{padding-top:0}
 .vm-pair-grid{grid-template-columns:1fr}
-.vm-toolbar-row{flex-direction:column;align-items:stretch}
-.vm-btn-group{flex-direction:column}
-.vm-btn{width:100%;min-height:48px;font-size:1rem}
-.vm-input,#vm-filter{font-size:1rem;min-height:48px}
-.vm-day-pill{min-height:48px;flex:1 1 42%;justify-content:center}
-.vm-toggle-label{min-height:48px}
+#vm-root .vm-btn{width:100%;min-height:48px;font-size:1rem}
+#vm-root .vm-input,#vm-root #vm-filter{font-size:1rem;min-height:48px}
+#vm-root .vm-day-pill{min-height:48px;flex:1 1 42%;justify-content:center}
+#vm-root .vm-toggle-label{min-height:48px}
 .vm-form-actions{justify-content:stretch}
-.vm-btn-save{width:100%}
+#vm-root .vm-btn-save{width:100%}
 .vm-links-grid button{width:100%;min-height:48px}
 }
 @media print{
@@ -451,7 +456,7 @@ body *{visibility:hidden}
   <div class="vm-card vm-toolbar-card">
     <div class="vm-toolbar-row">
       <div class="vm-region-group">
-        <label for="vm-region" class="vm-field-label">查詢區域 UUID <span class="vm-req" aria-hidden="true">*</span></label>
+        <label for="vm-region" class="vm-field-label">查詢區域 UUID<span class="vm-req" aria-hidden="true">*</span></label>
         <input id="vm-region" autocomplete="off" class="vm-input" placeholder="請輸入 36 字元區域 UUID">
       </div>
       <div class="vm-btn-group">
@@ -490,7 +495,7 @@ body *{visibility:hidden}
         <div class="vm-form-table" role="presentation">
           <div class="vm-form-row">
             <div class="vm-label-col">
-              <label for="vm-code" class="vm-field-label">永久唯一代碼 <span class="vm-req" aria-hidden="true">*</span></label>
+              <label for="vm-code" class="vm-field-label">永久唯一代碼<span class="vm-req" aria-hidden="true">*</span></label>
               <span class="vm-field-hint">如 tw-tpe-daan，建立後不可更改</span>
             </div>
             <div class="vm-control-col">
@@ -500,7 +505,7 @@ body *{visibility:hidden}
 
           <div class="vm-form-row">
             <div class="vm-label-col">
-              <label for="vm-name_zh_tw" class="vm-field-label">場地名稱（繁中） <span class="vm-req" aria-hidden="true">*</span></label>
+              <label for="vm-name_zh_tw" class="vm-field-label">場地名稱（繁中）<span class="vm-req" aria-hidden="true">*</span></label>
               <span class="vm-field-hint">顯示於打卡與簽到頁面</span>
             </div>
             <div class="vm-control-col">
@@ -530,7 +535,7 @@ body *{visibility:hidden}
 
           <div class="vm-form-row">
             <div class="vm-label-col">
-              <label for="vm-region_id" class="vm-field-label">目標區域 UUID <span class="vm-req" aria-hidden="true">*</span></label>
+              <label for="vm-region_id" class="vm-field-label">目標區域 UUID<span class="vm-req" aria-hidden="true">*</span></label>
               <span class="vm-field-hint">場地所屬之區域 UUID</span>
             </div>
             <div class="vm-control-col">
@@ -540,17 +545,17 @@ body *{visibility:hidden}
 
           <div class="vm-form-row">
             <div class="vm-label-col">
-              <span class="vm-field-label">中心座標 GPS <span class="vm-req" aria-hidden="true">*</span></span>
+              <span class="vm-field-label">中心座標 GPS<span class="vm-req" aria-hidden="true">*</span></span>
               <span class="vm-field-hint">WGS84 座標，打卡距離基準</span>
             </div>
             <div class="vm-control-col">
               <div class="vm-pair-grid">
                 <div class="vm-subfield">
-                  <label for="vm-latitude" class="vm-sublabel">中心緯度（-90～90） <span class="vm-req" aria-hidden="true">*</span></label>
+                  <label for="vm-latitude" class="vm-sublabel">中心緯度（-90～90）<span class="vm-req" aria-hidden="true">*</span></label>
                   <input id="vm-latitude" type="number" step="any" required class="vm-input" placeholder="例如 25.032969">
                 </div>
                 <div class="vm-subfield">
-                  <label for="vm-longitude" class="vm-sublabel">中心經度（-180～180） <span class="vm-req" aria-hidden="true">*</span></label>
+                  <label for="vm-longitude" class="vm-sublabel">中心經度（-180～180）<span class="vm-req" aria-hidden="true">*</span></label>
                   <input id="vm-longitude" type="number" step="any" required class="vm-input" placeholder="例如 121.534838">
                 </div>
               </div>
@@ -559,17 +564,17 @@ body *{visibility:hidden}
 
           <div class="vm-form-row">
             <div class="vm-label-col">
-              <span class="vm-field-label">半徑與時區 <span class="vm-req" aria-hidden="true">*</span></span>
+              <span class="vm-field-label">半徑與時區<span class="vm-req" aria-hidden="true">*</span></span>
               <span class="vm-field-hint">簽到有效範圍與當地時區</span>
             </div>
             <div class="vm-control-col">
               <div class="vm-pair-grid">
                 <div class="vm-subfield">
-                  <label for="vm-radius_meters" class="vm-sublabel">半徑（1～5000 公尺） <span class="vm-req" aria-hidden="true">*</span></label>
+                  <label for="vm-radius_meters" class="vm-sublabel">半徑（1～5000 公尺）<span class="vm-req" aria-hidden="true">*</span></label>
                   <input id="vm-radius_meters" type="number" step="any" required class="vm-input" placeholder="50">
                 </div>
                 <div class="vm-subfield">
-                  <label for="vm-timezone" class="vm-sublabel">IANA 時區 <span class="vm-req" aria-hidden="true">*</span></label>
+                  <label for="vm-timezone" class="vm-sublabel">IANA 時區<span class="vm-req" aria-hidden="true">*</span></label>
                   <input id="vm-timezone" type="text" required class="vm-input" placeholder="Asia/Taipei">
                 </div>
               </div>
@@ -578,7 +583,7 @@ body *{visibility:hidden}
 
           <div class="vm-form-row">
             <div class="vm-label-col">
-              <span class="vm-field-label">每週開放日 <span class="vm-req" aria-hidden="true">*</span></span>
+              <span class="vm-field-label">每週開放日<span class="vm-req" aria-hidden="true">*</span></span>
               <span class="vm-field-hint">以場地時區計算開團日</span>
             </div>
             <div class="vm-control-col">
@@ -590,17 +595,17 @@ body *{visibility:hidden}
 
           <div class="vm-form-row">
             <div class="vm-label-col">
-              <span class="vm-field-label">開放時段 <span class="vm-req" aria-hidden="true">*</span></span>
+              <span class="vm-field-label">開放時段<span class="vm-req" aria-hidden="true">*</span></span>
               <span class="vm-field-hint">結束時間不含；跨日可用 24:00</span>
             </div>
             <div class="vm-control-col">
               <div class="vm-pair-grid">
                 <div class="vm-subfield">
-                  <label for="vm-start" class="vm-sublabel">開始 HH:mm <span class="vm-req" aria-hidden="true">*</span></label>
+                  <label for="vm-start" class="vm-sublabel">開始 HH:mm<span class="vm-req" aria-hidden="true">*</span></label>
                   <input id="vm-start" required pattern="([01][0-9]|2[0-3]):[0-5][0-9]" class="vm-input" placeholder="06:30">
                 </div>
                 <div class="vm-subfield">
-                  <label for="vm-end" class="vm-sublabel">結束 HH:mm <span class="vm-req" aria-hidden="true">*</span></label>
+                  <label for="vm-end" class="vm-sublabel">結束 HH:mm<span class="vm-req" aria-hidden="true">*</span></label>
                   <input id="vm-end" required pattern="(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)" class="vm-input" placeholder="09:00">
                 </div>
               </div>
@@ -622,7 +627,7 @@ body *{visibility:hidden}
 
           <div class="vm-form-row">
             <div class="vm-label-col">
-              <label for="vm-reason" class="vm-field-label">設定異動原因 <span class="vm-req" aria-hidden="true">*</span></label>
+              <label for="vm-reason" class="vm-field-label">設定異動原因<span class="vm-req" aria-hidden="true">*</span></label>
               <span class="vm-field-hint">寫入稽核紀錄；勿填個資</span>
             </div>
             <div class="vm-control-col">
