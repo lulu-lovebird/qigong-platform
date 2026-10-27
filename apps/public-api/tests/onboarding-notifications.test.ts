@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { runMigrations, withRequestContext, type Pool } from '@qigong/database';
+import { createIsolatedTestDatabase } from '../../../packages/database/tests/test-database.js';
 import { deliverOnboardingNotifications } from '../src/onboarding-notifications.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -17,23 +18,20 @@ describeWithDatabase('onboarding notification delivery', () => {
   let pool: Pool;
   let workerPool: Pool;
   let loginRole: string;
-  let databaseName: string;
+  let dispose: (() => Promise<void>) | undefined;
   let principalId: string;
   let regionId: string;
 
   beforeAll(async () => {
-    const maintenance = new pg.Client({ connectionString: databaseUrl });
-    await maintenance.connect();
-    databaseName = `qigong_notification_test_${randomUUID().replaceAll('-', '')}`;
-    await maintenance.query(`CREATE DATABASE ${databaseName}`);
-    await maintenance.end();
-    const url = new URL(databaseUrl!);
-    url.pathname = `/${databaseName}`;
-    pool = new pg.Pool({ connectionString: url.toString() });
+    const database = await createIsolatedTestDatabase(databaseUrl!);
+    pool = database.pool;
+    dispose = () => database.dispose();
+    const url = new URL(database.databaseUrl);
     await runMigrations(pool, migrationsDirectory, 'vitest');
-    loginRole = `qigong_notify_${randomUUID().replaceAll('-', '')}`;
+    const role = `qigong_notify_${randomUUID().replaceAll('-', '')}`;
     const password = randomUUID().replaceAll('-', '');
-    await pool.query(`CREATE ROLE ${loginRole} LOGIN PASSWORD '${password}' NOINHERIT NOBYPASSRLS`);
+    await pool.query(`CREATE ROLE ${role} LOGIN PASSWORD '${password}' NOINHERIT NOBYPASSRLS`);
+    loginRole = role;
     await pool.query(`GRANT qigong_worker_runtime TO ${loginRole}`);
     url.username = loginRole;
     url.password = password;
@@ -66,14 +64,15 @@ describeWithDatabase('onboarding notification delivery', () => {
   });
 
   afterAll(async () => {
-    await workerPool.end();
-    await pool.query(`DROP OWNED BY ${loginRole}`);
-    await pool.query(`DROP ROLE ${loginRole}`);
-    await pool.end();
-    const maintenance = new pg.Client({ connectionString: databaseUrl });
-    await maintenance.connect();
-    await maintenance.query(`DROP DATABASE ${databaseName}`);
-    await maintenance.end();
+    try {
+      await workerPool?.end();
+    } finally {
+      try {
+        if (loginRole) await pool.query(`DROP ROLE ${loginRole}`);
+      } finally {
+        await dispose?.();
+      }
+    }
   });
 
   const makeApplication = async (subject: string) => {
