@@ -349,36 +349,310 @@ function venueManagementController() {
 }
 
 export const renderVenueManagementPage = (locale: AdminLocale = 'zh_TW'): string => {
-  const fields = [
-    ['code', '永久唯一代碼（如 tw-tpe-daan）', 'text'],
-    ['name_zh_tw', '場地名稱', 'text'],
-    ['name_en', '英文名稱（選填）', 'text'],
-    ['address', '地址（選填）', 'text'],
-    ['region_id', '目標區域 UUID', 'text'],
-    ['latitude', '中心緯度 -90～90', 'number'],
-    ['longitude', '中心經度 -180～180', 'number'],
-    ['radius_meters', '半徑 1～5000 公尺', 'number'],
-    ['timezone', 'IANA 時區', 'text']
-  ]
-    .map(
-      ([key, label, type]) =>
-        `<label>${label}<input id="vm-${key}" type="${type}" ${['name_en', 'address'].includes(key!) ? '' : 'required'} ${type === 'number' ? 'step="any"' : ''}></label>`
-    )
-    .join('');
   return renderAdminShell(
     'fieldSchedule',
     `<style>
-#vm-root{min-width:0;overflow-wrap:anywhere}#vm-root fieldset{min-width:0}#vm-root label{display:block;margin:.5rem 0}#vm-root input,#vm-root select,#vm-root button{font:inherit;min-height:44px;max-width:100%}#vm-root article{border:1px solid #bbb;padding:1rem;margin:1rem 0}#vm-sign{overflow-wrap:anywhere;border:2px solid #555;padding:1rem}#vm-root :focus-visible{outline:3px solid #185}
-@media print{body *{visibility:hidden}#vm-sign,#vm-sign *{visibility:visible}#vm-sign{position:absolute;left:0;top:0;width:90%;font-size:24px}#vm-sign::after{content:'Developed with ❤️ by Bean, Bird & Badminton Tech Consulting';display:block;font-size:12px}}
-</style><section id="vm-root"><h1>團練場出席管理 · 場地設定與 NFC／QR 網址</h1>
-<p>UUID 與代碼建立後不可變更；停用而非刪除。已有出席不可改區域／時區。更動中心、半徑或時段需明確原因並記錄前後版本。</p>
-<label>查詢區域 UUID <input id="vm-region" autocomplete="off"></label><button id="vm-load" type="button">查詢／重新載入</button><button id="vm-add" type="button" disabled>新增場地</button>
-<p id="vm-status" role="status" aria-live="polite"></p><label>搜尋名稱／代碼 <input id="vm-search"></label><label>狀態 <select id="vm-filter"><option value="">全部</option><option value="true">啟用</option><option value="false">停用</option></select></label><div id="vm-list"></div>
-<form id="vm-form"><fieldset id="vm-editor" disabled><legend>場地資料</legend><p id="vm-version" tabindex="-1"></p>${fields}
-<p>每週時段（以場地時區計算，結束時間不含；同日，可用 24:00）</p>${['日', '一', '二', '三', '四', '五', '六'].map((label, day) => `<label><input id="vm-day-${day}" type="checkbox">週${label}</label>`).join('')}
-<label>開始 HH:mm <input id="vm-start" required pattern="([01][0-9]|2[0-3]):[0-5][0-9]"></label><label>結束 HH:mm <input id="vm-end" required pattern="(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)"></label>
-<label><input id="vm-active" type="checkbox">啟用（取消即停用，保留舊網址與出席）</label><label>設定異動原因（必要，寫入稽核；勿填學員個資或心得） <input id="vm-reason" required maxlength="500"></label><button id="vm-save" type="submit" disabled>儲存場地</button></fieldset></form>
-<h2>NFC／QR URL 管理</h2><div id="vm-links"></div><p>QR 圖片待編碼套件核准：尚無已核准本地 QR 編碼器，因此沒有 QR 圖片／下載功能。僅提供 QR 目標網址及可列印場地牌，不外送第三方；source 可轉傳，不是出席證明。啟用場地管理時，停用場地的公開入口會拒絕簽到；功能尚未開啟不代表網址已可簽到。</p><button id="vm-print" type="button" disabled>列印選取場地牌（網址，非 QR 圖）</button><section id="vm-sign"></section></section>`,
+#vm-root,#vm-root *{box-sizing:border-box}
+#vm-root{display:flex;flex-direction:column;gap:1.25rem;min-width:0;min-inline-size:0;max-width:100%;overflow-wrap:anywhere;color:var(--brand-primary,#082850)}
+#vm-root label{display:block;min-width:0;margin:0}
+#vm-root fieldset,#vm-editor,.vm-editor-card{min-width:0;min-inline-size:0}
+.vm-header{border-bottom:2px solid var(--border,#98C0D8);padding-bottom:.75rem}
+.vm-header h1{font-size:1.35rem;line-height:1.3;margin:0 0 .5rem;color:var(--brand-deep,#002048);overflow-wrap:anywhere}
+.vm-intro{margin:0;font-size:.875rem;color:var(--muted,#305888);line-height:1.5;overflow-wrap:anywhere}
+.vm-card{background:var(--surface,#fff);border:1px solid var(--border,#98C0D8);border-radius:.5rem;padding:1.1rem;box-shadow:0 1px 3px rgba(8,40,80,.05);min-width:0;min-inline-size:0}
+.vm-toolbar-card{display:flex;flex-direction:column;gap:.75rem}
+.vm-toolbar-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:.75rem}
+.vm-region-group{display:flex;flex-direction:column;gap:.35rem;min-width:0;min-inline-size:0}
+.vm-btn-group{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+.vm-btn{font:inherit;font-size:.875rem;font-weight:600;min-height:44px;padding:.5rem 1rem;border-radius:.375rem;border:1px solid transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:.35rem;white-space:nowrap;transition:background-color .15s ease,border-color .15s ease;box-sizing:border-box}
+.vm-btn-primary{background:var(--brand-primary,#082850);color:#fff;border-color:var(--brand-deep,#002048)}
+.vm-btn-primary:hover:not(:disabled){background:var(--brand-deep,#002048)}
+.vm-btn-secondary{background:var(--surface,#fff);color:var(--brand-primary,#082850);border-color:var(--brand-secondary,#305888)}
+.vm-btn-secondary:hover:not(:disabled){background:var(--surface-muted,#eef4f8)}
+.vm-btn:disabled{opacity:.45;cursor:not-allowed}
+.vm-btn:focus-visible{outline:3px solid var(--brand-secondary,#305888);outline-offset:2px}
+.vm-status{min-height:1.5rem;margin:0;padding:.65rem .85rem;border-radius:.375rem;background:var(--surface-muted,#eef4f8);border-left:4px solid var(--brand-secondary,#305888);font-size:.875rem;line-height:1.45;overflow-wrap:anywhere}
+.vm-status:empty{display:none}
+.vm-workspace{display:grid;grid-template-columns:minmax(280px,340px) minmax(0,1fr);gap:1.25rem;align-items:start;min-width:0;min-inline-size:0}
+.vm-list-panel{display:flex;flex-direction:column;gap:.75rem;min-width:0;min-inline-size:0}
+.vm-panel-title{font-size:1.05rem;margin:0;color:var(--brand-deep,#002048);font-weight:700}
+.vm-filter-bar{display:flex;flex-direction:column;gap:.5rem}
+.vm-filter-group{display:flex;flex-direction:column;gap:.25rem;min-width:0}
+.vm-list-container{display:flex;flex-direction:column;gap:.65rem;max-height:680px;overflow-y:auto;overscroll-behavior:contain;padding-right:.25rem;min-width:0}
+.vm-list-container article{background:var(--surface,#fff);border:1px solid var(--border,#98C0D8);border-radius:.375rem;padding:.75rem .85rem;margin:0;display:flex;flex-direction:column;gap:.45rem;transition:border-color .15s ease,box-shadow .15s ease;min-width:0;overflow-wrap:anywhere}
+.vm-list-container article:hover{border-color:var(--brand-secondary,#305888);box-shadow:0 2px 6px rgba(8,40,80,.08)}
+.vm-list-container article h3{font-size:.95rem;margin:0;color:var(--brand-deep,#002048);overflow-wrap:anywhere}
+.vm-list-container article p{font-size:.8125rem;color:var(--muted,#305888);margin:0;overflow-wrap:anywhere}
+.vm-list-container article button{align-self:flex-start;min-height:38px;padding:.3rem .75rem;font-size:.8125rem;border-radius:.3rem;background:var(--surface-muted,#eef4f8);color:var(--brand-primary,#082850);border:1px solid var(--brand-secondary,#305888);font-weight:600;cursor:pointer}
+.vm-list-container article button:hover:not(:disabled){background:var(--brand-secondary,#305888);color:#fff}
+.vm-editor-panel{min-width:0;min-inline-size:0}
+.vm-editor-card{border:1px solid var(--border,#98C0D8);border-radius:.5rem;padding:1.25rem;margin:0;background:var(--surface,#fff);min-width:0;min-inline-size:0}
+.vm-editor-card:disabled{opacity:.7}
+.vm-legend{font-size:1.1rem;font-weight:700;color:var(--brand-deep,#002048);padding:0 .5rem}
+.vm-version-banner{background:var(--surface-muted,#eef4f8);border:1px solid var(--border,#98C0D8);border-radius:.375rem;padding:.65rem .85rem;margin:0 0 1rem;font-size:.875rem;font-weight:600;color:var(--brand-primary,#082850);outline:none;overflow-wrap:anywhere}
+.vm-version-banner:focus-visible{outline:3px solid var(--brand-secondary,#305888);outline-offset:2px}
+.vm-form-table{display:flex;flex-direction:column;gap:.85rem;margin-bottom:1.25rem;min-width:0;min-inline-size:0}
+.vm-form-row{display:grid;grid-template-columns:180px minmax(0,1fr);gap:1rem;align-items:start;padding-bottom:.85rem;border-bottom:1px solid var(--surface-muted,#eef4f8);min-width:0;min-inline-size:0}
+.vm-form-row:last-child{border-bottom:none;padding-bottom:0}
+.vm-label-col{padding-top:.5rem;min-width:0;min-inline-size:0}
+#vm-root .vm-field-label,#vm-root .vm-sublabel{display:inline-flex;flex-direction:row;align-items:baseline;flex-wrap:wrap;column-gap:.2rem;row-gap:0;font-weight:600;font-size:.875rem;color:var(--brand-deep,#002048);line-height:1.35;min-width:0}
+#vm-root .vm-sublabel{font-size:.8125rem;font-weight:500;color:var(--brand-secondary,#305888)}
+#vm-root .vm-field-hint{display:block;font-size:.75rem;color:var(--muted,#305888);margin-top:.2rem;line-height:1.3;overflow-wrap:anywhere}
+#vm-root .vm-req{color:#c02020;font-weight:700;margin-left:.15rem;white-space:nowrap;display:inline-block}
+#vm-root .vm-opt{font-size:.75rem;font-weight:400;color:var(--muted,#305888)}
+.vm-control-col{display:flex;flex-direction:column;gap:.35rem;min-width:0;min-inline-size:0}
+#vm-root .vm-input{width:100%;box-sizing:border-box;font:inherit;font-size:.875rem;min-height:44px;padding:.45rem .75rem;border:1px solid var(--brand-secondary,#305888);border-radius:.35rem;background:#fff;color:var(--brand-primary,#082850);max-width:100%}
+#vm-root .vm-input:focus-visible,#vm-filter:focus-visible,.vm-checkbox:focus-visible{outline:3px solid var(--brand-secondary,#305888);outline-offset:2px}
+#vm-root .vm-input[readonly]{background:var(--surface-muted,#eef4f8);border-color:var(--border,#98C0D8);color:var(--brand-primary,#082850);cursor:default}
+#vm-root .vm-input:disabled{background:#f1f5f9;border-color:#cbd5e1;color:#64748b;cursor:not-allowed}
+.vm-pair-grid{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;min-width:0;min-inline-size:0}
+.vm-subfield{display:flex;flex-direction:column;gap:.25rem;min-width:0;min-inline-size:0}
+.vm-days-group{display:flex;flex-wrap:wrap;gap:.4rem;min-width:0}
+.vm-day-pill{display:inline-flex;align-items:center;gap:.35rem;padding:.4rem .65rem;min-height:44px;background:var(--surface-muted,#eef4f8);border:1px solid var(--border,#98C0D8);border-radius:.35rem;cursor:pointer;font-size:.875rem;user-select:none;box-sizing:border-box}
+.vm-day-pill:hover{border-color:var(--brand-secondary,#305888)}
+.vm-day-pill:has(input:checked){background:#e0ecf6;border-color:var(--brand-secondary,#305888);font-weight:600}
+.vm-checkbox{width:1.15rem;height:1.15rem;min-height:0;cursor:pointer;accent-color:var(--brand-primary,#082850);margin:0;flex-shrink:0}
+.vm-toggle-label{display:inline-flex;align-items:center;gap:.5rem;min-height:44px;cursor:pointer;font-size:.875rem;font-weight:500;box-sizing:border-box}
+.vm-form-actions{display:flex;justify-content:flex-end;padding-top:.75rem;border-top:1px solid var(--border,#98C0D8)}
+.vm-btn-save{min-width:140px}
+.vm-links-panel{display:flex;flex-direction:column;gap:.75rem;min-width:0;min-inline-size:0}
+.vm-links-grid{display:flex;flex-direction:column;gap:.75rem;min-width:0;min-inline-size:0}
+.vm-links-grid label{display:flex;flex-direction:column;gap:.35rem;font-weight:600;font-size:.875rem;min-width:0}
+.vm-links-grid input{font:inherit;font-size:.875rem;min-height:44px;padding:.45rem .75rem;border:1px solid var(--border,#98C0D8);border-radius:.35rem;background:var(--surface-muted,#eef4f8);max-width:100%;box-sizing:border-box}
+.vm-links-grid button{align-self:flex-start;min-height:44px;padding:.4rem .85rem;font-size:.8125rem;font-weight:600;background:var(--surface,#fff);color:var(--brand-primary,#082850);border:1px solid var(--brand-secondary,#305888);border-radius:.35rem;cursor:pointer;box-sizing:border-box}
+.vm-links-grid button:hover{background:var(--surface-muted,#eef4f8)}
+.vm-signboard{border:2px dashed var(--brand-secondary,#305888);border-radius:.5rem;padding:1.25rem;background:#fff;min-width:0;min-inline-size:0;overflow-wrap:anywhere}
+.vm-signboard h2{font-size:1.2rem;margin:0 0 .5rem;color:var(--brand-deep,#002048);overflow-wrap:anywhere}
+.vm-signboard p{margin:.35rem 0;font-size:.9rem;overflow-wrap:anywhere}
+@media(max-width:1024px){.vm-workspace{grid-template-columns:1fr}}
+@media(max-width:768px){
+.vm-toolbar-row{grid-template-columns:1fr;grid-auto-rows:min-content;align-items:stretch;gap:.75rem}
+.vm-region-group{width:100%;min-height:0}
+.vm-btn-group{display:flex;flex-direction:column;gap:.5rem;width:100%}
+.vm-form-row{grid-template-columns:1fr;gap:.35rem;padding-bottom:.75rem}
+.vm-label-col{padding-top:0}
+.vm-pair-grid{grid-template-columns:1fr}
+#vm-root .vm-btn{width:100%;min-height:48px;font-size:1rem}
+#vm-root .vm-input,#vm-root #vm-filter{font-size:1rem;min-height:48px}
+#vm-root .vm-day-pill{min-height:48px;flex:1 1 42%;justify-content:center}
+#vm-root .vm-toggle-label{min-height:48px}
+.vm-form-actions{justify-content:stretch}
+#vm-root .vm-btn-save{width:100%}
+.vm-links-grid button{width:100%;min-height:48px}
+}
+@media print{
+body *{visibility:hidden}
+#vm-sign,#vm-sign *{visibility:visible}
+#vm-sign{position:absolute;left:0;top:0;width:90%;font-size:24px;border:2px solid #000}
+#vm-sign::after{content:'Developed with ❤️ by Bean, Bird & Badminton Tech Consulting';display:block;font-size:12px;margin-top:1rem}
+}
+</style>
+<section id="vm-root">
+  <div class="vm-header">
+    <h1>團練場出席管理 · 場地設定與 NFC／QR 網址</h1>
+    <p class="vm-intro">UUID 與代碼建立後不可變更；停用而非刪除。已有出席不可改區域／時區。更動中心、半徑或時段需明確原因並記錄前後版本。</p>
+  </div>
+
+  <div class="vm-card vm-toolbar-card">
+    <div class="vm-toolbar-row">
+      <div class="vm-region-group">
+        <label for="vm-region" class="vm-field-label">查詢區域 UUID<span class="vm-req" aria-hidden="true">*</span></label>
+        <input id="vm-region" autocomplete="off" class="vm-input" placeholder="請輸入 36 字元區域 UUID">
+      </div>
+      <div class="vm-btn-group">
+        <button id="vm-load" type="button" class="vm-btn vm-btn-primary">查詢／重新載入</button>
+        <button id="vm-add" type="button" class="vm-btn vm-btn-secondary" disabled>新增場地</button>
+      </div>
+    </div>
+    <p id="vm-status" role="status" aria-live="polite" class="vm-status"></p>
+  </div>
+
+  <div class="vm-workspace">
+    <section class="vm-card vm-list-panel" aria-labelledby="vm-list-heading">
+      <h2 id="vm-list-heading" class="vm-panel-title">場地清單</h2>
+      <div class="vm-filter-bar">
+        <div class="vm-filter-group">
+          <label for="vm-search" class="vm-field-label">搜尋名稱／代碼</label>
+          <input id="vm-search" class="vm-input" placeholder="依名稱或代碼過濾...">
+        </div>
+        <div class="vm-filter-group">
+          <label for="vm-filter" class="vm-field-label">狀態篩選</label>
+          <select id="vm-filter" class="vm-input">
+            <option value="">全部狀態</option>
+            <option value="true">啟用</option>
+            <option value="false">停用</option>
+          </select>
+        </div>
+      </div>
+      <div id="vm-list" class="vm-list-container" role="region" aria-label="場地列表"></div>
+    </section>
+
+    <form id="vm-form" class="vm-editor-panel">
+      <fieldset id="vm-editor" class="vm-card vm-editor-card" disabled>
+        <legend class="vm-legend">場地資料編輯</legend>
+        <p id="vm-version" class="vm-version-banner" tabindex="-1"></p>
+
+        <div class="vm-form-table" role="presentation">
+          <div class="vm-form-row">
+            <div class="vm-label-col">
+              <label for="vm-code" class="vm-field-label">永久唯一代碼<span class="vm-req" aria-hidden="true">*</span></label>
+              <span class="vm-field-hint">如 tw-tpe-daan，建立後不可更改</span>
+            </div>
+            <div class="vm-control-col">
+              <input id="vm-code" type="text" required class="vm-input" autocomplete="off" placeholder="例如 tw-tpe-daan">
+            </div>
+          </div>
+
+          <div class="vm-form-row">
+            <div class="vm-label-col">
+              <label for="vm-name_zh_tw" class="vm-field-label">場地名稱（繁中）<span class="vm-req" aria-hidden="true">*</span></label>
+              <span class="vm-field-hint">顯示於打卡與簽到頁面</span>
+            </div>
+            <div class="vm-control-col">
+              <input id="vm-name_zh_tw" type="text" required class="vm-input" placeholder="例如 大安森林公園團練場">
+            </div>
+          </div>
+
+          <div class="vm-form-row">
+            <div class="vm-label-col">
+              <label for="vm-name_en" class="vm-field-label">英文名稱 <span class="vm-opt">（選填）</span></label>
+              <span class="vm-field-hint">供英文介面或外籍學員辨識</span>
+            </div>
+            <div class="vm-control-col">
+              <input id="vm-name_en" type="text" class="vm-input" placeholder="例如 Daan Forest Park Practice Field">
+            </div>
+          </div>
+
+          <div class="vm-form-row">
+            <div class="vm-label-col">
+              <label for="vm-address" class="vm-field-label">地址 <span class="vm-opt">（選填）</span></label>
+              <span class="vm-field-hint">實體練習場地說明或街道地址</span>
+            </div>
+            <div class="vm-control-col">
+              <input id="vm-address" type="text" class="vm-input" placeholder="例如 台北市大安區新生南路二段1號">
+            </div>
+          </div>
+
+          <div class="vm-form-row">
+            <div class="vm-label-col">
+              <label for="vm-region_id" class="vm-field-label">目標區域 UUID<span class="vm-req" aria-hidden="true">*</span></label>
+              <span class="vm-field-hint">場地所屬之區域 UUID</span>
+            </div>
+            <div class="vm-control-col">
+              <input id="vm-region_id" type="text" required class="vm-input" autocomplete="off" placeholder="36 字元 UUID">
+            </div>
+          </div>
+
+          <div class="vm-form-row">
+            <div class="vm-label-col">
+              <span class="vm-field-label">中心座標 GPS<span class="vm-req" aria-hidden="true">*</span></span>
+              <span class="vm-field-hint">WGS84 座標，打卡距離基準</span>
+            </div>
+            <div class="vm-control-col">
+              <div class="vm-pair-grid">
+                <div class="vm-subfield">
+                  <label for="vm-latitude" class="vm-sublabel">中心緯度（-90～90）<span class="vm-req" aria-hidden="true">*</span></label>
+                  <input id="vm-latitude" type="number" step="any" required class="vm-input" placeholder="例如 25.032969">
+                </div>
+                <div class="vm-subfield">
+                  <label for="vm-longitude" class="vm-sublabel">中心經度（-180～180）<span class="vm-req" aria-hidden="true">*</span></label>
+                  <input id="vm-longitude" type="number" step="any" required class="vm-input" placeholder="例如 121.534838">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="vm-form-row">
+            <div class="vm-label-col">
+              <span class="vm-field-label">半徑與時區<span class="vm-req" aria-hidden="true">*</span></span>
+              <span class="vm-field-hint">簽到有效範圍與當地時區</span>
+            </div>
+            <div class="vm-control-col">
+              <div class="vm-pair-grid">
+                <div class="vm-subfield">
+                  <label for="vm-radius_meters" class="vm-sublabel">半徑（1～5000 公尺）<span class="vm-req" aria-hidden="true">*</span></label>
+                  <input id="vm-radius_meters" type="number" step="any" required class="vm-input" placeholder="50">
+                </div>
+                <div class="vm-subfield">
+                  <label for="vm-timezone" class="vm-sublabel">IANA 時區<span class="vm-req" aria-hidden="true">*</span></label>
+                  <input id="vm-timezone" type="text" required class="vm-input" placeholder="Asia/Taipei">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="vm-form-row">
+            <div class="vm-label-col">
+              <span class="vm-field-label">每週開放日<span class="vm-req" aria-hidden="true">*</span></span>
+              <span class="vm-field-hint">以場地時區計算開團日</span>
+            </div>
+            <div class="vm-control-col">
+              <div class="vm-days-group" role="group" aria-label="每週開放日選擇">
+                ${['日', '一', '二', '三', '四', '五', '六'].map((label, day) => `<label class="vm-day-pill"><input id="vm-day-${day}" type="checkbox" class="vm-checkbox"><span>週${label}</span></label>`).join('')}
+              </div>
+            </div>
+          </div>
+
+          <div class="vm-form-row">
+            <div class="vm-label-col">
+              <span class="vm-field-label">開放時段<span class="vm-req" aria-hidden="true">*</span></span>
+              <span class="vm-field-hint">結束時間不含；跨日可用 24:00</span>
+            </div>
+            <div class="vm-control-col">
+              <div class="vm-pair-grid">
+                <div class="vm-subfield">
+                  <label for="vm-start" class="vm-sublabel">開始 HH:mm<span class="vm-req" aria-hidden="true">*</span></label>
+                  <input id="vm-start" required pattern="([01][0-9]|2[0-3]):[0-5][0-9]" class="vm-input" placeholder="06:30">
+                </div>
+                <div class="vm-subfield">
+                  <label for="vm-end" class="vm-sublabel">結束 HH:mm<span class="vm-req" aria-hidden="true">*</span></label>
+                  <input id="vm-end" required pattern="(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)" class="vm-input" placeholder="09:00">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="vm-form-row">
+            <div class="vm-label-col">
+              <span class="vm-field-label">場地狀態</span>
+              <span class="vm-field-hint">停用而非刪除；保留舊紀錄</span>
+            </div>
+            <div class="vm-control-col">
+              <label class="vm-toggle-label">
+                <input id="vm-active" type="checkbox" class="vm-checkbox">
+                <span>啟用此場地（取消即停用，保留舊網址與出席紀錄）</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="vm-form-row">
+            <div class="vm-label-col">
+              <label for="vm-reason" class="vm-field-label">設定異動原因<span class="vm-req" aria-hidden="true">*</span></label>
+              <span class="vm-field-hint">寫入稽核紀錄；勿填個資</span>
+            </div>
+            <div class="vm-control-col">
+              <input id="vm-reason" required maxlength="500" class="vm-input" placeholder="請詳述本次異動原因（必填，上限 500 字）">
+            </div>
+          </div>
+        </div>
+
+        <div class="vm-form-actions">
+          <button id="vm-save" type="submit" class="vm-btn vm-btn-primary vm-btn-save" disabled>儲存場地</button>
+        </div>
+      </fieldset>
+    </form>
+  </div>
+
+  <section class="vm-card vm-links-panel" aria-labelledby="vm-links-heading">
+    <h2 id="vm-links-heading" class="vm-panel-title">NFC／QR URL 管理</h2>
+    <p class="vm-intro">QR 圖片待編碼套件核准：尚無已核准本地 QR 編碼器，因此沒有 QR 圖片／下載功能。僅提供 QR 目標網址及可列印場地牌，不外送第三方；source 可轉傳，不是出席證明。啟用場地管理時，停用場地的公開入口會拒絕簽到；功能尚未開啟不代表網址已可簽到。</p>
+    <div class="vm-btn-group">
+      <button id="vm-print" type="button" class="vm-btn vm-btn-secondary" disabled>列印選取場地牌（網址，非 QR 圖）</button>
+    </div>
+    <div id="vm-links" class="vm-links-grid"></div>
+    <section id="vm-sign" class="vm-signboard"></section>
+  </section>
+</section>`,
     `(${venueManagementController.toString()})();`,
     locale
   );
