@@ -41,6 +41,23 @@ const fixture = (version = venueDebugMigrationVersion, capable = true) => {
   };
   const unavailableFunctions = new Set<string>();
   const query = vi.fn(async (sql: string, values?: unknown[]) => {
+    if (sql.includes('WITH eligible')) {
+      if (permissions.fail) throw new Error('private catalog diagnostics');
+      return {
+        rows: permissions.management
+          ? [
+              {
+                id: personId,
+                displayName: '<Synthetic region>',
+                countryName: 'Synthetic country',
+                code: 'synthetic-region',
+                canRead: true,
+                canManage: false
+              }
+            ]
+          : []
+      };
+    }
     if (sql.includes(' AS management,')) {
       if (permissions.fail) throw new Error('private permission diagnostics');
       const allowed = !values?.length || values[0] === personId;
@@ -207,6 +224,66 @@ afterEach(async () => {
 });
 
 describe('venue suite through buildApp', () => {
+  it('serves a UUID-free region directory only through private session + CSRF/origin boundary', async () => {
+    const f = fixture();
+    const app = appFor(f);
+    const headers = {
+      origin,
+      cookie: `__Host-qigong-admin=${session}; __Host-qigong-admin-csrf=${csrf}`,
+      'x-csrf-token': csrf
+    };
+    const request = (payload: object = {}, extra: Record<string, string> = {}) =>
+      app.inject({
+        method: 'POST',
+        url: '/admin/api/venue-management/regions',
+        headers: { ...headers, ...extra },
+        payload
+      });
+    const directory = await request({ lang: 'en' });
+    expect(directory.statusCode).toBe(200);
+    expect(directory.json()).toEqual({
+      regions: [
+        {
+          id: personId,
+          displayName: '<Synthetic region>',
+          countryName: 'Synthetic country',
+          code: 'synthetic-region',
+          canRead: true,
+          canManage: false
+        }
+      ]
+    });
+    expect(directory.headers['cache-control']).toBe('no-store');
+    expect(directory.headers['referrer-policy']).toBe('no-referrer');
+    for (const extra of [
+      { origin: 'https://evil.invalid' },
+      { 'x-csrf-token': 'x'.repeat(43) },
+      { 'sec-fetch-site': 'cross-site' }
+    ])
+      expect((await request({}, extra)).statusCode).toBe(403);
+    for (const cookie of [
+      '',
+      `__Host-qigong-admin=${principal}; __Host-qigong-admin-csrf=${csrf}`,
+      `${headers.cookie}; __Host-qigong-admin=${session}`
+    ]) {
+      expect((await request({}, { cookie })).statusCode).toBe(cookie ? 401 : 403);
+    }
+    for (const payload of [
+      { regionId: personId },
+      { principal },
+      { canManage: true },
+      { action: 'regions' },
+      { lang: 'xx' }
+    ])
+      expect((await request(payload)).statusCode).toBe(400);
+    f.permissions.fail = true;
+    expect((await request()).statusCode).toBe(503);
+    f.permissions.fail = false;
+    f.permissions.management = false;
+    expect((await request()).json()).toEqual({ regions: [] });
+    f.permissions.revoked = true;
+    expect((await request()).statusCode).toBe(401);
+  });
   it.each(['0051_venue_qr_attendance.sql', venueSuiteMigrationVersion, venueDebugMigrationVersion])(
     'supports %s with all new features default off',
     async (version) => {
