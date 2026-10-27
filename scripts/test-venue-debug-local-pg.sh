@@ -64,6 +64,9 @@ if [[ ${1:-debug} == full || ${1:-debug} == all ]]; then
   clean createdb -h "$root/socket" -p "$port" -U venue_debug_owner venue_debug_test
   # Constructed here only, never adopted from the operator environment.
   url="postgresql://venue_debug_owner@localhost/venue_debug_test?host=$root/socket&port=$port"
+  # Runtime smoke tests execute the compiled worker through a symlink. A fresh
+  # worktree must build first; verify's own build runs only after its test stage.
+  clean pnpm build
   clean env TEST_DATABASE_URL="$url" TEST_DATABASE_ALLOW_ROLE_TEARDOWN=true pnpm verify
   clean pnpm exec tsc -p tsconfig.eslint.json --noEmit
   clean pnpm exec tsc -p tsconfig.receipt-health.json --noEmit

@@ -329,6 +329,71 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
         );
       }
       expect(logs).not.toContain(hash);
+      const identityCalls = verified.mock.calls.length;
+      const expiredApiClock = vi
+        .spyOn(Date, 'now')
+        .mockReturnValue(Date.parse(config.expiresAt) + 1);
+      try {
+        expect((await send()).json()).toMatchObject({ error: 'venue_debug_denied' });
+        expect(verified).toHaveBeenCalledTimes(identityCalls);
+      } finally {
+        expiredApiClock.mockRestore();
+      }
+      // Exercise actual HTTP→identity adapter→DB with current membership/consent,
+      // not just a direct SQL denial. Every replay must revalidate live state.
+      for (const [disable, restore, status] of [
+        [
+          'UPDATE identity.person_interaction_channels SET valid_to=clock_timestamp(); UPDATE identity.platform_identities SET revoked_at=clock_timestamp()',
+          'UPDATE identity.platform_identities SET revoked_at=NULL; UPDATE identity.person_interaction_channels SET valid_to=NULL',
+          403
+        ],
+        [
+          'UPDATE platform.learner_privacy_acceptances SET revoked_at=clock_timestamp()',
+          'UPDATE platform.learner_privacy_acceptances SET revoked_at=NULL',
+          403
+        ],
+        [
+          "UPDATE identity.person_interaction_channels SET valid_to=clock_timestamp(); UPDATE identity.people SET status='suspended'",
+          "UPDATE identity.people SET status='active'; UPDATE identity.person_interaction_channels SET valid_to=NULL",
+          403
+        ],
+        [
+          "UPDATE identity.onboarding_applications SET status='rejected',person_id=NULL,rejection_reason='Synthetic rejection'",
+          "UPDATE identity.onboarding_applications SET status='approved',person_id='20000000-0000-4000-8000-000000000001',rejection_reason=NULL",
+          403
+        ],
+        [
+          'UPDATE identity.person_interaction_channels SET valid_to=clock_timestamp()',
+          'UPDATE identity.person_interaction_channels SET valid_to=NULL',
+          403
+        ],
+        [
+          'UPDATE core.practice_fields SET is_active=FALSE',
+          'UPDATE core.practice_fields SET is_active=TRUE',
+          403
+        ],
+        [
+          "UPDATE core.practice_fields SET active_time_rules=jsonb_build_object('day_of_week',jsonb_build_array((extract(dow FROM clock_timestamp() AT TIME ZONE timezone)::int+1)%7),'start_time','00:00','end_time','24:00')",
+          `UPDATE core.practice_fields SET active_time_rules='{"day_of_week":[0,1,2,3,4,5,6],"start_time":"00:00","end_time":"24:00"}'`,
+          409
+        ]
+      ] as const) {
+        await owner.query(disable);
+        try {
+          expect((await send()).statusCode).toBe(status);
+          expect((await owner.query('SELECT 1 FROM core.field_attendance')).rowCount).toBe(1);
+        } finally {
+          await owner.query(restore);
+        }
+      }
+      expect(
+        (
+          await owner.query(
+            "SELECT 1 FROM audit.events WHERE action='venue.qr_checkin' AND NOT(request_id=ANY($1::uuid[]))",
+            [priorAudits.rows.map((row) => row.request_id)]
+          )
+        ).rowCount
+      ).toBe(2);
       const history = (view?: string) =>
         app.inject({
           method: 'POST',
