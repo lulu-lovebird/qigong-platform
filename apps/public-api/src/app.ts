@@ -38,6 +38,14 @@ import {
   type VenueQrConfig
 } from './venue-qr.js';
 import type { InviteTransports } from './channel-invites.js';
+import { registerVenueHistoryRoutes } from './venue-history.js';
+import {
+  checkVenueFeatureReadiness,
+  validateVenueSuiteConfig,
+  venueSuiteMigrationVersion,
+  type VenueSuiteConfig,
+  type VenueSuiteFeature
+} from './venue-suite.js';
 
 // LIFF primary redirects can contain both SDK credentials and private application fragments in the query.
 export const apiLogRedaction = Object.freeze({
@@ -57,7 +65,7 @@ export const apiLogRedaction = Object.freeze({
 
 export const minimumMigrationVersion = '0042_activity_consecutive_drafts.sql';
 // Exact QR schema compatibility does not enable QR or the old NFC routes.
-export const maximumMigrationVersion = venueQrMigrationVersion;
+export const maximumMigrationVersion = venueSuiteMigrationVersion;
 const defaultOffMigrationVersions = new Set([
   minimumMigrationVersion,
   '0043_achievement_rule_versions.sql',
@@ -67,7 +75,8 @@ const defaultOffMigrationVersions = new Set([
   '0047_channel_invitations.sql',
   nfcMigrationVersion,
   nfcQuarantineMigrationVersion,
-  venueQrMigrationVersion
+  venueQrMigrationVersion,
+  venueSuiteMigrationVersion
 ]);
 // HTTP error classes can inherit status/message data (unlike log diagnostics,
 // which deliberately ignore prototypes). Preserve that compatibility without
@@ -212,10 +221,18 @@ interface AppDependencies {
   line?: LineConfig;
   whatsapp?: WhatsAppConfig;
   venueQr?: VenueQrConfig;
+  venueSuite?: VenueSuiteConfig;
   inviteTransports?: InviteTransports;
 }
 
-export const checkStartupReadiness = async (pool: Pool, venueQrEnabled = false) => {
+export const checkStartupReadiness = async (
+  pool: Pool,
+  venueQrEnabled = false,
+  venueSuite: VenueSuiteConfig = {}
+) => {
+  const enabledFeatures = (Object.keys(venueSuite) as VenueSuiteFeature[]).filter(
+    (feature) => venueSuite[feature]?.enabled === true
+  );
   const status = await getMigrationStatus(
     pool,
     minimumMigrationVersion,
@@ -226,17 +243,26 @@ export const checkStartupReadiness = async (pool: Pool, venueQrEnabled = false) 
   // A disabled QR deployment can still run preview/daily practice after migration.
   const migration = {
     ...status,
-    ready: venueQrEnabled
-      ? status.ready && status.currentVersion === venueQrMigrationVersion
-      : status.ready &&
-        status.currentVersion !== null &&
-        defaultOffMigrationVersions.has(status.currentVersion)
+    ready:
+      status.ready &&
+      (enabledFeatures.length > 0
+        ? status.currentVersion === venueSuiteMigrationVersion
+        : venueQrEnabled
+          ? status.currentVersion === venueQrMigrationVersion ||
+            status.currentVersion === venueSuiteMigrationVersion
+          : status.currentVersion !== null &&
+            defaultOffMigrationVersions.has(status.currentVersion))
   };
   if (!migration.ready)
     return { ready: false as const, reason: 'schema_version_mismatch', migration };
   const runtime = await checkApiRuntimePreflight(pool);
   if (!runtime.ready)
     return { ready: false as const, reason: 'runtime_role_misconfigured', runtime };
+  for (const feature of enabledFeatures) {
+    const capability = await checkVenueFeatureReadiness(pool, feature);
+    if (!capability.ready)
+      return { ready: false as const, reason: 'venue_feature_not_ready', capability };
+  }
   if (isNfcEnabled()) {
     const nfc = await checkNfcFeatureReadiness(pool);
     if (!nfc.ready) return { ready: false as const, reason: nfc.reason, migration, runtime };
@@ -254,10 +280,15 @@ export const buildApp = ({
   line,
   whatsapp,
   venueQr,
+  venueSuite = {},
   inviteTransports = {}
 }: AppDependencies) => {
   const qr = venueQr ? validateVenueQrConfig(venueQr) : undefined;
+  const suite = validateVenueSuiteConfig(venueSuite);
   if (qr && !line) throw new Error('venue QR requires LINE configuration');
+  if (suite.history && !line) throw new Error('venue history requires LINE configuration');
+  if ((suite.management || suite.people) && !adminAuth)
+    throw new Error('venue administration requires admin authentication');
   const enabledInviteTransports: InviteTransports = {
     ...(telegramOnboarding && inviteTransports.telegram
       ? { telegram: inviteTransports.telegram }
@@ -312,6 +343,11 @@ export const buildApp = ({
   if (loggerOwner)
     app.addHook('onClose', async () => {
       await loggerOwner.close();
+    });
+  if (Object.keys(suite).length > 0)
+    app.addHook('onReady', async () => {
+      const readiness = await checkStartupReadiness(pool, qr?.enabled === true, suite);
+      if (!readiness.ready) throw new Error('venue suite readiness failed');
     });
   const errorResponses = new WeakMap<FastifyReply, SafeErrorResponse>();
   app.addHook('onRoute', (route) => {
@@ -392,7 +428,7 @@ export const buildApp = ({
   app.get('/health/ready', async (request, reply) => {
     try {
       await pool.query('SELECT 1');
-      const readiness = await checkStartupReadiness(pool, qr?.enabled === true);
+      const readiness = await checkStartupReadiness(pool, qr?.enabled === true, suite);
       if (!readiness.ready) return reply.code(503).send({ ok: false, ...readiness });
       return { ok: true, ...readiness };
     } catch (error) {
@@ -407,11 +443,17 @@ export const buildApp = ({
   registerExternalJournalRoutes(app, pool);
   registerNfcFeature(app, pool, registerFieldCheckinRoutes);
   if (adminAuth)
-    registerAdminRoutes(app, pool, adminAuth, line?.liffId, enabledInviteTransports, qr);
+    registerAdminRoutes(app, pool, adminAuth, line?.liffId, enabledInviteTransports, qr, suite);
   if (telegramOnboarding)
     registerTelegramOnboarding(app, pool, telegramOnboarding, enabledInviteTransports.telegram);
   if (line) {
-    registerLineOnboarding(app, pool, line, qr?.enabled === true);
+    registerLineOnboarding(app, pool, line, qr?.enabled === true, suite.history?.enabled === true);
+    if (suite.history)
+      registerVenueHistoryRoutes(app, pool, {
+        publicOrigin: suite.history.publicOrigin,
+        loginChannelId: line.loginChannelId,
+        ...(line.verifyIdentity ? { verifyIdentity: line.verifyIdentity } : {})
+      });
     if (qr) registerVenueQrCheckinRoutes(app, pool, line, qr);
   }
   if (whatsapp) registerWhatsAppOnboarding(app, pool, whatsapp, enabledInviteTransports.whatsapp);

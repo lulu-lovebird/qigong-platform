@@ -162,7 +162,8 @@ describe('check-in success history link', () => {
       const html = renderVenuePreview(
         'existing-liff',
         { venue: 'tw-test-one', lang: 'zh_TW' },
-        'checkin'
+        'checkin',
+        true
       );
       expect(html).toContain('href="https://liff.line.me/existing-liff/venue-history?lang=zh_TW"');
       expect(html).toContain('href="/line/checkin?lang=zh_TW"');
@@ -229,7 +230,10 @@ describe('check-in success history link', () => {
   it('leaves preview mode unchanged and uses a same-origin fallback for invalid configuration', () => {
     const entry = { venue: 'tw-test-one', lang: 'en' } as const;
     expect(renderVenuePreview('existing-liff', entry)).not.toContain('id="preview-history"');
-    expect(renderVenuePreview('</script>unsafe', entry, 'checkin')).toContain(
+    expect(renderVenuePreview('existing-liff', entry, 'checkin')).not.toContain(
+      'id="preview-history"'
+    );
+    expect(renderVenuePreview('</script>unsafe', entry, 'checkin', true)).toContain(
       'href="/line/venue-history?lang=en"'
     );
   });

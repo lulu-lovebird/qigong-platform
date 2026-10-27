@@ -6,6 +6,10 @@ import { runVenueAttendanceAdminOperation, withRequestContext, type Pool } from 
 import { createVenueAdminService, type VenueAdminService } from './venue-admin-service.js';
 import { registerVenueQrAdminRoutes } from './venue-qr-admin.js';
 import type { VenueQrConfig } from './venue-qr.js';
+import type { VenueSuiteConfig } from './venue-suite.js';
+import { registerVenueManagementRoutes } from './venue-management-routes.js';
+import { registerVenuePeopleRoutes } from './venue-people-routes.js';
+import { createVenuePeopleService } from './venue-people-service.js';
 import { z } from 'zod';
 import { accessCookie, registerAdminAccessRoutes } from './admin-access.js';
 import { renderReviewPage } from './admin-pages.js';
@@ -121,7 +125,8 @@ export const registerAdminRoutes = (
   provider: AdminAuthProvider,
   lineLiffId?: string,
   inviteTransports: InviteTransports = {},
-  venueQr?: VenueQrConfig
+  venueQr?: VenueQrConfig,
+  venueSuite: VenueSuiteConfig = {}
 ) => {
   app.get('/admin/auth/login', async (request, reply) => {
     const state = token();
@@ -599,6 +604,58 @@ export const registerAdminRoutes = (
       // the session and 0050 rechecks the operation + region in each transaction.
       return runVenueAttendanceAdminOperation(pool, request.id, session, operation);
     });
+
+  // Share the private cookie boundary, never principal UUIDs as credentials.
+  const venueCookie = (request: FastifyRequest, name: string): string | null => {
+    const matches = (request.headers.cookie ?? '')
+      .split(';')
+      .map((part) => part.trim())
+      .filter((part) => part.startsWith(name + '='));
+    if (matches.length !== 1) return null;
+    const value = matches[0]!.slice(name.length + 1);
+    return /^[A-Za-z0-9_-]{43}$/.test(value) ? value : null;
+  };
+  const venueSessionFor = (request: FastifyRequest) => venueCookie(request, sessionCookie);
+  const venuePrincipalFor = (request: FastifyRequest) =>
+    venueSessionFor(request) ? principalFor(request) : Promise.resolve(null);
+  const venueValidCsrf = (request: FastifyRequest): boolean => {
+    const saved = venueCookie(request, csrfCookie);
+    const supplied = request.headers['x-csrf-token'];
+    return (
+      saved !== null &&
+      typeof supplied === 'string' &&
+      /^[A-Za-z0-9_-]{43}$/.test(supplied) &&
+      timingSafeEqual(sha256(saved), sha256(supplied))
+    );
+  };
+  if (venueSuite.management || venueSuite.people) {
+    // Navigation exposes only empty shells. Every data operation independently
+    // checks its actual credential, permission, action and region in SQL.
+    app.get('/admin/api/venue-suite', async (request, reply) => {
+      reply.header('cache-control', 'no-store').header('referrer-policy', 'no-referrer');
+      if (!(await venuePrincipalFor(request)))
+        return reply.code(401).send({ error: 'unauthenticated' });
+      return {
+        management: venueSuite.management?.enabled === true,
+        people: venueSuite.people?.enabled === true
+      };
+    });
+    const adminOrigin = new URL(provider.callbackUrl).origin;
+    if (venueSuite.management)
+      registerVenueManagementRoutes(app, pool, {
+        ...venueSuite.management,
+        adminOrigin,
+        sessionFor: venueSessionFor,
+        validCsrf: venueValidCsrf,
+        principalFor: venuePrincipalFor
+      });
+    if (venueSuite.people)
+      registerVenuePeopleRoutes(app, {
+        config: { enabled: true, publicOrigin: adminOrigin },
+        service: createVenuePeopleService(pool),
+        pagePrincipalFor: venuePrincipalFor
+      });
+  }
 
   if (venueQr?.enabled) {
     registerVenueQrAdminRoutes(

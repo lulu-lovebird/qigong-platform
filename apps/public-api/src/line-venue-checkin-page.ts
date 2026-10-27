@@ -226,7 +226,8 @@ const checkinTexts = {
 export const renderVenuePreview = (
   liffId: string,
   entry: VenuePreviewEntry | null,
-  mode: 'preview' | 'checkin' = 'preview'
+  mode: 'preview' | 'checkin' = 'preview',
+  historyEnabled = false
 ): string => {
   const lang = entry?.lang ?? 'zh_TW';
   const live = mode === 'checkin';
@@ -243,7 +244,7 @@ export const renderVenuePreview = (
 </style></head><body><main><h1>${t.title}</h1><p class="notice">${t.notice}</p>
 ${entry ? `<p>${t.venue}：<strong>${escapeHtml(entry.venue)}</strong></p><p>${t.unknown}</p><p>${t.privacy}</p><label for="preview-language">${t.language}</label><select id="preview-language" disabled>${languageOptions(lang)}</select><button id="preview-test" type="button" disabled>${t.button}</button>` : ''}
 <p id="preview-status" role="status" aria-live="polite" aria-atomic="true">${entry ? t.loading : t.invalid}</p>
-${live && entry ? `<a id="preview-history" href="${escapeHtml(historyHref)}" referrerpolicy="no-referrer" hidden>${t.history}</a>` : ''}
+${live && entry && historyEnabled ? `<a id="preview-history" href="${escapeHtml(historyHref)}" referrerpolicy="no-referrer" hidden>${t.history}</a>` : ''}
 <a href="/line/checkin?lang=${lang}" referrerpolicy="no-referrer">${t.daily}</a>
 <footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer></main>
 ${
@@ -278,7 +279,7 @@ button.onclick=()=>{
         if(!data.venue||typeof data.venue.name!=='string'||typeof data.checkedInAt!=='string'||typeof data.venue.timezone!=='string')throw new Error('invalid result');
         const time=new Intl.DateTimeFormat(${scriptJson(htmlLocale(lang))},{timeZone:data.venue.timezone,dateStyle:'medium',timeStyle:'short'}).format(new Date(data.checkedInAt));
         status.textContent=previewText.success+' — '+data.venue.name+' / '+time+' ('+data.venue.timezone+'). '+previewText.daily;
-        document.getElementById('preview-history').hidden=false;
+        ${historyEnabled ? "document.getElementById('preview-history').hidden=false;" : ''}
         button.disabled=true;language.disabled=false;
       }catch{finish(previewText.retry);}
     }`
