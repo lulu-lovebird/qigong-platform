@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="/opt/homebrew/opt/node@24/bin:/opt/homebrew/opt/postgresql@17/bin:$PATH"
 export LANG=C LC_ALL=C TZ=UTC
-case ${1:-debug} in debug|focused|full|all) ;; *) printf 'Expected debug, focused, full or all\n' >&2; exit 1 ;; esac
+case ${1:-debug} in debug|migration|focused|full|all) ;; *) printf 'Expected debug, migration, focused, full or all\n' >&2; exit 1 ;; esac
 for tool in node pnpm initdb pg_ctl createdb; do
   command -v "$tool" >/dev/null || { printf 'SKIP: missing %s\n' "$tool"; exit 77; }
 done
@@ -42,7 +42,11 @@ start() {
 }
 if [[ ${1:-debug} != full ]]; then
   start venue_debug_owner 55485
-  clean env VENUE_DEBUG_ISOLATED_PG_DIR="$root" pnpm --filter @qigong/public-api exec vitest run tests/venue-debug-postgres.test.ts
+  if [[ ${1:-debug} == migration ]]; then
+    clean env VENUE_DEBUG_ISOLATED_PG_DIR="$root" pnpm --filter @qigong/public-api exec vitest run tests/venue-debug-postgres.test.ts -t 'migration'
+  else
+    clean env VENUE_DEBUG_ISOLATED_PG_DIR="$root" pnpm --filter @qigong/public-api exec vitest run tests/venue-debug-postgres.test.ts
+  fi
   cleanup
 fi
 if [[ ${1:-debug} == focused || ${1:-debug} == all ]]; then

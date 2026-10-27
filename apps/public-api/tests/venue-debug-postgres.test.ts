@@ -1,6 +1,6 @@
 /** Synthetic credentials ONLY. Never connects through TEST_DATABASE_URL. */
 import { createHash, createHmac } from 'node:crypto';
-import { readFile, realpath, stat } from 'node:fs/promises';
+import { readFile, realpath, stat, mkdtemp, readdir, copyFile, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -19,26 +19,29 @@ const fixtureToken = 'synthetic-only-'.padEnd(43, 'x');
 const hash = createHash('sha256').update(fixtureToken).digest('hex');
 let owner: Pool;
 let runtime: Pool;
+let expiresAt: string;
 const call = (sql: string, params: readonly unknown[] = []) =>
   withRequestContext(runtime, 'qigong_api_runtime', { requestId: crypto.randomUUID() }, (c) =>
     c.query(sql, [...params])
   );
-const checkin = (test = true, venue = 'tw-location-test', lat = -25, issuedOffset = 0) => {
+const checkin = (test = true, venue = 'tw-taipei-cks', lat = -25, issuedOffset = 0) => {
   const requestId = crypto.randomUUID();
   const issued = Math.floor(Date.now() / 1000) + issuedOffset;
   const proof = createHmac('sha256', Buffer.from(hash, 'hex'))
-    .update([requestId, subject, venue, issued].join('|'))
+    .update([requestId, subject, venue, issued, Date.parse(expiresAt)].join('|'))
     .digest('hex');
   return withRequestContext(runtime, 'qigong_api_runtime', { requestId }, (c) =>
     c.query<{ data: { replayed: boolean; isTest?: boolean } }>(
       test
-        ? 'SELECT platform.venue_debug_checkin($1,$2,$3,$4,$5,$6) AS data'
+        ? 'SELECT platform.venue_debug_checkin($1,$2,$3,$4,$5,$6,$7) AS data'
         : 'SELECT platform.venue_qr_checkin($1,$2,$3,$4) AS data',
-      test ? [subject, venue, lat, 121, issued, proof] : [subject, venue, lat, 121]
+      test
+        ? [subject, venue, lat, 121, issued, Date.parse(expiresAt), proof]
+        : [subject, venue, lat, 121]
     )
   );
 };
-describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () => {
+describe.skipIf(!directory)('debug: owned socket-only PG17 55→56 chain', () => {
   beforeAll(async () => {
     if (!directory || !/^\/tmp\/venue-debug-(?:integration-)?[A-Za-z0-9]+$/.test(directory))
       throw new Error('owned debug harness required');
@@ -61,15 +64,45 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
       (await owner.query("SELECT 1 FROM pg_namespace WHERE nspname IN ('core','platform')"))
         .rowCount
     ).toBe(0);
+    const staging = await mkdtemp('/tmp/venue-debug-migrations-');
+    try {
+      for (const name of await readdir(resolve('../../migrations')))
+        if (name.endsWith('.sql') && name < '0056_')
+          await copyFile(resolve('../../migrations', name), resolve(staging, name));
+      expect((await runMigrations(owner, staging)).applied).toHaveLength(55);
+    } finally {
+      await rm(staging, { recursive: true, force: true });
+    }
+    await owner.query(
+      "INSERT INTO platform.venue_debug_config(enabled,expires_at,token_hash) VALUES(TRUE,clock_timestamp()+interval '1 hour',$1)",
+      [hash]
+    );
+    const oldLedger = (
+      await owner.query('SELECT version,checksum FROM schema_migrations ORDER BY version')
+    ).rows;
     const result = await runMigrations(owner, resolve('../../migrations'));
-    expect(result.applied).toHaveLength(55);
-    expect(result.currentVersion).toBe('0055_venue_distance_debug.sql');
+    expect(result.applied).toEqual(['0056_venue_cks_distance_debug.sql']);
+    expect(result.currentVersion).toBe('0056_venue_cks_distance_debug.sql');
+    expect(
+      (
+        await owner.query(
+          "SELECT version,checksum FROM schema_migrations WHERE version<'0056_' ORDER BY version"
+        )
+      ).rows
+    ).toEqual(oldLedger);
+    expect(
+      (
+        await owner.query(
+          "SELECT to_regprocedure('platform.venue_debug_checkin(text,text,double precision,double precision,bigint,text)') AS old"
+        )
+      ).rows[0]?.old
+    ).toBeNull();
     expect((await owner.query('SELECT 1 FROM platform.venue_debug_config')).rowCount).toBe(0);
     expect((await runMigrations(owner, resolve('../../migrations'))).applied).toEqual([]);
     await owner.query(
       (
         await readFile(new URL('./fixtures/venue-qr-synthetic.sql', import.meta.url), 'utf8')
-      ).replaceAll('tw-test-one', 'tw-location-test')
+      ).replaceAll('tw-test-one', 'tw-taipei-cks')
     );
     runtime = new Pool({ ...options, user: 'venue_qr_test_login', max: 12 });
   }, 120000);
@@ -88,15 +121,43 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
       UPDATE identity.platform_identities SET revoked_at=NULL;
       UPDATE identity.person_interaction_channels SET valid_to=NULL;
       UPDATE core.practice_fields SET is_active=TRUE,active_time_rules='{"day_of_week":[0,1,2,3,4,5,6],"start_time":"00:00","end_time":"24:00"}';`);
+    expiresAt = new Date(Date.now() + 3500000).toISOString();
     await owner.query(
-      "INSERT INTO platform.venue_debug_config(enabled,expires_at,token_hash) VALUES(TRUE,clock_timestamp()+interval '1 hour',$1)",
-      [hash]
+      "INSERT INTO platform.venue_debug_config(enabled,expires_at,token_hash,venue_code) VALUES(TRUE,$1,$2,'tw-taipei-cks')",
+      [expiresAt, hash]
     );
   });
   afterEach(() => vi.unstubAllGlobals());
   afterAll(async () => {
     await runtime?.end();
     await owner?.end();
+  });
+  it('migration keeps configuration operator-only and constrains finite CKS authority', async () => {
+    for (const sql of [
+      'SELECT * FROM platform.venue_debug_config',
+      'UPDATE platform.venue_debug_config SET enabled=TRUE',
+      "SELECT platform.venue_debug_region_active('10000000-0000-4000-8000-000000000003')"
+    ])
+      await expect(call(sql)).rejects.toMatchObject({ code: '42501' });
+    for (const patch of [
+      "venue_code='tw-location-test'",
+      "venue_code=''",
+      "venue_code='tw-test-two'",
+      "expires_at=configured_at+interval '61 minutes'",
+      'expires_at=configured_at',
+      "configured_at='-infinity'",
+      "expires_at='infinity'"
+    ])
+      await expect(
+        owner.query('UPDATE platform.venue_debug_config SET ' + patch)
+      ).rejects.toMatchObject({ code: '23514' });
+    expect(
+      (
+        await owner.query(
+          "SELECT rolcanlogin,rolinherit,rolsuper,rolbypassrls FROM pg_roles WHERE rolname='qigong_venue_debug_region_guard'"
+        )
+      ).rows
+    ).toEqual([{ rolcanlogin: false, rolinherit: false, rolsuper: false, rolbypassrls: false }]);
   });
   it('retains radius for formal, records original distance but no raw GPS for debug', async () => {
     await expect(checkin(false)).rejects.toMatchObject({
@@ -132,7 +193,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
     const results = await Promise.allSettled([
       checkin(),
       checkin(),
-      checkin(false, 'tw-location-test', 25)
+      checkin(false, 'tw-taipei-cks', 25)
     ]);
     expect(results.every((r) => r.status === 'fulfilled')).toBe(true);
     const rows = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
@@ -140,44 +201,46 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
     expect(
       (await owner.query('SELECT is_test FROM core.field_attendance ORDER BY is_test')).rows
     ).toEqual([{ is_test: false }, { is_test: true }]);
-    expect((await checkin(false, 'tw-location-test', 25)).rows[0]?.data).toMatchObject({
+    expect((await checkin(false, 'tw-taipei-cks', 25)).rows[0]?.data).toMatchObject({
       replayed: true
     });
   });
   it('rejects disabled, expired, wrong venue, stale or forged proof without writing', async () => {
     await expect(checkin(true, 'tw-test-two')).rejects.toMatchObject({ code: '42501' });
-    await expect(checkin(true, 'tw-location-test', -25, -40)).rejects.toMatchObject({
+    await expect(checkin(true, 'tw-taipei-cks', -25, -40)).rejects.toMatchObject({
       code: '42501'
     });
-    await expect(checkin(true, 'tw-location-test', -25, 40)).rejects.toMatchObject({
+    await expect(checkin(true, 'tw-taipei-cks', -25, 40)).rejects.toMatchObject({
       code: '42501'
     });
     const otherRequest = crypto.randomUUID();
     const issued = Math.floor(Date.now() / 1000);
     const proof = createHmac('sha256', Buffer.from(hash, 'hex'))
-      .update([otherRequest, subject, 'tw-location-test', issued].join('|'))
+      .update([otherRequest, subject, 'tw-taipei-cks', issued, Date.parse(expiresAt)].join('|'))
       .digest('hex');
     // Even a valid proof for a different transaction nonce cannot authorize this one.
     await expect(
-      call('SELECT platform.venue_debug_checkin($1,$2,-25,121,$3,$4)', [
+      call('SELECT platform.venue_debug_checkin($1,$2,-25,121,$3,$4,$5)', [
         subject,
-        'tw-location-test',
+        'tw-taipei-cks',
         issued,
+        Date.parse(expiresAt),
         proof
       ])
     ).rejects.toMatchObject({ code: '42501' });
     await expect(
-      call('SELECT platform.venue_debug_checkin($1,$2,25,121,$3,$4)', [
+      call('SELECT platform.venue_debug_checkin($1,$2,25,121,$3,$4,$5)', [
         subject,
-        'tw-location-test',
+        'tw-taipei-cks',
         Math.floor(Date.now() / 1000),
+        Date.parse(expiresAt),
         '0'.repeat(64)
       ])
     ).rejects.toMatchObject({ code: '42501' });
     await owner.query('UPDATE platform.venue_debug_config SET enabled=FALSE');
     await expect(checkin()).rejects.toMatchObject({ code: '42501' });
     await owner.query(
-      "UPDATE platform.venue_debug_config SET enabled=TRUE,expires_at=clock_timestamp()-interval '1 second'"
+      "UPDATE platform.venue_debug_config SET enabled=TRUE,configured_at=clock_timestamp()-interval '1 hour',expires_at=date_trunc('milliseconds',clock_timestamp()-interval '1 second')"
     );
     await expect(checkin()).rejects.toMatchObject({ code: '42501' });
     await owner.query('TRUNCATE platform.venue_debug_config');
@@ -220,7 +283,8 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
     const origin = 'https://synthetic.invalid';
     const config = {
       enabled: true as const,
-      expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      expiresAt,
+      venueCode: 'tw-taipei-cks' as const,
       tokenHash: hash
     };
     const app = buildApp({
@@ -252,7 +316,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
       'SELECT request_id FROM audit.events'
     );
     const httpRequestId = crypto.randomUUID();
-    const send = (debugToken: string | undefined = fixtureToken, venue = 'tw-location-test') =>
+    const send = (debugToken: string | undefined = fixtureToken, venue = 'tw-taipei-cks') =>
       app.inject({
         method: 'POST',
         url: '/api/line/venue-checkin',
@@ -415,7 +479,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
         headers: { origin, 'x-venue-checkin': '1' },
         payload: {
           idToken: 'synthetic-identity-private',
-          venue: 'tw-location-test',
+          venue: 'tw-taipei-cks',
           latitude: -25.1234567,
           longitude: 121.9876543
         }
@@ -504,7 +568,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
         if (exporting) expect(encodeVenuePeopleCsv(result)).not.toContain('SYNTHETIC');
       }
     }
-    await checkin(false, 'tw-location-test', 25);
+    await checkin(false, 'tw-taipei-cks', 25);
     for (const exporting of [false, true]) {
       expect(await read(exporting)).toMatchObject({
         totals: { attendanceCount: 1, attendanceDays: 1, learnerCount: 1 }
@@ -562,10 +626,11 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
       await expect(call(sql)).rejects.toMatchObject({ code: '42501' });
     await call("SELECT set_config('qigong.venue_debug','true',TRUE)");
     await expect(
-      call('SELECT platform.venue_debug_checkin($1,$2,25,121,$3,$4)', [
+      call('SELECT platform.venue_debug_checkin($1,$2,25,121,$3,$4,$5)', [
         subject,
-        'tw-location-test',
+        'tw-taipei-cks',
         Math.floor(Date.now() / 1000),
+        Date.parse(expiresAt),
         '0'.repeat(64)
       ])
     ).rejects.toMatchObject({ code: '42501' });
