@@ -108,7 +108,12 @@ const currentReport = async (
 
 describe.skipIf(!directory)('isolated real PG: full migrations + synthetic LINE/RLS/QR/CSV', () => {
   beforeAll(async () => {
-    if (!directory || !/^\/tmp\/(?:venue-qr-pg\.|venue-suite-qr-)[A-Za-z0-9]+$/.test(directory))
+    if (
+      !directory ||
+      !/^\/tmp\/(?:venue-qr-pg\.|venue-suite-qr-|venue-debug-(?:integration-)?)[A-Za-z0-9]+$/.test(
+        directory
+      )
+    )
       throw new Error('isolated harness directory required');
     const actual = await realpath(directory);
     if (actual !== directory && actual !== '/private' + directory)
@@ -145,13 +150,13 @@ describe.skipIf(!directory)('isolated real PG: full migrations + synthetic LINE/
       resolve(process.cwd(), '../../migrations'),
       'synthetic-local-qr'
     );
-    expect(result.currentVersion).toBe('0054_venue_people_read.sql');
+    expect(result.currentVersion).toBe('0055_venue_distance_debug.sql');
     expect(result.applied).toContain(venueQrMigrationVersion);
     const migrationFiles = (await readdir(resolve(process.cwd(), '../../migrations')))
       .filter((file) => /^\d{4}_[a-z0-9_]+\.sql$/.test(file))
       .sort();
     expect(result.applied).toEqual(migrationFiles);
-    expect(migrationFiles).toHaveLength(54);
+    expect(migrationFiles).toHaveLength(55);
     expect(
       (await runMigrations(owner, resolve(process.cwd(), '../../migrations'))).applied
     ).toEqual([]);

@@ -51,7 +51,12 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
     return result.field;
   };
   beforeAll(async () => {
-    if (!root || !/^\/tmp\/(?:venue-management-|venue-suite-management-)[A-Za-z0-9]+$/.test(root))
+    if (
+      !root ||
+      !/^\/tmp\/(?:venue-management-|venue-suite-management-|venue-debug-(?:integration-)?)[A-Za-z0-9]+$/.test(
+        root
+      )
+    )
       throw new Error('isolated root required');
     expect((await stat(root)).mode & 0o777).toBe(0o700);
     expect((await readFile(root + '/venue-management-marker', 'utf8')).trim()).toBe(root);
@@ -64,8 +69,8 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
     );
     expect(migrations.applied).toContain('0053_venue_management.sql');
     expect(migrations.applied).toContain('0052_venue_personal_history.sql');
-    expect(migrations.applied).toHaveLength(54);
-    expect(migrations.currentVersion).toBe('0054_venue_people_read.sql');
+    expect(migrations.applied).toHaveLength(55);
+    expect(migrations.currentVersion).toBe('0055_venue_distance_debug.sql');
     const visibleMigrations = (await readdir(resolve(process.cwd(), '../../migrations')))
       .filter((file) => /^\d{4}_[a-z0-9_]+\.sql$/.test(file))
       .sort();

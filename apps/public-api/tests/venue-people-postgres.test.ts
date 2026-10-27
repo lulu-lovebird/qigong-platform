@@ -128,11 +128,13 @@ const httpRead = (
   });
 };
 
-describe.skipIf(!directory)('venue people: isolated PG16/17 integrated 54 migrations', () => {
+describe.skipIf(!directory)('venue people: isolated PG16/17 integrated 55 migrations', () => {
   beforeAll(async () => {
     if (
       !directory ||
-      !/^\/tmp\/(?:venue-people-pg\.|venue-suite-people-)[A-Za-z0-9]+$/.test(directory)
+      !/^\/tmp\/(?:venue-people-pg\.|venue-suite-people-|venue-debug-(?:integration-)?)[A-Za-z0-9]+$/.test(
+        directory
+      )
     )
       throw new Error('isolated harness required');
     const actual = await realpath(directory);
@@ -172,15 +174,16 @@ describe.skipIf(!directory)('venue people: isolated PG16/17 integrated 54 migrat
     expect(files.filter((f) => Number(f.slice(0, 4)) > 51)).toEqual([
       '0052_venue_personal_history.sql',
       '0053_venue_management.sql',
-      venuePeopleMigrationVersion
+      venuePeopleMigrationVersion,
+      '0055_venue_distance_debug.sql'
     ]);
-    expect(files).toHaveLength(54);
+    expect(files).toHaveLength(55);
     // Adversarial default ACL exists ONLY in this fresh disposable cluster.
     await owner.query(`CREATE ROLE venue_people_default_acl_fixture NOLOGIN NOINHERIT;
       ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO venue_people_default_acl_fixture`);
     const result = await runMigrations(owner, migrations, 'synthetic-venue-people-only');
     expect(result.applied).toEqual(files);
-    expect(result.currentVersion).toBe(venuePeopleMigrationVersion);
+    expect(result.currentVersion).toBe('0055_venue_distance_debug.sql');
     expect((await runMigrations(owner, migrations)).applied).toEqual([]);
     expect((await owner.query('SELECT 1 FROM core.practice_fields')).rowCount).toBe(0);
     await owner.query(

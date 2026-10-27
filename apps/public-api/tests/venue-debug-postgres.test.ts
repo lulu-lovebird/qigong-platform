@@ -3,7 +3,12 @@ import { createHash, createHmac } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Pool } from 'pg';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildApp, checkStartupReadiness } from '../src/app.js';
+import { createVenuePeopleService } from '../src/venue-people-service.js';
+import { parseVenuePeopleQuery, encodeVenuePeopleCsv } from '../src/venue-people-helpers.js';
+import { readVenueQrAttendance } from '../src/venue-qr.js';
+import { parseVenueReadRequest } from '../src/venue-admin-read-contract.js';
 import { withRequestContext } from '@qigong/database';
 import { runMigrations } from '../../../packages/database/src/migrations.js';
 
@@ -68,7 +73,16 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
     runtime = new Pool({ ...options, user: 'venue_qr_test_login', max: 12 });
   }, 120000);
   beforeEach(async () => {
+    expect((await owner.query('SELECT 1 FROM platform.venue_debug_context')).rowCount).toBe(0);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => {
+        throw new Error('External APIs prohibited');
+      })
+    );
     await owner.query(`TRUNCATE core.field_attendance,platform.venue_debug_config;
+      UPDATE identity.people SET status='active';
+      UPDATE identity.onboarding_applications SET status='approved';
       UPDATE platform.learner_privacy_acceptances SET revoked_at=NULL;
       UPDATE identity.platform_identities SET revoked_at=NULL;
       UPDATE identity.person_interaction_channels SET valid_to=NULL;
@@ -78,6 +92,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
       [hash]
     );
   });
+  afterEach(() => vi.unstubAllGlobals());
   afterAll(async () => {
     await runtime?.end();
     await owner?.end();
@@ -133,6 +148,23 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
     await expect(checkin(true, 'tw-location-test', -25, -40)).rejects.toMatchObject({
       code: '42501'
     });
+    await expect(checkin(true, 'tw-location-test', -25, 40)).rejects.toMatchObject({
+      code: '42501'
+    });
+    const otherRequest = crypto.randomUUID();
+    const issued = Math.floor(Date.now() / 1000);
+    const proof = createHmac('sha256', Buffer.from(hash, 'hex'))
+      .update([otherRequest, subject, 'tw-location-test', issued].join('|'))
+      .digest('hex');
+    // Even a valid proof for a different transaction nonce cannot authorize this one.
+    await expect(
+      call('SELECT platform.venue_debug_checkin($1,$2,-25,121,$3,$4)', [
+        subject,
+        'tw-location-test',
+        issued,
+        proof
+      ])
+    ).rejects.toMatchObject({ code: '42501' });
     await expect(
       call('SELECT platform.venue_debug_checkin($1,$2,25,121,$3,$4)', [
         subject,
@@ -180,6 +212,242 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
     expect(JSON.stringify(test)).not.toMatch(/personId|latitude|longitude|synthetic-only/);
     expect(test.totals).toEqual(formal.totals);
   });
+  it('full HTTP success uses actual GPS, preserves all identity claims and redacts headers/proofs/GPS', async () => {
+    let logs = '';
+    const origin = 'https://synthetic.invalid';
+    const config = {
+      enabled: true as const,
+      expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      tokenHash: hash
+    };
+    const app = buildApp({
+      pool: runtime,
+      logStream: {
+        write: (chunk: string) => {
+          logs += chunk;
+        }
+      },
+      venueQr: { enabled: true, publicOrigin: origin, debug: config },
+      venueSuite: { history: { enabled: true, publicOrigin: origin } },
+      line: {
+        channelSecret: 'synthetic-secret',
+        channelAccessToken: 'synthetic-access',
+        loginChannelId: '123',
+        liffId: '123-test'
+      }
+    });
+    const claims = {
+      sub: subject,
+      aud: '123',
+      iss: 'https://access.line.me',
+      exp: Math.floor(Date.now() / 1000) + 3600
+    };
+    const verified = vi.fn(async () => new Response(JSON.stringify(claims)));
+    vi.stubGlobal('fetch', verified);
+    const send = (debugToken: string | undefined = fixtureToken, venue = 'tw-location-test') =>
+      app.inject({
+        method: 'POST',
+        url: '/api/line/venue-checkin',
+        headers: {
+          origin,
+          'x-venue-checkin': '1',
+          ...(debugToken === undefined ? {} : { 'x-venue-debug-token': debugToken })
+        },
+        payload: {
+          idToken: 'synthetic-identity-private',
+          venue,
+          latitude: -25.1234567,
+          longitude: 121.9876543
+        }
+      });
+    try {
+      expect(
+        await checkStartupReadiness(
+          runtime,
+          true,
+          { history: { enabled: true, publicOrigin: origin } },
+          true
+        )
+      ).toMatchObject({ ready: true });
+      for (const patch of [
+        { aud: 'wrong-channel' },
+        { iss: 'https://wrong-issuer.invalid' },
+        { exp: 0 }
+      ]) {
+        verified.mockImplementationOnce(
+          async () => new Response(JSON.stringify({ ...claims, ...patch }))
+        );
+        expect((await send()).statusCode).toBe(401);
+      }
+      expect((await send('wrong'.repeat(8))).json()).toMatchObject({ error: 'venue_debug_denied' });
+      expect((await send(fixtureToken, 'tw-test-two')).statusCode).toBe(403);
+      const success = await send();
+      expect(success.statusCode).toBe(200);
+      expect(success.json()).toMatchObject({
+        ok: true,
+        isTest: true,
+        verificationMode: 'distance_debug',
+        replayed: false
+      });
+      expect(success.headers['cache-control']).toBe('no-store');
+      expect((await send()).json()).toMatchObject({ isTest: true, replayed: true });
+      const history = (view?: string) =>
+        app.inject({
+          method: 'POST',
+          url: '/api/line/venue-history',
+          headers: { origin, 'x-venue-history': '1' },
+          payload: { idToken: 'synthetic-identity-private', ...(view ? { view } : {}) }
+        });
+      expect((await history()).json()).toMatchObject({
+        totals: { attendanceCount: 0, attendanceDays: 0, monthCount: 0 },
+        entries: []
+      });
+      expect((await history('test')).json().entries).toEqual([
+        expect.objectContaining({ isTest: true, verificationMode: 'distance_debug' })
+      ]);
+      // The token-free path is still a real radius check, never an inferred test replay.
+      const normal = await app.inject({
+        method: 'POST',
+        url: '/api/line/venue-checkin',
+        headers: { origin, 'x-venue-checkin': '1' },
+        payload: {
+          idToken: 'synthetic-identity-private',
+          venue: 'tw-location-test',
+          latitude: -25.1234567,
+          longitude: 121.9876543
+        }
+      });
+      expect(normal.json()).toMatchObject({ error: 'outside_radius' });
+      await owner.query(
+        "UPDATE platform.venue_debug_config SET expires_at=clock_timestamp()-interval '1 second'"
+      );
+      expect((await send()).json()).toMatchObject({ error: 'venue_debug_denied' });
+      const audit = await owner.query<{ data: unknown }>(
+        'SELECT metadata AS data FROM audit.events'
+      );
+      expect(JSON.stringify(audit.rows)).not.toMatch(
+        /synthetic-only|synthetic-identity-private|proof|token|latitude|longitude|-25\.1234567|121\.9876543/
+      );
+      expect(logs).not.toMatch(
+        /synthetic-only|synthetic-identity-private|proof|tokenHash|latitude|longitude|-25\.1234567|121\.9876543/
+      );
+      expect(await readFile(directory! + '/server.log', 'utf8')).not.toMatch(
+        /synthetic-only|synthetic-identity-private|-25\.1234567|121\.9876543/
+      );
+    } finally {
+      await app.close();
+    }
+  });
+  it('excludes tests from all venue admin read/export/people/detail totals and leaves daily rewards unchanged', async () => {
+    const daily = () =>
+      owner.query<{ data: unknown }>(
+        `SELECT jsonb_build_object('metrics',core.practice_metrics('20000000-0000-4000-8000-000000000001',CURRENT_DATE),'checkins',(SELECT count(*) FROM core.checkins),'badges',(SELECT count(*) FROM core.person_practice_badges),'jobs',(SELECT count(*) FROM ops.practice_badge_jobs),'transitions',(SELECT count(*) FROM audit.achievement_transitions)) AS data`
+      );
+    const before = (await daily()).rows;
+    const scope = (
+      await owner.query<{ id: string }>("SELECT id FROM core.regions WHERE code='tw-general'")
+    ).rows[0]!.id;
+    const dates = (
+      await owner.query<{ from: string; until: string }>(
+        'SELECT (CURRENT_DATE-2)::text AS from,(CURRENT_DATE+3)::text AS until'
+      )
+    ).rows[0]!;
+    const read = (exporting: boolean) =>
+      readVenueQrAttendance(
+        runtime,
+        crypto.randomUUID(),
+        (exporting ? 'e' : 'v').repeat(43),
+        parseVenueReadRequest({
+          operation: exporting ? 'attendance.export' : 'attendance.read',
+          regionId: scope,
+          ...dates,
+          filters: { fieldId: null, method: null },
+          ...(exporting ? {} : { page: 1, limit: 100 })
+        })
+      );
+    const people = (mode: 'people' | 'detail', exporting: boolean) => {
+      const query = parseVenuePeopleQuery({
+        mode,
+        regionId: scope,
+        fieldId: null,
+        personId: mode === 'detail' ? '20000000-0000-4000-8000-000000000001' : null,
+        period: dates,
+        search: '',
+        sort: 'recent',
+        direction: 'desc',
+        page: 1,
+        limit: 20
+      });
+      return createVenuePeopleService(runtime).read(
+        crypto.randomUUID(),
+        (exporting ? 'e' : 'v').repeat(43),
+        query,
+        exporting
+      );
+    };
+    await checkin();
+    for (const exporting of [false, true]) {
+      expect(await read(exporting)).toMatchObject({
+        totals: { attendanceCount: 0, attendanceDays: 0, learnerCount: 0 },
+        rows: []
+      });
+      for (const mode of ['people', 'detail'] as const) {
+        const result = await people(mode, exporting);
+        expect(result).toMatchObject({
+          total: 0,
+          totals: { attendanceCount: 0, attendanceDays: 0, learnerCount: 0 },
+          rows: []
+        });
+        if (exporting) expect(encodeVenuePeopleCsv(result)).not.toContain('SYNTHETIC');
+      }
+    }
+    await checkin(false, 'tw-location-test', 25);
+    for (const exporting of [false, true]) {
+      expect(await read(exporting)).toMatchObject({
+        totals: { attendanceCount: 1, attendanceDays: 1, learnerCount: 1 }
+      });
+      for (const mode of ['people', 'detail'] as const) {
+        const result = await people(mode, exporting);
+        expect(result).toMatchObject({
+          total: 1,
+          totals: { attendanceCount: 1, attendanceDays: 1, learnerCount: 1 }
+        });
+        expect(result.rows).toHaveLength(1);
+      }
+    }
+    const formal = (
+      await call("SELECT platform.venue_personal_history('line',$1) AS data", [subject])
+    ).rows[0]?.data;
+    expect(formal.totals).toEqual({ attendanceCount: 1, attendanceDays: 1, monthCount: 1 });
+    expect(formal.entries).toHaveLength(1);
+    expect((await daily()).rows).toEqual(before);
+  });
+  it('revalidates active and approved people, channel, venue status and DB expiry on every replay', async () => {
+    await checkin();
+    for (const [disable, restore] of [
+      [
+        "UPDATE identity.person_interaction_channels SET valid_to=clock_timestamp(); UPDATE identity.people SET status='suspended'",
+        "UPDATE identity.people SET status='active'; UPDATE identity.person_interaction_channels SET valid_to=NULL"
+      ],
+      [
+        "UPDATE identity.onboarding_applications SET status='rejected',person_id=NULL,rejection_reason='Synthetic rejection'",
+        "UPDATE identity.onboarding_applications SET status='approved',person_id='20000000-0000-4000-8000-000000000001',rejection_reason=NULL"
+      ],
+      [
+        'UPDATE identity.person_interaction_channels SET valid_to=clock_timestamp()',
+        'UPDATE identity.person_interaction_channels SET valid_to=NULL'
+      ],
+      [
+        'UPDATE core.practice_fields SET is_active=FALSE',
+        'UPDATE core.practice_fields SET is_active=TRUE'
+      ]
+    ]) {
+      await owner.query(disable!);
+      await expect(checkin()).rejects.toMatchObject({ code: '42501' });
+      await owner.query(restore!);
+    }
+    expect((await owner.query('SELECT 1 FROM core.field_attendance')).rowCount).toBe(1);
+  });
   it('denies direct table/context/key/role access and forged GUC authorization', async () => {
     for (const sql of [
       'SELECT * FROM platform.venue_debug_config',
@@ -204,6 +472,28 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
       )
     ).rows;
     expect(roles).toEqual([{ rolcanlogin: false, rolsuper: false, rolbypassrls: false }]);
+    expect(
+      (await owner.query("SELECT 1 FROM pg_class WHERE relowner='qigong_venue_debug'::regrole"))
+        .rowCount
+    ).toBe(0);
+    expect(
+      (
+        await owner.query(
+          "SELECT 1 FROM pg_class WHERE oid IN ('core.field_attendance'::regclass,'core.practice_fields'::regclass,'platform.venue_debug_context'::regclass,'platform.venue_debug_config'::regclass,'audit.events'::regclass) AND (NOT relrowsecurity OR NOT relforcerowsecurity)"
+        )
+      ).rowCount
+    ).toBe(0);
+    const execution = await owner.query<{
+      signature: string;
+      api: boolean;
+      worker: boolean;
+      public_access: boolean;
+    }>(
+      `SELECT p.oid::regprocedure::text signature,has_function_privilege('qigong_api_runtime',p.oid,'EXECUTE') api,has_function_privilege('qigong_worker_runtime',p.oid,'EXECUTE') worker,EXISTS(SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE') public_access FROM pg_proc p WHERE p.oid IN ('platform.venue_debug_checkin(text,text,double precision,double precision,bigint,text)'::regprocedure,'platform.venue_debug_history(text,text,text,text,bigint)'::regprocedure)`
+    );
+    expect(execution.rows).toHaveLength(2);
+    for (const row of execution.rows)
+      expect(row).toMatchObject({ api: true, worker: false, public_access: false });
     expect(
       (
         await owner.query(
