@@ -25,7 +25,16 @@ const line = {
   verifyIdentity: vi.fn(async () => ({ subject }))
 };
 const fixture = (version = venueSuiteMigrationVersion, capable = true) => {
+  const managed: { value: { code: string; name: string; active: boolean } | null; fail: boolean } =
+    {
+      value: { code: 'tw-test-one', name: '<Synthetic venue>', active: true },
+      fail: false
+    };
   const query = vi.fn(async (sql: string, values?: unknown[]) => {
+    if (sql.includes('venue_management_lookup')) {
+      if (managed.fail) throw new Error('private diagnostics');
+      return { rows: [{ data: managed.value }] };
+    }
     if (sql.includes(' AS ready')) return { rows: [{ ready: capable }] };
     if (sql.includes('schema_migrations')) return { rows: [{ version }] };
     if (sql.includes('FROM pg_roles'))
@@ -87,7 +96,7 @@ const fixture = (version = venueSuiteMigrationVersion, capable = true) => {
     connect: async () => ({ query, release: vi.fn() }),
     query: async () => ({ rows: [] })
   } as unknown as Pool;
-  return { pool, query };
+  return { pool, query, managed };
 };
 const apps: ReturnType<typeof buildApp>[] = [];
 const appFor = (
@@ -192,6 +201,27 @@ describe('venue suite through buildApp', () => {
       expect(response.body).not.toContain('private');
     }
     expect((await app.inject('/line/')).statusCode).toBe(200);
+  });
+  it('trusted public lookup resolves real names and stops inactive, missing or failed entries before redirect', async () => {
+    const f = fixture(),
+      app = appFor(f);
+    const path = '/venue-checkin?venue=tw-test-one&channel=line';
+    expect((await app.inject(path)).statusCode).toBe(303);
+    const page = await app.inject('/venue-checkin?venue=tw-test-one');
+    expect(page.body).toContain('&lt;Synthetic venue&gt;');
+    expect(page.body).not.toContain('場地代碼（未驗證）');
+    f.managed.value = { code: 'tw-test-one', name: '<Synthetic venue>', active: false };
+    const inactive = await app.inject(path);
+    expect(inactive.statusCode).toBe(410);
+    expect(inactive.headers.location).toBeUndefined();
+    expect(inactive.body).toContain('場地已停用');
+    expect(inactive.body).not.toContain('<a href=');
+    f.managed.value = null;
+    expect((await app.inject(path)).statusCode).toBe(404);
+    f.managed.fail = true;
+    const failed = await app.inject(path);
+    expect(failed.statusCode).toBe(503);
+    expect(failed.body).not.toContain('private diagnostics');
   });
   it('API binds verified self only; body identity overrides and cross-origin requests fail before verification', async () => {
     const f = fixture();

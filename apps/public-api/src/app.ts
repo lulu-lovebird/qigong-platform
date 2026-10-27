@@ -28,6 +28,7 @@ import {
 } from './telegram-onboarding.js';
 import { registerLineOnboarding, type LineConfig } from './line-onboarding.js';
 import { registerVenueEntry } from './venue-entry.js';
+import { lookupManagedVenue } from './venue-management.js';
 import { registerWhatsAppOnboarding, type WhatsAppConfig } from './whatsapp-onboarding.js';
 import { registerLearnerHelpPages } from './learner-help-page.js';
 import { registerFieldCheckinRoutes } from './field-checkin-routes.js';
@@ -437,7 +438,11 @@ export const buildApp = ({
     }
   });
 
-  registerVenueEntry(app, line?.liffId);
+  registerVenueEntry(
+    app,
+    line?.liffId,
+    suite.management ? (requestId, code) => lookupManagedVenue(pool, requestId, code) : undefined
+  );
   registerLearnerHelpPages(app);
   registerLearnerPrivacyRoutes(app, pool);
   registerExternalJournalRoutes(app, pool);

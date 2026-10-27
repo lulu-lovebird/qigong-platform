@@ -84,8 +84,46 @@ const texts = {
       'Attendance has NOT been recorded. This page requests no login or location. Source is not proof of identity, authenticity or presence.'
   }
 } as const;
-const renderEntry = (entry: VenueEntry | null, lineAvailable: boolean, lang: Locale): string => {
+export interface ManagedVenueEntry {
+  readonly code: string;
+  readonly name: string;
+  readonly active: boolean;
+}
+type ManagedVenueLookup = (requestId: string, code: string) => Promise<ManagedVenueEntry | null>;
+const renderEntry = (
+  entry: VenueEntry | null,
+  lineAvailable: boolean,
+  lang: Locale,
+  managed?: ManagedVenueEntry | null,
+  lookupFailed = false
+): string => {
   const t = texts[lang];
+  const allowed = (managed === undefined && !lookupFailed) || managed?.active === true;
+  const lookupNotice =
+    lang === 'en'
+      ? {
+          missing: 'Venue not found.',
+          disabled: 'Venue disabled. Check-in is unavailable.',
+          unavailable: 'Venue lookup unavailable. Please retry later.'
+        }
+      : lang === 'zh_CN'
+        ? {
+            missing: '场地不存在。',
+            disabled: '场地已停用，无法签到。',
+            unavailable: '场地查询暂不可用，请稍后再试。'
+          }
+        : {
+            missing: '場地不存在。',
+            disabled: '場地已停用，無法簽到。',
+            unavailable: '場地查詢暫不可用，請稍後再試。'
+          };
+  const venueDescription = lookupFailed
+    ? lookupNotice.unavailable
+    : managed === undefined
+      ? t.unknown
+      : managed === null
+        ? lookupNotice.missing
+        : escapeHtml(managed.name) + (managed.active ? '' : ' — ' + lookupNotice.disabled);
   const query = entry
     ? new URLSearchParams({
         venue: entry.venue,
@@ -99,16 +137,20 @@ const renderEntry = (entry: VenueEntry | null, lineAvailable: boolean, lang: Loc
 <style>body{font:1.2rem/1.6 system-ui,sans-serif;max-width:36rem;margin:auto;padding:1rem;color:#18251d;background:#f7faf7}a{display:block;min-height:48px;padding:.5rem;border:2px solid #23623b;border-radius:.5rem;color:#164b2a}a:focus-visible{outline:3px solid #2358bc;outline-offset:4px}code{overflow-wrap:anywhere}footer{margin-top:2rem;font-size:.9rem}</style></head>
 <body><main><h1>${t.title}</h1>${
     entry && query
-      ? `<p>${t.venue}: <code>${escapeHtml(entry.venue)}</code></p><p>${t.unknown}</p>${lineAvailable ? `<a href="/venue-checkin?${escapeHtml(query.toString())}">${t.line}</a>` : `<p role="status">${t.unavailable}</p>`}<p>${t.pending}</p>`
+      ? `<p>${managed ? '' : t.venue + ': '}<code>${escapeHtml(entry.venue)}</code></p><p role="status">${venueDescription}</p>${allowed && lineAvailable ? `<a href="/venue-checkin?${escapeHtml(query.toString())}">${t.line}</a>` : allowed ? `<p role="status">${t.unavailable}</p>` : ''}<p>${t.pending}</p>`
       : `<p role="alert">${t.invalid}</p>`
   }<p>${t.notice}</p></main><footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer></body></html>`;
 };
 
 // No pool or learner-write adapter is accepted at this anonymous boundary.
-export const registerVenueEntry = (app: FastifyInstance, liffId?: string) => {
+export const registerVenueEntry = (
+  app: FastifyInstance,
+  liffId?: string,
+  lookup?: ManagedVenueLookup
+) => {
   // Match the existing safe ID policy; never interpret configuration as a URL or path.
   const lineAvailable = typeof liffId === 'string' && /^[A-Za-z0-9-]{1,100}$/.test(liffId);
-  app.get('/venue-checkin', (request, reply) => {
+  app.get('/venue-checkin', async (request, reply) => {
     reply
       .header('cache-control', 'no-store')
       .header('referrer-policy', 'no-referrer')
@@ -120,8 +162,25 @@ export const registerVenueEntry = (app: FastifyInstance, liffId?: string) => {
         "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
       );
     const entry = parseEntry(request.url, request.headers.cookie);
+    let managed: ManagedVenueEntry | null | undefined;
+    let lookupFailed = false;
+    if (entry && lookup) {
+      try {
+        managed = await lookup(request.id, entry.venue);
+        if (managed && managed.code !== entry.venue) throw new Error('invalid venue binding');
+        if (managed === null) reply.code(404);
+        else if (!managed.active) reply.code(410);
+      } catch {
+        lookupFailed = true;
+        reply.code(503);
+      }
+    }
     if (!entry) reply.code(400);
-    else if (entry.channel === 'line') {
+    else if (
+      !lookupFailed &&
+      (managed === undefined || managed?.active) &&
+      entry.channel === 'line'
+    ) {
       if (lineAvailable) {
         // Only the fixed official origin and server-owned ID, never Host/query/callback input.
         const suffix = venuePreviewUrl(entry).slice('/line'.length);
@@ -133,6 +192,6 @@ export const registerVenueEntry = (app: FastifyInstance, liffId?: string) => {
     }
     return reply
       .type('text/html; charset=utf-8')
-      .send(renderEntry(entry, lineAvailable, entry?.lang ?? 'zh_TW'));
+      .send(renderEntry(entry, lineAvailable, entry?.lang ?? 'zh_TW', managed, lookupFailed));
   });
 };
