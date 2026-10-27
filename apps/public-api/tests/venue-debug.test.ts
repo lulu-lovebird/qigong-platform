@@ -10,6 +10,7 @@ import { loadVenueDebugConfig, validateVenueDebugConfig } from '../src/venue-deb
 const token = 'synthetic-distance-fixture-only-token';
 const debug = () => ({
   enabled: true as const,
+  venueCode: 'tw-taipei-cks' as const,
   tokenHash: createHash('sha256').update(token).digest('hex'),
   expiresAt: new Date(Date.now() + 3600000).toISOString()
 });
@@ -17,7 +18,7 @@ const subject = 'U' + 'a'.repeat(32);
 const requestId = '30000000-0000-4000-8000-000000000001';
 const input = {
   idToken: 'synthetic-id-token',
-  venue: 'tw-location-test',
+  venue: 'tw-taipei-cks',
   latitude: -25,
   longitude: 121
 };
@@ -35,7 +36,7 @@ const mock = () => {
     void params;
     if (sql.includes(' AS ready')) return { rows: [{ ready: true }] };
     if (sql.includes('schema_migrations'))
-      return { rows: [{ version: '0055_venue_distance_debug.sql' }] };
+      return { rows: [{ version: '0056_venue_cks_distance_debug.sql' }] };
     if (sql.includes('FROM pg_roles'))
       return {
         rows: [
@@ -98,6 +99,37 @@ describe('distance debug API authority (mock SQL / LINE)', () => {
       validateVenueDebugConfig({ ...debug(), expiresAt: new Date(0).toISOString() })
     ).toThrow();
     expect(() => validateVenueDebugConfig({ ...debug(), tokenHash: token })).toThrow();
+    expect(() =>
+      validateVenueDebugConfig({
+        ...debug(),
+        expiresAt: new Date(Date.now() + 3601000).toISOString()
+      })
+    ).toThrow();
+    for (const venueCode of [
+      undefined,
+      '',
+      'tw-location-test',
+      'tw-other',
+      'tw-location-test,tw-taipei-cks',
+      '*'
+    ]) {
+      expect(() =>
+        loadVenueDebugConfig({
+          VENUE_DISTANCE_DEBUG_ENABLED: 'true',
+          VENUE_DISTANCE_DEBUG_VENUE_CODE: venueCode,
+          VENUE_DISTANCE_DEBUG_EXPIRES_AT: debug().expiresAt,
+          VENUE_DISTANCE_DEBUG_TOKEN_SHA256: debug().tokenHash
+        })
+      ).toThrow('invalid venue debug configuration');
+    }
+    expect(
+      loadVenueDebugConfig({
+        VENUE_DISTANCE_DEBUG_ENABLED: 'true',
+        VENUE_DISTANCE_DEBUG_VENUE_CODE: 'tw-taipei-cks',
+        VENUE_DISTANCE_DEBUG_EXPIRES_AT: debug().expiresAt,
+        VENUE_DISTANCE_DEBUG_TOKEN_SHA256: debug().tokenHash
+      })
+    ).toMatchObject({ venueCode: 'tw-taipei-cks' });
   });
   it.each([undefined, '', 'wrong'.repeat(8), [token, token]])(
     'rejects supplied invalid token or disabled configuration (%s)',
@@ -141,9 +173,10 @@ describe('distance debug API authority (mock SQL / LINE)', () => {
     expect(nonce).not.toBe(requestId);
     expect(nonce).toMatch(/^[0-9a-f-]{36}$/);
     expect(logger).toHaveBeenCalledExactlyOnceWith({ auditRequestId: nonce });
-    expect(params[5]).toBe(
+    expect(params[5]).toBe(Date.parse(config.expiresAt));
+    expect(params[6]).toBe(
       createHmac('sha256', Buffer.from(config.tokenHash, 'hex'))
-        .update([nonce, subject, input.venue, params[4]].join('|'))
+        .update([nonce, subject, input.venue, params[4], params[5]].join('|'))
         .digest('hex')
     );
     expect(JSON.stringify(m.query.mock.calls)).not.toContain(token);
@@ -158,9 +191,8 @@ describe('distance debug API authority (mock SQL / LINE)', () => {
     const m = mock(),
       config = debug();
     const checkin = createVenueQrCheckin(m.pool, m.line, config);
-    expect((await checkin(requestId, { ...input, venue: 'tw-other-venue' }, token)).status).toBe(
-      403
-    );
+    for (const venue of ['tw-other-venue', 'tw-location-test'])
+      expect((await checkin(requestId, { ...input, venue }, token)).status).toBe(403);
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse(config.expiresAt) + 1);
     try {
       expect((await checkin(requestId, input, token)).status).toBe(403);
@@ -187,13 +219,17 @@ describe('distance debug API authority (mock SQL / LINE)', () => {
     expect(result).toMatchObject({ status: 403, body: { error: 'venue_debug_denied' } });
     expect(JSON.stringify(result)).not.toContain(token);
   });
-  it('requires exact 0055 and independent debug capability; feature-off stays compatible', async () => {
+  it('requires exact 0056 and independent debug capability; feature-off stays compatible', async () => {
     const m = mock();
     expect(await checkStartupReadiness(m.pool, true, {}, true)).toMatchObject({ ready: true });
     expect(await checkStartupReadiness(m.pool, false)).toMatchObject({ ready: true });
     expect(await checkStartupReadiness(m.pool, false, {}, true)).toMatchObject({ ready: false });
     expect(apiLogRedaction.paths).toContain('req.headers.x-venue-debug-token');
-    for (const version of ['0054_venue_people_read.sql', '0055_other.sql', '0056_future.sql']) {
+    for (const version of [
+      '0054_venue_people_read.sql',
+      '0055_venue_distance_debug.sql',
+      '0056_future.sql'
+    ]) {
       const query = vi.fn(async () => ({ rows: [{ version }] }));
       const pool = { connect: async () => ({ query, release: vi.fn() }) } as unknown as Pool;
       expect(await checkStartupReadiness(pool, true, {}, true)).toMatchObject({

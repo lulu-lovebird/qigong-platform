@@ -1,23 +1,33 @@
 /** Developed with ❤️ by Bean, Bird & Badminton Tech Consulting */
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
-export const venueDebugMigrationVersion = '0055_venue_distance_debug.sql';
+export const venueDebugMigrationVersion = '0056_venue_cks_distance_debug.sql';
+export const venueDebugVenueCode = 'tw-taipei-cks' as const;
 export const venueDebugLabel = '異地測試，未計入正式出席';
 /** Server-owned, never serialized to pages. DB enablement is separately owner-provisioned. */
 export interface VenueDebugConfig {
   readonly enabled: true;
+  readonly venueCode: typeof venueDebugVenueCode;
   readonly expiresAt: string;
   readonly tokenHash: string;
 }
 export const validateVenueDebugConfig = (config: VenueDebugConfig): VenueDebugConfig => {
   if (
     config.enabled !== true ||
+    config.venueCode !== venueDebugVenueCode ||
     !/^[0-9a-f]{64}$/.test(config.tokenHash) ||
     !Number.isFinite(Date.parse(config.expiresAt)) ||
-    Date.parse(config.expiresAt) <= Date.now()
+    Date.parse(config.expiresAt) <= Date.now() ||
+    Date.parse(config.expiresAt) > Date.now() + 3600000 ||
+    new Date(Date.parse(config.expiresAt)).toISOString() !== config.expiresAt
   )
     throw new Error('invalid venue debug configuration');
-  return Object.freeze({ enabled: true, expiresAt: config.expiresAt, tokenHash: config.tokenHash });
+  return Object.freeze({
+    enabled: true,
+    venueCode: config.venueCode,
+    expiresAt: config.expiresAt,
+    tokenHash: config.tokenHash
+  });
 };
 export const loadVenueDebugConfig = (source: NodeJS.ProcessEnv): VenueDebugConfig | undefined => {
   const enabled = source.VENUE_DISTANCE_DEBUG_ENABLED ?? 'false';
@@ -25,6 +35,7 @@ export const loadVenueDebugConfig = (source: NodeJS.ProcessEnv): VenueDebugConfi
   if (enabled !== 'true') throw new Error('invalid venue debug configuration');
   return validateVenueDebugConfig({
     enabled: true,
+    venueCode: source.VENUE_DISTANCE_DEBUG_VENUE_CODE as typeof venueDebugVenueCode,
     expiresAt: source.VENUE_DISTANCE_DEBUG_EXPIRES_AT ?? '',
     tokenHash: source.VENUE_DISTANCE_DEBUG_TOKEN_SHA256 ?? ''
   });
@@ -40,7 +51,12 @@ export const acceptsVenueDebugToken = (
     createHash('sha256').update(token, 'utf8').digest(),
     Buffer.from(config.tokenHash, 'hex')
   );
-  return matches && venue === 'tw-location-test' && Date.parse(config.expiresAt) > Date.now();
+  return (
+    matches &&
+    venue === venueDebugVenueCode &&
+    venue === config.venueCode &&
+    Date.parse(config.expiresAt) > Date.now()
+  );
 };
 /** Only sent as a parameter inside the request transaction; raw token never enters SQL. */
 export const venueDebugProof = (
@@ -51,5 +67,7 @@ export const venueDebugProof = (
   issued: number
 ): string =>
   createHmac('sha256', Buffer.from(config.tokenHash, 'hex'))
-    .update([requestId.toLowerCase(), subject, venue, issued].join('|'))
+    .update(
+      [requestId.toLowerCase(), subject, venue, issued, Date.parse(config.expiresAt)].join('|')
+    )
     .digest('hex');

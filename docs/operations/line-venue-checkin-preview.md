@@ -8,7 +8,27 @@
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 
-## 狀態與五檔範圍
+## 2026-10-27：本地整合語言偏好（覆蓋下方歷史語言行為）
+
+本節是 `feature/venue-cks-distance-debug`／程式整合 commit `68d83c4` 的新契約，不是部署、真 LINE 或手機驗收。整合 commits、PG17／full 結果與父 review gates 見 [CKS 最終本地整合](venue-cks-debug-verification.md)。下方「不讀寫偏好」、Node26、舊測試數量均屬當時 preview 批次，不代表本次。
+
+- `VenuePreviewEntry.explicitLang?: boolean`：parser 永遠提供 true／false；僅合法且真提供 query lang 為 true。缺少 lang 時 presentation cookie／fallback 不當 explicit。`venuePreviewUrl` 對 false 不補 lang；舊 server-built entry 未提供欄位時維持 localized URL 相容。
+- `lineLoginScript(liffId, lang, canonical, { explicitLocale: entry.explicitLang === false ? null : lang })` 在伺服器呼叫；controller 使用安全 serialized `previewInitial`，沒有引用不存在的 browser `entry`。
+- 語言權威：**explicit 合法 lang → 有效 presentation cookie → SDK 登入後讀已儲存偏好 → zh_TW**。cookie 可蓋過較新的跨裝置偏好，這是既有契約，不在開頁時另做同步。
+- 無 query lang／cookie 的 live 簽到入口，SDK init／登入／取得 ID token 後只 POST `/line/preferences/language` `{idToken}`；不送 locale、不寫 cookie、不自動提交出席／日課。不同 stored 語言導向同一 venue／source 且帶合法 lang，因此下一頁不重複 lookup。讀取失敗 fallback 仍不繞過後續身份／同意驗證。
+- 外部 login／callback cleanup／語言導航只保留 allowlisted venue／source／明確 lang；不使用 callback redirect URI、不把 fragment／OAuth code／state／token 放續接或 POST payload。primary `liff.state` 只 SDK init，沒有 preferences／check-in／GPS／cookie／URL mutation；登入回跳失敗停止循環。
+- 手動選語言須取得**當下** SDK 登入狀態與 ID token，POST `{idToken,locale}` 成功後才寫 `__Host-qigong-learner-locale`（Path=/、Secure、SameSite=Lax）及導頁。failure 保留原 selector／原頁文字、顯示三語錯誤與重選重試提示，不 silent cookie、不 fake identity。debug 密碼及記憶體在切語言／pagehide 清空，不入 URL／storage／log。
+- 偏好 lookup 的 switching 導頁保留 busy，不誤報 login-expired；手動切換成功也不在 finally 提早解鎖。定位 pending／check-in POST pending／language POST pending 都拒絕重複或 programmatic handler；所有 debug controls 一併鎖住。
+- 簽到 click 與 GPS callback 發送前再取 SDK credential；缺 token／未登入／SDK throw／401 均清空憑證、保持簽到停用，既有日課導航保留。HTTP 503／GPS 失敗可明確重試；debug 失敗清 token 但保留 test mode，須重新人工輸碼，不自動退為正式簽到。成功出席舊頁不可再簽到，但仍可選語言。
+- CKS-only、有限期限、真 GPS、身份／同意／場地／時段及 proof scope 完整保留；沒有改 app／後端／API 開關／migration／RLS／grant。預設 preview **沒有因此啟用 live 或改 CSP**；其既有 CSP 不允 self fetch，不能把 VM mocked preference 測試宣稱為 preview 真網路驗收。
+
+### 實跑與未驗
+
+Node24；四套 history／learner application／invite／check-in 原 **237 passed** 在 cherry-pick 後全保留，check-in 加 32 項後為 **269 passed**。加原 debug UI 4＋QR 38，六套 **311 passed／0 skip**。新測試執行真 renderer inline script／lineReady（SDK、DOM、network mocks），涵蓋三種 stored locale、explicit／cookie／invalid cookie、登入前／primary 禁止 request、callback cleanup、fresh token、POST 成功／失敗／重試、導頁 busy、GPS／submit pending、身份失效與 debug secret 清理。沒有拿字串包含斷言替代 controller 執行，也沒有刪舊安全斷言。
+
+整合 full **3131 passed／59 skipped**（skip 界線見交接文件）；fresh PG17 focused **49／0 skip**＋history **17／0 skip**。full 包含 build／format／lint／typecheck、source-tests strict tsc、receipt-health tsc，非沿用單分支結果。無 PG16 installed server，未跑、不安裝；沒有讀 `.env`、連正式 DB／LINE、產生正式 token／flag、push／merge／PR／部署。仍需父安全 review 與本人手機／LINE 驗收；本地 VM 不等於完整瀏覽器或真人 acceptance。
+
+## 狀態與五檔範圍（preview 歷史）
 
 基於 `6367de209e45881887b03e5498106cdc127f844f`，開始時工作區乾淨。
 本批只修改以下五檔；沒有部署，公開網址範例不代表線上已提供此預覽。

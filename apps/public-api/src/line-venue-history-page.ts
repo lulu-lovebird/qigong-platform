@@ -10,6 +10,9 @@ import {
 
 export interface VenueHistoryEntry {
   readonly lang: Locale;
+  // Resolved presentation locale is not evidence of an explicit query parameter.
+  // Optional for compatibility with callers constructing an already-localized entry.
+  readonly explicitLang?: boolean;
   readonly month?: string;
   readonly venue?: string;
   readonly page?: number;
@@ -81,6 +84,7 @@ export const venueHistoryRequest = (rawUrl: string, cookie?: string): VenueHisto
       kind: 'history',
       entry: {
         lang: resolveLocale({ lang }, cookie),
+        explicitLang: lang !== null,
         ...(month === null ? {} : { month }),
         ...(venue === null ? {} : { venue }),
         ...(page === null ? {} : { page: Number(page) })
@@ -95,8 +99,8 @@ export const venueHistoryUrl = (entry: VenueHistoryEntry): string => {
   if (entry.month) query.set('month', entry.month);
   if (entry.venue) query.set('venue', entry.venue);
   if (entry.page && entry.page !== 1) query.set('page', String(entry.page));
-  query.set('lang', entry.lang);
-  return path + '?' + query.toString();
+  if (entry.explicitLang !== false) query.set('lang', entry.lang);
+  return path + (query.size ? '?' + query.toString() : '');
 };
 const escapeHtml = (value: string) =>
   value.replace(
@@ -116,6 +120,7 @@ const texts = {
     title: '我的團練紀錄',
     intro: '登入後僅查詢本人出席紀錄，不需要定位；團練出席與日課分開計算。',
     language: '介面語言',
+    languageFailed: '語言設定失敗，請稍後再試。',
     month: '月份（選填）',
     venue: '場地代碼（選填）',
     filters: '留白查詢所有月份／場地。場地請輸入完整代碼；這不是全部場地清單，可向老師確認代碼。',
@@ -143,6 +148,7 @@ const texts = {
     title: '我的团练记录',
     intro: '登录后仅查询本人出席记录，不需要定位；团练出席与日课分开计算。',
     language: '界面语言',
+    languageFailed: '语言设置失败，请稍后重试。',
     month: '月份（选填）',
     venue: '场地代码（选填）',
     filters: '留白查询所有月份／场地。场地请输入完整代码；这不是全部场地清单，可向老师确认代码。',
@@ -171,6 +177,7 @@ const texts = {
     intro:
       'Sign in to view only your own attendance. No location is requested. Attendance is separate from daily practice.',
     language: 'Language',
+    languageFailed: 'Language could not be saved. Please retry.',
     month: 'Month (optional)',
     venue: 'Venue code (optional)',
     filters:
@@ -226,12 +233,12 @@ ${entry ? `<ul id="history-entries"></ul><p id="history-page"></p><nav aria-labe
 ${
   entry
     ? `<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script><script>
-${lineLoginScript(liffId, lang, canonical)}
+${lineLoginScript(liffId, lang, canonical, { explicitLocale: entry.explicitLang === false ? null : lang })}
 const historyText=${scriptJson(t)},historyInitial=${scriptJson(entry)},historyCanonical=${scriptJson(canonical)},historyLocale=${scriptJson(htmlLocale(lang))};
 const get=id=>document.getElementById('history-'+id);
 const main=get('main'),status=get('status'),language=get('language'),form=get('filters'),month=get('month'),venue=get('venue'),apply=get('apply'),totals=get('totals'),entries=get('entries'),previous=get('previous'),next=get('next'),retry=get('retry');
 let ready=false,busy=false,hasMore=false,page=historyInitial.page||1,activeMonth=historyInitial.month||'',activeVenue=historyInitial.venue||'';
-const canonicalUrl=()=>{const target=new URL(historyCanonical,location.href);target.search='';if(activeMonth)target.searchParams.set('month',activeMonth);if(activeVenue)target.searchParams.set('venue',activeVenue);if(page!==1)target.searchParams.set('page',String(page));target.searchParams.set('lang',language.value);return target.pathname+target.search;};
+const canonicalUrl=selectedLocale=>{const target=new URL(historyCanonical,location.href);target.search='';if(activeMonth)target.searchParams.set('month',activeMonth);if(activeVenue)target.searchParams.set('venue',activeVenue);if(page!==1)target.searchParams.set('page',String(page));if(selectedLocale||historyInitial.explicitLang!==false)target.searchParams.set('lang',selectedLocale||historyInitial.lang);return target.pathname+target.search;};
 const view=get('view');
 const controls=()=>{for(const node of [language,month,venue,apply,view])node.disabled=busy||!ready;previous.disabled=busy||!ready||page<=1;next.disabled=busy||!ready||!hasMore;retry.disabled=busy;main.setAttribute('aria-busy',String(busy));};
 const clear=()=>{entries.replaceChildren();totals.hidden=true;for(const id of ['count','days','month-count','month-period','page'])get(id).textContent='';hasMore=false;};
@@ -276,8 +283,22 @@ view.onchange=()=>{if(!ready||busy)return;page=1;void load();};
 previous.onclick=()=>{if(!previous.disabled){page-=1;void load();}};
 next.onclick=()=>{if(!next.disabled&&Number.isSafeInteger(page+1)){page+=1;void load();}};
 retry.onclick=()=>{if(busy)return;if(ready)void load();else location.replace('https://liff.line.me/'+encodeURIComponent(liffId)+canonicalUrl().slice('/line'.length));};
-language.onchange=()=>{if(!ready||busy||!['zh_TW','zh_CN','en'].includes(language.value))return;location.replace(canonicalUrl());};
-lineReady.then(()=>{ready=true;void load();}).catch(()=>{fail(linePrimaryRedirect?lineLoginText.primary:historyText.loginError);main.setAttribute('aria-busy','false');controls();});
+language.onchange=async()=>{
+  const selectedLocale=language.value;
+  if(!ready||busy||!['zh_TW','zh_CN','en'].includes(selectedLocale)||selectedLocale===historyInitial.lang){language.value=historyInitial.lang;return;}
+  busy=true;controls();
+  let navigating=false;
+  try{
+    const currentToken=liff.getIDToken()||'';
+    if(!liff.isLoggedIn()||!currentToken){ready=false;idToken='';language.value=historyInitial.lang;fail(historyText.loginError);return;}
+    const response=await fetch('/line/preferences/language',{method:'POST',cache:'no-store',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({idToken:currentToken,locale:selectedLocale})});
+    if(!response.ok)throw new Error('language');
+    document.cookie='__Host-qigong-learner-locale='+selectedLocale+'; Path=/; Max-Age=31536000; Secure; SameSite=Lax';
+    location.replace(canonicalUrl(selectedLocale));
+    navigating=true;
+  }catch{language.value=historyInitial.lang;status.textContent=historyText.languageFailed;}finally{if(!navigating){busy=false;controls();}}
+};
+lineReady.then(()=>{ready=true;void load();}).catch(error=>{if(error?.message===lineLoginText.switching){busy=true;retry.hidden=true;status.textContent=lineLoginText.switching;controls();return;}fail(linePrimaryRedirect?lineLoginText.primary:historyText.loginError);main.setAttribute('aria-busy','false');controls();});
 </script>`
     : ''
 }</body></html>`;

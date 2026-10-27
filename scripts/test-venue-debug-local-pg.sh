@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="/opt/homebrew/opt/node@24/bin:/opt/homebrew/opt/postgresql@17/bin:$PATH"
 export LANG=C LC_ALL=C TZ=UTC
-case ${1:-debug} in debug|focused|full|all) ;; *) printf 'Expected debug, focused, full or all\n' >&2; exit 1 ;; esac
+case ${1:-debug} in debug|migration|focused|full|all) ;; *) printf 'Expected debug, migration, focused, full or all\n' >&2; exit 1 ;; esac
 for tool in node pnpm initdb pg_ctl createdb; do
   command -v "$tool" >/dev/null || { printf 'SKIP: missing %s\n' "$tool"; exit 77; }
 done
@@ -38,11 +38,15 @@ start() {
   printf '%s\n' "$root" >"$root/venue-debug-owner-marker"
   clean initdb -D "$root/data" --username="$owner" --encoding=UTF8 --no-locale --auth-local=trust --auth-host=reject >"$root/init.log" 2>&1
   # Disable parameter/statement diagnostics: proof and GPS are ephemeral.
-  clean pg_ctl -D "$root/data" -l "$root/server.log" -o "-F -k $root/socket -p $port -c listen_addresses='' -c unix_socket_permissions=0700 -c log_parameter_max_length=0 -c log_parameter_max_length_on_error=0 -c log_min_error_statement=panic" -w start >/dev/null
+  clean pg_ctl -D "$root/data" -l "$root/server.log" -o "-F -k $root/socket -p $port -c listen_addresses='' -c unix_socket_permissions=0700 -c log_parameter_max_length=0 -c log_parameter_max_length_on_error=0 -c log_min_error_statement=panic -c log_error_verbosity=terse" -w start >/dev/null
 }
 if [[ ${1:-debug} != full ]]; then
   start venue_debug_owner 55485
-  clean env VENUE_DEBUG_ISOLATED_PG_DIR="$root" pnpm --filter @qigong/public-api exec vitest run tests/venue-debug-postgres.test.ts
+  if [[ ${1:-debug} == migration ]]; then
+    clean env VENUE_DEBUG_ISOLATED_PG_DIR="$root" pnpm --filter @qigong/public-api exec vitest run tests/venue-debug-postgres.test.ts -t 'migration'
+  else
+    clean env VENUE_DEBUG_ISOLATED_PG_DIR="$root" pnpm --filter @qigong/public-api exec vitest run tests/venue-debug-postgres.test.ts
+  fi
   cleanup
 fi
 if [[ ${1:-debug} == focused || ${1:-debug} == all ]]; then

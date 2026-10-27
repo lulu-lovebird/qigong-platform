@@ -135,6 +135,7 @@ export const createVenueQrCheckin = (pool: Pool, line: LineConfig, debug?: Venue
           if (isDebug && trustedDebug)
             params.push(
               issued,
+              Date.parse(trustedDebug.expiresAt),
               venueDebugProof(
                 trustedDebug,
                 writeRequestId,
@@ -145,7 +146,7 @@ export const createVenueQrCheckin = (pool: Pool, line: LineConfig, debug?: Venue
             );
           const result = await client.query<{ data: unknown }>(
             isDebug
-              ? 'SELECT platform.venue_debug_checkin($1,$2,$3,$4,$5,$6) AS data'
+              ? 'SELECT platform.venue_debug_checkin($1,$2,$3,$4,$5,$6,$7) AS data'
               : 'SELECT platform.venue_qr_checkin($1,$2,$3,$4) AS data',
             params
           );

@@ -72,6 +72,7 @@ const browser = (html: string, fetchMock: ReturnType<typeof vi.fn>, primary = fa
   if (primary)
     location.search =
       '?liff.state=' + encodeURIComponent('/venue-checkin?venue=tw-test-venue&source=qr');
+  const preferences = vi.fn(async () => ({ ok: true, json: async () => ({ locale: 'zh_TW' }) }));
   new Script(
     [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]).join('\n')
   ).runInNewContext({
@@ -82,7 +83,8 @@ const browser = (html: string, fetchMock: ReturnType<typeof vi.fn>, primary = fa
     location,
     history: { replaceState: vi.fn() },
     document: { cookie: '', getElementById: get },
-    fetch: fetchMock,
+    fetch: (url: string, options: RequestInit) =>
+      url === '/line/preferences/language' ? preferences() : fetchMock(url, options),
     navigator: { geolocation: { getCurrentPosition: geo } },
     liff: {
       init: async () => {},
@@ -91,7 +93,7 @@ const browser = (html: string, fetchMock: ReturnType<typeof vi.fn>, primary = fa
       getIDToken: () => 'mock-token'
     }
   });
-  return { get, geo };
+  return { get, geo, preferences };
 };
 
 describe('live LIFF UI and exact schema readiness (mock, not real browser/PG)', () => {
@@ -106,6 +108,7 @@ describe('live LIFF UI and exact schema readiness (mock, not real browser/PG)', 
       const ui = browser(response.body, fetchMock);
       await setImmediate();
       expect(ui.get('preview-test').disabled).toBe(false);
+      expect(ui.preferences).toHaveBeenCalledOnce();
       expect(fetchMock).not.toHaveBeenCalled();
       ui.get('preview-test').onclick!();
       expect(ui.geo).toHaveBeenCalledOnce();
@@ -139,6 +142,7 @@ describe('live LIFF UI and exact schema readiness (mock, not real browser/PG)', 
       await setImmediate();
       expect(ui.get('preview-test').disabled).toBe(true);
       expect(ui.geo).not.toHaveBeenCalled();
+      expect(ui.preferences).not.toHaveBeenCalled();
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       await app.close();

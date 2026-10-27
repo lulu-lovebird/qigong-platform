@@ -106,11 +106,13 @@ const whatsappApplicationLanguageScript = (locale: LearnerLocale) => `
 `;
 
 // continuation is a server-built, allowlisted public preview path, never a callback URL.
-// Omitted for every existing learner flow: their bootstrap remains unchanged.
+// localeOptions preserves whether the public entry really supplied a language;
+// omitted options retain the existing callers' bootstrap contract.
 export const lineLoginScript = (
   liffId: string,
   locale: LearnerLocale = 'zh_TW',
-  continuation?: string
+  continuation?: string,
+  localeOptions?: { readonly explicitLocale: LearnerLocale | null }
 ) => {
   const messages = {
     primary: lineUiText(
@@ -134,7 +136,7 @@ export const lineLoginScript = (
     const lineLoginReturned = ['_line_login_attempt','code','error','liffClientId'].some(key => lineInitialQuery.has(key));
     const linePrivateFragment=${continuation ? "''" : "/^#([A-Za-z0-9_-]{43})(?:[?&]|$)/.exec(location.hash||'')?.[1]||''"};
     const lineLocaleCodes=['zh_TW','zh_CN','en'];
-    const lineRequestedLocale=${continuation ? JSON.stringify(locale) : "lineInitialQuery.get('lang')"};
+    const lineRequestedLocale=${localeOptions ? JSON.stringify(localeOptions.explicitLocale) : continuation ? JSON.stringify(locale) : "lineInitialQuery.get('lang')"};
     const lineSavedLocale=(document.cookie||'').split(';').map(v=>v.trim()).find(v=>v.startsWith('__Host-qigong-learner-locale='))?.slice('__Host-qigong-learner-locale='.length);
     let idToken = '';
     const lineReady = (async () => {
@@ -149,7 +151,7 @@ export const lineLoginScript = (
       if(!lineLocaleCodes.includes(lineRequestedLocale)&&!lineLocaleCodes.includes(lineSavedLocale)){
         let preferred=null;
         try{const r=await fetch('/line/preferences/language',{method:'POST',cache:'no-store',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({idToken})});if(r.ok){const saved=await r.json();if(lineLocaleCodes.includes(saved.locale))preferred=saved.locale;}}catch{/* Presentation preference failure never bypasses the later authenticated API. */}
-        if(preferred&&preferred!==lineInterfaceLocale){location.replace(location.pathname+'?lang='+preferred+(linePrivateFragment?'#'+linePrivateFragment:''));throw new Error(lineLoginText.switching);}
+        if(preferred&&preferred!==lineInterfaceLocale){const target=new URL(${continuation ? JSON.stringify(continuation).replaceAll('<', '\\u003c') : 'location.pathname'},location.href);target.searchParams.set('lang',preferred);location.replace(target.pathname+target.search+(linePrivateFragment?'#'+linePrivateFragment:''));throw new Error(lineLoginText.switching);}
       }
     })();
   `;

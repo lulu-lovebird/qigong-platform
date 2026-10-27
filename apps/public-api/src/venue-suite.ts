@@ -31,10 +31,10 @@ export const validateVenueSuiteConfig = (config: VenueSuiteConfig): VenueSuiteCo
 const contracts = {
   debug: {
     functions: [
-      'platform.venue_debug_checkin(text,text,double precision,double precision,bigint,text)',
+      'platform.venue_debug_checkin(text,text,double precision,double precision,bigint,bigint,text)',
       'platform.venue_debug_history(text,text,text,text,bigint)'
     ],
-    owners: ['qigong_venue_debug'],
+    owners: ['qigong_venue_debug', 'qigong_venue_debug_region_guard'],
     tables: [
       'core.field_attendance',
       'core.practice_fields',
@@ -81,7 +81,22 @@ export const checkVenueFeatureReadiness = async (
         const result = await client.query<{ ready: boolean }>(
           `SELECT
             (SELECT (count(*)=54 AND max(version)=$4 AND NOT $6)
-              OR (count(*)=55 AND max(version)=$5) FROM public.schema_migrations)
+              OR (count(*)=55 AND max(version)='0055_venue_distance_debug.sql' AND NOT $6)
+              OR (count(*)=56 AND max(version)=$5) FROM public.schema_migrations)
+            AND (NOT $6 OR EXISTS(SELECT 1 FROM pg_proc g
+              WHERE g.oid=to_regprocedure('platform.venue_debug_region_active(uuid)')
+                AND g.prosecdef AND g.proconfig @> ARRAY['search_path=pg_catalog','row_security=on']
+                AND pg_get_userbyid(g.proowner)='qigong_venue_debug_region_guard'
+                AND has_function_privilege('qigong_venue_debug',g.oid,'EXECUTE')
+                AND has_column_privilege('qigong_venue_debug_region_guard','core.regions','id','SELECT')
+                AND has_column_privilege('qigong_venue_debug_region_guard','core.regions','parent_region_id','SELECT')
+                AND has_column_privilege('qigong_venue_debug_region_guard','core.regions','region_type','SELECT')
+                AND has_column_privilege('qigong_venue_debug_region_guard','core.regions','active','SELECT')
+                AND NOT has_table_privilege('qigong_venue_debug_region_guard','core.regions','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                AND NOT has_function_privilege('qigong_api_runtime',g.oid,'EXECUTE')
+                AND NOT has_function_privilege('qigong_worker_runtime',g.oid,'EXECUTE')
+                AND NOT EXISTS(SELECT 1 FROM aclexplode(coalesce(g.proacl,acldefault('f',g.proowner))) a
+                  WHERE a.grantee=0 AND a.privilege_type='EXECUTE')))
             AND (SELECT count(*)=cardinality($1::text[]) AND bool_and(
               p.prosecdef AND p.proconfig @> ARRAY['search_path=pg_catalog','row_security=on']
               AND pg_get_userbyid(p.proowner)=ANY($2::text[])

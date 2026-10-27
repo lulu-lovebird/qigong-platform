@@ -15,7 +15,7 @@ const token = 'synthetic-manual-memory-only-debug-token';
 const makeBrowser = (isTest = true) => {
   const html = renderVenuePreview(
     '123-test',
-    { venue: 'tw-location-test', lang: 'zh_TW' },
+    { venue: 'tw-taipei-cks', lang: 'zh_TW' },
     'checkin',
     true,
     true
@@ -38,7 +38,7 @@ const makeBrowser = (isTest = true) => {
         ok: true,
         json: async () => ({
           ok: true,
-          venue: { code: 'tw-location-test', name: '合成場地', timezone: 'Asia/Taipei' },
+          venue: { code: 'tw-taipei-cks', name: '合成場地', timezone: 'Asia/Taipei' },
           checkedInAt: '2026-10-27T00:00:00Z',
           ...(isTest ? { isTest: true, verificationMode: 'distance_debug' } : {})
         })
@@ -51,7 +51,7 @@ const makeBrowser = (isTest = true) => {
     URLSearchParams,
     Intl,
     Date,
-    location: new URL('https://app.test/line/venue-checkin?venue=tw-location-test'),
+    location: new URL('https://app.test/line/venue-checkin?venue=tw-taipei-cks'),
     history: { replaceState: vi.fn() },
     document: { cookie: '', getElementById: get },
     fetch,
@@ -88,7 +88,7 @@ describe('memory-only distance debug controller', () => {
     expect(options.headers).toMatchObject({ 'X-Venue-Debug-Token': token });
     expect(JSON.parse(options.body)).toEqual({
       idToken: 'synthetic-id-token',
-      venue: 'tw-location-test',
+      venue: 'tw-taipei-cks',
       latitude: -33.123456,
       longitude: 140.987654
     });
@@ -125,15 +125,22 @@ describe('memory-only distance debug controller', () => {
     expect(ui.get('preview-test').disabled).toBe(false);
   });
   it('renders controls only for enabled test venue and rejects URL token/boolean authority', () => {
-    const entry = { venue: 'tw-location-test', lang: 'zh_TW' as const };
+    const entry = { venue: 'tw-taipei-cks', lang: 'zh_TW' as const };
     for (const html of [
       renderVenuePreview('123-test', entry, 'checkin'),
       renderVenuePreview('123-test', { ...entry, venue: 'tw-other' }, 'checkin', true, true),
+      renderVenuePreview(
+        '123-test',
+        { ...entry, venue: 'tw-location-test' },
+        'checkin',
+        true,
+        true
+      ),
       renderVenuePreview('123-test', entry, 'preview', true, true)
     ])
       expect(html).not.toContain('id="preview-debug-token"');
     for (const query of ['token=secret', 'debug=true', 'isTest=true', 'X-Venue-Debug-Token=secret'])
-      expect(venuePreviewRequest('/line/venue-checkin?venue=tw-location-test&' + query)).toEqual({
+      expect(venuePreviewRequest('/line/venue-checkin?venue=tw-taipei-cks&' + query)).toEqual({
         kind: 'invalid'
       });
   });
