@@ -59,7 +59,7 @@ const command = (name: string, args: string[]) => {
   });
 };
 const guardedRoot = async () => {
-  if (!root || !/^\/tmp\/venue-debug-[A-Za-z0-9]+$/.test(root))
+  if (!root || !/^\/tmp\/venue-debug-integration-[A-Za-z0-9]+$/.test(root))
     throw new Error('unsafe harness path');
   const actual = await realpath(root);
   if (actual !== root && actual !== '/private' + root)
@@ -108,7 +108,7 @@ suite('isolated PG16/17 history: 55 migrations + real nonowner RLS', () => {
       })
     );
     expect(command('postgres', ['--version']).toString()).toMatch(/PostgreSQL\) (16|17)\./);
-    root = await mkdtemp('/tmp/venue-debug-');
+    root = await mkdtemp('/tmp/venue-debug-integration-');
     await chmod(root, 0o700);
     await writeFile(resolve(root, marker), root, { mode: 0o600 });
     await guardedRoot();
