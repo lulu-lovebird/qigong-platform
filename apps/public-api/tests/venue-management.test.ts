@@ -420,4 +420,91 @@ describe('venue management browser controller (in-memory transport, not DB evide
     expect(b.calls.map((c) => c.action)).toEqual(['capabilities', 'list']);
     expect(b.get('vm-sign').textContent).toContain(row.urls.link);
   });
+
+  it('aligns venue form textboxes with tabular grid, paired coordinates/time, and clear a11y associations', () => {
+    const html = renderVenueManagementPage();
+
+    // Form table / grid structure
+    expect(html).toContain('class="vm-form-table"');
+    expect(html).toContain('class="vm-form-row"');
+    expect(html).toContain('class="vm-label-col"');
+    expect(html).toContain('class="vm-control-col"');
+
+    // Paired coordinates: latitude and longitude in a 2-column pair grid
+    const latLngBlock = html.match(
+      /<div class="vm-pair-grid">[\s\S]*?id="vm-latitude"[\s\S]*?id="vm-longitude"[\s\S]*?<\/div>/
+    );
+    expect(latLngBlock).not.toBeNull();
+
+    // Paired radius and timezone in a 2-column pair grid
+    const radiusTimezoneBlock = html.match(
+      /<div class="vm-pair-grid">[\s\S]*?id="vm-radius_meters"[\s\S]*?id="vm-timezone"[\s\S]*?<\/div>/
+    );
+    expect(radiusTimezoneBlock).not.toBeNull();
+
+    // Paired schedule time window: start and end in a 2-column pair grid
+    const scheduleBlock = html.match(
+      /<div class="vm-pair-grid">[\s\S]*?id="vm-start"[\s\S]*?id="vm-end"[\s\S]*?<\/div>/
+    );
+    expect(scheduleBlock).not.toBeNull();
+
+    // Accessible weekday pills in a role="group"
+    expect(html).toContain('class="vm-days-group" role="group"');
+    for (let day = 0; day < 7; day++) {
+      expect(html).toContain(`id="vm-day-${day}"`);
+    }
+
+    // Accessibility: label-for association on every input
+    for (const id of [
+      'vm-region',
+      'vm-search',
+      'vm-filter',
+      'vm-code',
+      'vm-name_zh_tw',
+      'vm-name_en',
+      'vm-address',
+      'vm-region_id',
+      'vm-latitude',
+      'vm-longitude',
+      'vm-radius_meters',
+      'vm-timezone',
+      'vm-start',
+      'vm-end',
+      'vm-reason'
+    ]) {
+      expect(html).toMatch(new RegExp(`<label[^>]*for="${id}"`));
+    }
+
+    // Required vs optional indicators
+    expect(html).toMatch(/id="vm-code"[^>]*required/);
+    expect(html).toMatch(/id="vm-name_zh_tw"[^>]*required/);
+    expect(html).toMatch(/id="vm-region_id"[^>]*required/);
+    expect(html).toMatch(/id="vm-latitude"[^>]*required/);
+    expect(html).toMatch(/id="vm-longitude"[^>]*required/);
+    expect(html).toMatch(/id="vm-radius_meters"[^>]*required/);
+    expect(html).toMatch(/id="vm-timezone"[^>]*required/);
+    expect(html).toMatch(/id="vm-start"[^>]*required/);
+    expect(html).toMatch(/id="vm-end"[^>]*required/);
+    expect(html).toMatch(/id="vm-reason"[^>]*required/);
+
+    // Optional fields must not have required
+    expect(html).not.toMatch(/id="vm-name_en"[^>]*required/);
+    expect(html).not.toMatch(/id="vm-address"[^>]*required/);
+
+    // Status message accessibility
+    expect(html).toContain('id="vm-status" role="status" aria-live="polite"');
+
+    // Visual separation: list panel, editor panel, and links panel
+    expect(html).toContain('class="vm-card vm-list-panel"');
+    expect(html).toContain('class="vm-editor-panel"');
+    expect(html).toContain('class="vm-card vm-links-panel"');
+
+    // Responsive mobile single-column and 48px touch rules
+    expect(html).toContain('@media(max-width:768px)');
+    expect(html).toContain('min-height:48px');
+    expect(html).toContain('font-size:1rem');
+
+    // Print stylesheet attribution
+    expect(html).toContain('Developed with ❤️ by Bean, Bird & Badminton Tech Consulting');
+  });
 });
