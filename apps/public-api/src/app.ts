@@ -80,6 +80,7 @@ const defaultOffMigrationVersions = new Set([
   nfcQuarantineMigrationVersion,
   venueQrMigrationVersion,
   venueSuiteMigrationVersion,
+  '0055_venue_distance_debug.sql',
   venueDebugMigrationVersion
 ]);
 // HTTP error classes can inherit status/message data (unlike log diagnostics,
@@ -254,10 +255,12 @@ export const checkStartupReadiness = async (
         ? venueQrEnabled && status.currentVersion === venueDebugMigrationVersion
         : enabledFeatures.length > 0
           ? status.currentVersion === venueSuiteMigrationVersion ||
+            status.currentVersion === '0055_venue_distance_debug.sql' ||
             status.currentVersion === venueDebugMigrationVersion
           : venueQrEnabled
             ? status.currentVersion === venueQrMigrationVersion ||
               status.currentVersion === venueSuiteMigrationVersion ||
+              status.currentVersion === '0055_venue_distance_debug.sql' ||
               status.currentVersion === venueDebugMigrationVersion
             : status.currentVersion !== null &&
               defaultOffMigrationVersions.has(status.currentVersion))
