@@ -1,5 +1,7 @@
 # 團練場人員與出席紀錄 v1
 
+> 整合狀態更新：已在本地 integration branch 接上主程式，**尚未上線**。最新 54-chain、路由／開關、驗證與限制見[整合交接](../operations/venue-history-admin-integration.md)。以下保留原 standalone 分支的交付／驗證紀錄；「未接線」、52 檔 migration 或舊失敗數字均屬該歷史範圍，不是目前整合狀態。
+
 **狀態：獨立受控 SQL／service／HTTP／可執行 web UI 已實作；尚未掛載主程式、navigation 或部署。**
 
 基底：`origin/main@56284208942acb182651c02983011f80b8921a47`。只新增 0054；0052 personal history、0053 場地設定不在此 worktree，沒有建立替身、讀取其未合併內容或修改其 worktree。驗證範圍是既有 0001–0051 加獨立 0054，**不是 0052／0053 整合後 full chain 通過證據**。
