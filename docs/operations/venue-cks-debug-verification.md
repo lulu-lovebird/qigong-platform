@@ -3,7 +3,53 @@
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 
-## 來源與邊界
+## 2026-10-27：語言偏好＋CKS 最終本地整合
+
+此節覆蓋下方 debug-only handoff 的「語言待整合／另一 writer 所有」狀態；下方七個 debug commits 及其歷史證據完整保留。沿用同一 worktree／branch，接手 `f866af4` clean，沒有新 worktree 或 branch。
+
+### 順序與檔案批次
+
+| 整合 commit                 | 原 commit／範圍                                                                                      | 檔案數 |
+| --------------------------- | ---------------------------------------------------------------------------------------------------- | ------ |
+| `24ee193`                   | cherry-pick `b423812`，原作者與提交訊息保留：helper 第四參數、history explicit language、VM tests    | 3      |
+| `7012e7c`                   | cherry-pick `1cd774c`，原作者保留：history 語言文件                                                  | 1      |
+| `20f950b`                   | cherry-pick `bb6b75f`，原作者保留：偏好導頁不誤報登入錯誤、成功導頁不提早解除 busy                   | 2      |
+| `68d83c4`                   | `line-venue-checkin-page.ts`、`line-venue-checkin.test.ts`、`venue-qr.test.ts`：簽到語言與控制器整合 | 3      |
+| 本文件所在 docs-only commit | 本文件與 `line-venue-checkin-preview.md`，補驗證與交接；不改程式                                     | 2      |
+
+無 cherry-pick conflict，沒有 squash／drop assertions 或丟棄原作者 history。`68d83c4` 的第三檔是必要舊 VM adapter 修補：把合法的初始化偏好讀取與簽到 fetch 分離，新增偏好讀取／primary 禁止讀取斷言；原「點擊前不簽到」、payload、identity、GPS、失敗不假成功斷言保留。`venue-debug-ui.test.ts` 不需改，原四項完整通過。沒有修改 AGENTS／manifest／lockfile／依賴／其他業務或新增 SQL。
+
+### 新簽到契約與安全
+
+- Parser 僅合法 query 真提供 lang 才設 `explicitLang=true`；cookie／implicit fallback 為 false。canonical 不替 implicit entry 補 lang；省略此欄位的既有 server-built localized caller 保持相容。
+- 使用新版 helper 第四參數；優先序仍為 explicit lang → valid presentation cookie → authenticated stored preference → zh_TW。無 lang／cookie 時 SDK 登入後只 POST `{idToken}` 讀偏好，不 silent write／cookie。primary 仍 SDK-only；保留 venue／source、去除 callback secrets，轉向帶合法 lang 後不循環。
+- 手動選語言先重新確認當下 SDK 登入與 token，再 POST `{idToken,locale}`；HTTP 成功才 Secure／SameSite=Lax cookie 與 canonical 導頁。三語錯誤還原 selector、明示重選重試；不反射私人例外或伺服器內容。偏好 lookup 的 switching state 不是 login-expired；成功導航 busy 保留至 unload。
+- 定位／送出／語言寫入期間有獨立 busy／ready guard；programmatic onclick 即使改 disabled 也不能重複送出。簽到前與 GPS callback 送出前重取 SDK token；token 缺失、SDK throw、401 會清空憑證並保持簽到停用，頁面既有日課導航保留。成功出席鎖住舊頁重送，但可選語言。
+- 切語言清空 debug 密碼 input／記憶體並重設 toggle；pagehide 同樣清空。失敗簽到清空 token、保留明確 test mode，重試須重新輸碼，不靜默降為正式簽到。debug header、真 GPS、CKS-only、身份／同意／時段／scope 等驗證均保留，不把 token 放 URL／storage／log。
+- 相關界線詳見 [簽到語言整合](line-venue-checkin-preview.md)。預設 preview 沒有改成 live，也沒有放寬其原 CSP／服務開關；VM mock preference 證據不是完整瀏覽器網路驗收。
+
+### 整合版本實際驗證
+
+完整程式整合點為 **`68d83c463a7fde1a1325a92529f7b01b247b27d1`**，不是拿 `f866af4` 的舊單分支結果當整合證據。下列 commands 在此 clean commit 真正重跑；最後 docs-only HEAD 另同命令複驗，結果由父交接訊息及 final-HEAD logs 對應。所有子程序使用 `env -i`（受控 HOME／PATH／LANG／LC_ALL／TZ），不讀 `.env`，不採用 inherited DATABASE_URL／TEST_DATABASE_URL；只有腳本自行建立 disposable URL。
+
+- 原四套：`line-venue-history` 112、`learner-pages` 39、`line-invite-pages` 23、`line-venue-checkin` 63，cherry-pick 後 **237 passed**。新增 check-in VM 32 項後四套 **269 passed**；另 `venue-debug-ui` 4＋`venue-qr` 38，**六套 311 passed／0 skip**。沒有刪除失敗斷言湊全綠。
+- `bash scripts/test-venue-debug-local-pg.sh focused`：**49 passed／0 skip**（debug 12、management 16、people 11、QR 10）；每套 fresh、0700、socket-only PG17，debug suite 真從 55 migrations＋synthetic 舊資料升到 56，前 55 checksum／原 row 保存及 logging negative assertions 實跑。
+- `env -i HOME="$HOME" PATH="/opt/homebrew/opt/node@24/bin:/opt/homebrew/opt/postgresql@17/bin:$PATH" LANG=C LC_ALL=C TZ=UTC pnpm --filter @qigong/database exec vitest run tests/venue-history-postgres.test.ts`：**17 passed／0 skip**，另一 fresh 自建 PG17。
+- `bash scripts/test-venue-debug-local-pg.sh full`：**PASS**，包含預先 workspace build、`pnpm verify`（format／lint／typecheck／tests／build）、`tsc -p tsconfig.eslint.json --noEmit`、`tsc -p tsconfig.receipt-health.json --noEmit`。
+  - config 2、identity 6、database **561 passed／10 skipped**（53 files）、API **2562 passed／49 skipped**（103 passed files／4 skipped files）：共 **3131 passed／59 skipped**。
+  - DB 10 為既有隔離分支門控；API 49 為四套獨立 PG suite，在 full 入口門控跳過，但同一整合程式的 focused 入口 49 全部實跑。skip 不算 pass。
+- 本地 logs：`/tmp/venue-final-68d83c4-{full,focused,history-pg}.log`；final docs-only HEAD 複驗使用 `/tmp/venue-final-integration-head-{full,focused,history-pg}.log`。暫存 logs 不提交，不含真實 secrets／個資。
+- 初次 targeted run 發現舊 VM 的 no-lang canonical／fetch 假設與 debug toggle retry 保護需要對齊；均以真新契約修正、原安全 assertions 保留。新增測試 strict lint 的 RequestInit body／Promise callback 型別錯誤經兩次有進展修復後全過，未放寬 lint／typing。沒有環境復原或 install。
+
+### 未驗／父代理接手
+
+- **未部署、未產生正式 debug token、未啟用任何正式 flags**；沒有 SSH、prod／phone DB、外部 LINE／Console／Rich Menu、Tailscale、proxy、push／remote merge／PR 或刪 worktree。只有合成 fixture tokens／本地 PG migration。
+- PG16 未找到既有 Homebrew server tools，**未跑**；沒有 system install、Desktop／既有 production container。PG17 pass 不冒稱 PG16。
+- 真手機／LINE SDK／OAuth／GPS／正式 logging 未驗；本輪為 VM mocks＋隔離 PG17，不是 mobile acceptance。
+- 父已安排固定 `f866af4` 的唯讀 Gemini 安全 review；本 writer 沒有讀／輪詢其 logs，也不假定其結果。父須接收該 review、審最終 `5d98a04..HEAD` diff／新增 UI delta 後才決定 push／PR。**既有安全 review 不是對 `68d83c4` 新 UI 的獨立審核**。
+- 父沿用下方 schema56 safety／rollback gates；不從 health ready 推論有配置，不直接退 schema55 binary，不回灌 snapshot 覆蓋新寫入。worktree 留存供 inspect，最後應 clean local HEAD。
+
+## 來源與邊界（debug-only 歷史）
 
 - Worktree：`/Users/myhsu/.herdr/worktrees/qigong-platform/feature-venue-cks-distance-debug`（沿用保留 workspace，未建立新 worktree）。
 - Branch：`feature/venue-cks-distance-debug`；base：`5d98a045c8e6dae3ded163ceea5cf5d92d29a1f8`；接手時 clean、無新 commit。
