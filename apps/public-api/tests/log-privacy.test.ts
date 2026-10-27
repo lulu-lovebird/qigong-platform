@@ -104,6 +104,7 @@ describe('allowlisted log diagnostics', () => {
       'message',
       'err',
       'reqId',
+      'auditRequestId',
       'event',
       'route',
       'toJSON',
@@ -127,6 +128,51 @@ describe('allowlisted log diagnostics', () => {
     expect(sanitizeLogRecord(proxy, routes)).toEqual({ event: 'application' });
     expect(descriptorTrap).toHaveBeenCalled();
     expect(getter).not.toHaveBeenCalled();
+  });
+
+  it('admits only a bounded UUIDv4 audit mapping on the dedicated attempt event', () => {
+    const event = 'venue_debug_audit_attempt';
+    expect(
+      sanitizeLogRecord({ event, reqId: requestId, auditRequestId: requestId }, routes)
+    ).toEqual({ event, reqId: requestId, auditRequestId: requestId });
+    for (const auditRequestId of [
+      secret,
+      secret + '\r\n',
+      'a'.repeat(1000),
+      null,
+      { toString: () => requestId },
+      [requestId],
+      requestId.replace('-4', '-1')
+    ]) {
+      expect(sanitizeLogRecord({ event, auditRequestId }, routes)).toEqual({ event });
+    }
+    expect(
+      sanitizeLogRecord({ event: 'request_completed', auditRequestId: requestId }, routes)
+    ).toEqual({ event: 'request_completed' });
+    const inherited: object = Object.create({ auditRequestId: requestId }) as object;
+    Object.assign(inherited, { event });
+    expect(sanitizeLogRecord(inherited, routes)).toEqual({ event });
+    const getter = vi.fn(() => {
+      throw new Error(secret);
+    });
+    const input = Object.defineProperty({ event }, 'auditRequestId', { get: getter });
+    expect(sanitizeLogRecord(input, routes)).toEqual({ event });
+    expect(getter).not.toHaveBeenCalled();
+    expect(
+      sanitizeLogRecord(
+        {
+          event,
+          auditRequestId: requestId,
+          headers: secret,
+          body: secret,
+          proof: secret,
+          tokenHash: secret,
+          latitude: 25,
+          longitude: 121
+        },
+        routes
+      )
+    ).toEqual({ event, auditRequestId: requestId });
   });
 
   it('bounds every scalar and accepts routes only from the registered template set', () => {

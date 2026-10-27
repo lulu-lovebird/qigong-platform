@@ -1,6 +1,7 @@
 /** Developed with ❤️ by Bean, Bird & Badminton Tech Consulting */
 import { withRequestContext, type Pool } from '@qigong/database';
 import { trustedVenueOrigin } from './venue-management.js';
+import { venueDebugMigrationVersion } from './venue-debug.js';
 
 export const venueSuiteMigrationVersion = '0054_venue_people_read.sql';
 export interface VenueFeatureConfig {
@@ -28,6 +29,20 @@ export const validateVenueSuiteConfig = (config: VenueSuiteConfig): VenueSuiteCo
 };
 
 const contracts = {
+  debug: {
+    functions: [
+      'platform.venue_debug_checkin(text,text,double precision,double precision,bigint,text)',
+      'platform.venue_debug_history(text,text,text,text,bigint)'
+    ],
+    owners: ['qigong_venue_debug'],
+    tables: [
+      'core.field_attendance',
+      'core.practice_fields',
+      'audit.events',
+      'platform.venue_debug_config',
+      'platform.venue_debug_context'
+    ]
+  },
   history: {
     functions: ['platform.venue_personal_history(text,text,text,text,bigint)'],
     owners: ['qigong_venue_history_reader'],
@@ -52,7 +67,10 @@ const contracts = {
 
 /** Version compatibility is not capability. Probe each enabled feature separately
  * as runtime, never by executing learner/admin operations or selecting PII. */
-export const checkVenueFeatureReadiness = async (pool: Pool, feature: VenueSuiteFeature) => {
+export const checkVenueFeatureReadiness = async (
+  pool: Pool,
+  feature: VenueSuiteFeature | 'debug'
+) => {
   const contract = contracts[feature];
   try {
     const ready = await withRequestContext(
@@ -62,7 +80,8 @@ export const checkVenueFeatureReadiness = async (pool: Pool, feature: VenueSuite
       async (client) => {
         const result = await client.query<{ ready: boolean }>(
           `SELECT
-            (SELECT count(*)=54 AND max(version)=$4 FROM public.schema_migrations)
+            (SELECT (count(*)=54 AND max(version)=$4 AND NOT $6)
+              OR (count(*)=55 AND max(version)=$5) FROM public.schema_migrations)
             AND (SELECT count(*)=cardinality($1::text[]) AND bool_and(
               p.prosecdef AND p.proconfig @> ARRAY['search_path=pg_catalog','row_security=on']
               AND pg_get_userbyid(p.proowner)=ANY($2::text[])
@@ -79,7 +98,14 @@ export const checkVenueFeatureReadiness = async (pool: Pool, feature: VenueSuite
               FROM pg_roles r WHERE r.rolname=ANY($2::text[]))
             AND (SELECT count(*)=cardinality($3::text[]) AND bool_and(c.relrowsecurity AND c.relforcerowsecurity)
               FROM pg_class c WHERE c.oid IN (SELECT to_regclass(name) FROM unnest($3::text[]) name)) AS ready`,
-          [contract.functions, contract.owners, contract.tables, venueSuiteMigrationVersion]
+          [
+            contract.functions,
+            contract.owners,
+            contract.tables,
+            venueSuiteMigrationVersion,
+            venueDebugMigrationVersion,
+            feature === 'debug'
+          ]
         );
         return result.rows[0]?.ready === true;
       }

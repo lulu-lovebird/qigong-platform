@@ -39,6 +39,7 @@ import {
   type VenueQrConfig
 } from './venue-qr.js';
 import type { InviteTransports } from './channel-invites.js';
+import { venueDebugMigrationVersion } from './venue-debug.js';
 import { registerVenueHistoryRoutes } from './venue-history.js';
 import {
   checkVenueFeatureReadiness,
@@ -56,6 +57,7 @@ export const apiLogRedaction = Object.freeze({
     'req.headers.authorization',
     'req.headers.cookie',
     'req.headers.x-line-access-token',
+    'req.headers.x-venue-debug-token',
     'req.headers.x-whatsapp-csrf-token',
     'req.headers.x-telegram-init-data',
     'req.headers.x-telegram-bot-api-secret-token',
@@ -66,7 +68,7 @@ export const apiLogRedaction = Object.freeze({
 
 export const minimumMigrationVersion = '0042_activity_consecutive_drafts.sql';
 // Exact QR schema compatibility does not enable QR or the old NFC routes.
-export const maximumMigrationVersion = venueSuiteMigrationVersion;
+export const maximumMigrationVersion = venueDebugMigrationVersion;
 const defaultOffMigrationVersions = new Set([
   minimumMigrationVersion,
   '0043_achievement_rule_versions.sql',
@@ -77,7 +79,8 @@ const defaultOffMigrationVersions = new Set([
   nfcMigrationVersion,
   nfcQuarantineMigrationVersion,
   venueQrMigrationVersion,
-  venueSuiteMigrationVersion
+  venueSuiteMigrationVersion,
+  venueDebugMigrationVersion
 ]);
 // HTTP error classes can inherit status/message data (unlike log diagnostics,
 // which deliberately ignore prototypes). Preserve that compatibility without
@@ -229,7 +232,8 @@ interface AppDependencies {
 export const checkStartupReadiness = async (
   pool: Pool,
   venueQrEnabled = false,
-  venueSuite: VenueSuiteConfig = {}
+  venueSuite: VenueSuiteConfig = {},
+  venueDebugEnabled = false
 ) => {
   const enabledFeatures = (Object.keys(venueSuite) as VenueSuiteFeature[]).filter(
     (feature) => venueSuite[feature]?.enabled === true
@@ -246,20 +250,28 @@ export const checkStartupReadiness = async (
     ...status,
     ready:
       status.ready &&
-      (enabledFeatures.length > 0
-        ? status.currentVersion === venueSuiteMigrationVersion
-        : venueQrEnabled
-          ? status.currentVersion === venueQrMigrationVersion ||
-            status.currentVersion === venueSuiteMigrationVersion
-          : status.currentVersion !== null &&
-            defaultOffMigrationVersions.has(status.currentVersion))
+      (venueDebugEnabled
+        ? venueQrEnabled && status.currentVersion === venueDebugMigrationVersion
+        : enabledFeatures.length > 0
+          ? status.currentVersion === venueSuiteMigrationVersion ||
+            status.currentVersion === venueDebugMigrationVersion
+          : venueQrEnabled
+            ? status.currentVersion === venueQrMigrationVersion ||
+              status.currentVersion === venueSuiteMigrationVersion ||
+              status.currentVersion === venueDebugMigrationVersion
+            : status.currentVersion !== null &&
+              defaultOffMigrationVersions.has(status.currentVersion))
   };
   if (!migration.ready)
     return { ready: false as const, reason: 'schema_version_mismatch', migration };
   const runtime = await checkApiRuntimePreflight(pool);
   if (!runtime.ready)
     return { ready: false as const, reason: 'runtime_role_misconfigured', runtime };
-  for (const feature of enabledFeatures) {
+  const capabilities: (VenueSuiteFeature | 'debug')[] = [
+    ...enabledFeatures,
+    ...(venueDebugEnabled ? ['debug' as const] : [])
+  ];
+  for (const feature of capabilities) {
     const capability = await checkVenueFeatureReadiness(pool, feature);
     if (!capability.ready)
       return { ready: false as const, reason: 'venue_feature_not_ready', capability };
@@ -345,9 +357,14 @@ export const buildApp = ({
     app.addHook('onClose', async () => {
       await loggerOwner.close();
     });
-  if (Object.keys(suite).length > 0)
+  if (Object.keys(suite).length > 0 || qr?.debug)
     app.addHook('onReady', async () => {
-      const readiness = await checkStartupReadiness(pool, qr?.enabled === true, suite);
+      const readiness = await checkStartupReadiness(
+        pool,
+        qr?.enabled === true,
+        suite,
+        qr?.debug?.enabled === true
+      );
       if (!readiness.ready) throw new Error('venue suite readiness failed');
     });
   const errorResponses = new WeakMap<FastifyReply, SafeErrorResponse>();
@@ -429,7 +446,12 @@ export const buildApp = ({
   app.get('/health/ready', async (request, reply) => {
     try {
       await pool.query('SELECT 1');
-      const readiness = await checkStartupReadiness(pool, qr?.enabled === true, suite);
+      const readiness = await checkStartupReadiness(
+        pool,
+        qr?.enabled === true,
+        suite,
+        qr?.debug?.enabled === true
+      );
       if (!readiness.ready) return reply.code(503).send({ ok: false, ...readiness });
       return { ok: true, ...readiness };
     } catch (error) {
@@ -452,7 +474,14 @@ export const buildApp = ({
   if (telegramOnboarding)
     registerTelegramOnboarding(app, pool, telegramOnboarding, enabledInviteTransports.telegram);
   if (line) {
-    registerLineOnboarding(app, pool, line, qr?.enabled === true, suite.history?.enabled === true);
+    registerLineOnboarding(
+      app,
+      pool,
+      line,
+      qr?.enabled === true,
+      suite.history?.enabled === true,
+      qr?.debug?.expiresAt
+    );
     if (suite.history)
       registerVenueHistoryRoutes(app, pool, {
         publicOrigin: suite.history.publicOrigin,

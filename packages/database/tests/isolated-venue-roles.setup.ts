@@ -8,7 +8,8 @@ const venueRoles = [
   'qigong_venue_history_reader',
   'qigong_venue_manager',
   'qigong_venue_config_guard',
-  'qigong_venue_people_reader'
+  'qigong_venue_people_reader',
+  'qigong_venue_debug'
 ] as const;
 const preexistingOids = new Set<number>();
 
@@ -68,7 +69,7 @@ beforeAll(async () => {
   });
 });
 
-// 0051–0054 intentionally refuse existing roles. Dropping a fixture database removes its
+// 0051–0055 intentionally refuse existing roles. Dropping a fixture database removes its
 // objects but not its cluster-wide roles. Run after suite-owned DB teardown, never
 // DROP OWNED/CASCADE or reuse/relax the production migration's fail-closed guard.
 const removeOrphanedFixtureRoles = async (): Promise<void> => {

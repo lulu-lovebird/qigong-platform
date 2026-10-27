@@ -7,7 +7,8 @@ import { resolve } from 'node:path';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runMigrations, withRequestContext } from '@qigong/database';
-import { buildApp } from '../src/app.js';
+import { buildApp, checkStartupReadiness } from '../src/app.js';
+import { readVenueAdminCapabilities } from '../src/venue-admin-capabilities.js';
 import {
   lookupManagedVenue,
   runVenueManagement,
@@ -51,7 +52,12 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
     return result.field;
   };
   beforeAll(async () => {
-    if (!root || !/^\/tmp\/(?:venue-management-|venue-suite-management-)[A-Za-z0-9]+$/.test(root))
+    if (
+      !root ||
+      !/^\/tmp\/(?:venue-management-|venue-suite-management-|venue-debug-(?:integration-)?)[A-Za-z0-9]+$/.test(
+        root
+      )
+    )
       throw new Error('isolated root required');
     expect((await stat(root)).mode & 0o777).toBe(0o700);
     expect((await readFile(root + '/venue-management-marker', 'utf8')).trim()).toBe(root);
@@ -64,8 +70,8 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
     );
     expect(migrations.applied).toContain('0053_venue_management.sql');
     expect(migrations.applied).toContain('0052_venue_personal_history.sql');
-    expect(migrations.applied).toHaveLength(54);
-    expect(migrations.currentVersion).toBe('0054_venue_people_read.sql');
+    expect(migrations.applied).toHaveLength(55);
+    expect(migrations.currentVersion).toBe('0055_venue_distance_debug.sql');
     const visibleMigrations = (await readdir(resolve(process.cwd(), '../../migrations')))
       .filter((file) => /^\d{4}_[a-z0-9_]+\.sql$/.test(file))
       .sort();
@@ -92,6 +98,120 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
     await runtime?.end();
     await owner?.end();
   });
+  it('55-chain readiness independently rejects missing ACLs, unsafe owner roles and disabled FORCE RLS', async () => {
+    const enabled = { enabled: true, publicOrigin: 'https://synthetic.invalid' } as const;
+    const suite = { history: enabled, management: enabled, people: enabled };
+    const ready = () => checkStartupReadiness(runtime, true, suite, true);
+    expect(await ready()).toMatchObject({ ready: true });
+    const contracts = [
+      ['history', 'platform.venue_personal_history(text,text,text,text,bigint)'],
+      ['management', 'admin.venue_management(text,text,uuid,uuid,integer,jsonb,text)'],
+      [
+        'people',
+        'admin.venue_people_read(text,uuid,date,date,uuid,uuid,text,text,text,text,integer,integer,boolean)'
+      ],
+      [
+        'debug',
+        'platform.venue_debug_checkin(text,text,double precision,double precision,bigint,text)'
+      ]
+    ] as const;
+    // Signatures are fixed server-side test literals, not SQL input from a caller.
+    for (const [feature, signature] of contracts) {
+      await owner.query(`REVOKE EXECUTE ON FUNCTION ${signature} FROM qigong_api_runtime`);
+      try {
+        expect(await ready()).toMatchObject({
+          ready: false,
+          reason: 'venue_feature_not_ready',
+          capability: { feature, ready: false }
+        });
+      } finally {
+        await owner.query(`GRANT EXECUTE ON FUNCTION ${signature} TO qigong_api_runtime`);
+      }
+      expect(await ready()).toMatchObject({ ready: true });
+    }
+    await owner.query('ALTER TABLE platform.venue_debug_context NO FORCE ROW LEVEL SECURITY');
+    try {
+      expect(await ready()).toMatchObject({
+        ready: false,
+        capability: { feature: 'debug', ready: false }
+      });
+    } finally {
+      await owner.query('ALTER TABLE platform.venue_debug_context FORCE ROW LEVEL SECURITY');
+    }
+    await owner.query('ALTER ROLE qigong_venue_debug LOGIN');
+    try {
+      expect(await ready()).toMatchObject({
+        ready: false,
+        capability: { feature: 'debug', ready: false }
+      });
+    } finally {
+      await owner.query('ALTER ROLE qigong_venue_debug NOLOGIN');
+    }
+    expect(await ready()).toMatchObject({ ready: true });
+  });
+  it('field-only read/manage never grant people read/export and inactive regions hide capabilities', async () => {
+    await owner.query(`INSERT INTO admin.roles(code,description) VALUES('venue_field_read_test','Synthetic reader');
+      INSERT INTO admin.role_permissions(role_id,permission_id) SELECT r.id,p.id FROM admin.roles r CROSS JOIN admin.permissions p WHERE r.code='venue_field_read_test' AND p.code='venue_attendance.field.read';
+      INSERT INTO admin.principals(id,oidc_issuer,oidc_subject,display_name) VALUES('10000000-0000-4000-8000-000000000004','https://synthetic.invalid','field-reader','Synthetic field reader');
+      `);
+    await owner.query(
+      "INSERT INTO admin.role_grants(principal_id,role_id,scope_type,region_id,reason) SELECT '10000000-0000-4000-8000-000000000004',id,'region',$1,'Synthetic only' FROM admin.roles WHERE code='venue_field_read_test'",
+      [tw]
+    );
+    await owner.query(
+      `INSERT INTO admin.sessions(token_hash,principal_id,expires_at) VALUES(public.digest(repeat('r',43),'sha256'),'10000000-0000-4000-8000-000000000004',clock_timestamp()+interval '1 day')`
+    );
+    const enabled = { enabled: true, publicOrigin: 'https://synthetic.invalid' } as const;
+    const caps = (credential: string, region = tw) =>
+      readVenueAdminCapabilities(
+        runtime,
+        randomUUID(),
+        credential,
+        { management: enabled, people: enabled },
+        region
+      );
+    for (const credential of ['r'.repeat(43), session]) {
+      expect(await caps(credential)).toEqual({
+        management: true,
+        people: false,
+        canReadPeople: false,
+        canExportPeople: false
+      });
+      expect(await caps(credential, sg)).toEqual({
+        management: false,
+        people: false,
+        canReadPeople: false,
+        canExportPeople: false
+      });
+    }
+    expect(await execute({ action: 'capabilities', regionId: tw }, 'r'.repeat(43))).toEqual({
+      canRead: true,
+      canManage: false
+    });
+    await expect(
+      execute(
+        {
+          action: 'create',
+          regionId: tw,
+          field: field('tw-field-reader-denied'),
+          reason: 'synthetic denied'
+        },
+        'r'.repeat(43)
+      )
+    ).rejects.toMatchObject({ code: '42501' });
+    await owner.query('UPDATE core.regions SET active=FALSE WHERE id=$1', [tw]);
+    try {
+      expect(await caps('r'.repeat(43))).toEqual({
+        management: false,
+        people: false,
+        canReadPeople: false,
+        canExportPeople: false
+      });
+    } finally {
+      await owner.query('UPDATE core.regions SET active=TRUE WHERE id=$1', [tw]);
+    }
+  });
+
   it('nonowner NOLOGIN/noBYPASSRLS isolated roles, no memberships/runtime table grants, keeps attendance vetoes', async () => {
     const roles = await owner.query(
       "SELECT rolname,rolsuper,rolcanlogin,rolbypassrls FROM pg_roles WHERE rolname IN ('qigong_venue_manager','qigong_venue_config_guard')"
@@ -653,6 +773,31 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
       expect(
         (await app.inject({ url: '/admin/api/venue-suite', headers: headers() })).json()
       ).toEqual({ management: true, people: true });
+      const capabilities = (regionId: string, token = 'v'.repeat(43)) =>
+        app.inject({
+          method: 'POST',
+          url: '/admin/api/venue-suite/capabilities',
+          headers: headers(token),
+          payload: { regionId }
+        });
+      expect((await capabilities(tw)).json()).toEqual({
+        management: true,
+        people: true,
+        canReadPeople: true,
+        canExportPeople: false
+      });
+      expect((await capabilities(tw, 'e'.repeat(43))).json()).toEqual({
+        management: false,
+        people: true,
+        canReadPeople: false,
+        canExportPeople: true
+      });
+      expect((await capabilities(sg)).json()).toEqual({
+        management: false,
+        people: false,
+        canReadPeople: false,
+        canExportPeople: false
+      });
       expect((await app.inject('/admin/venue-people')).statusCode).toBe(401);
       expect((await app.inject('/admin/fields')).statusCode).toBe(404);
       expect((await app.inject('/admin/venue-manual')).statusCode).toBe(404);
@@ -660,6 +805,10 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
         "UPDATE admin.sessions SET revoked_at=clock_timestamp() WHERE token_hash=public.digest(repeat('v',43),'sha256')"
       );
       expect((await read()).statusCode).toBe(401);
+      expect((await capabilities(tw)).statusCode).toBe(401);
+      expect(
+        (await app.inject({ url: '/admin/api/venue-suite', headers: headers() })).statusCode
+      ).toBe(401);
       expect((await call('list', { regionId: tw }, 'v'.repeat(43))).statusCode).toBe(401);
       expect(
         (await app.inject({ url: '/admin/venue-people', headers: headers() })).statusCode

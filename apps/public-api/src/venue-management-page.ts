@@ -19,6 +19,30 @@ function venueManagementController() {
   let canManage = false;
   let busy = false;
   let rows: LinkedVenue[] = [];
+  let loaded = false;
+  let loadedRegion = '';
+  let requiresReload = false;
+  function editorState() {
+    editor.disabled = busy || requiresReload || (!selected && !canManage);
+    for (const key of [
+      'code',
+      'name_zh_tw',
+      'name_en',
+      'address',
+      'latitude',
+      'longitude',
+      'radius_meters',
+      'timezone',
+      'region_id',
+      'start',
+      'end',
+      'reason'
+    ])
+      get<HTMLInputElement>('vm-' + key).readOnly = !canManage || (key === 'code' && !!selected);
+    for (const key of ['active', ...Array.from({ length: 7 }, (_, day) => 'day-' + day)])
+      get<HTMLInputElement>('vm-' + key).disabled = !canManage;
+    get<HTMLButtonElement>('vm-save').disabled = !canManage || busy || requiresReload;
+  }
   const say = (message: string) => {
     status.textContent = message;
   };
@@ -51,8 +75,12 @@ function venueManagementController() {
         'x-csrf-token': cookies[0]!.slice('__Host-qigong-admin-csrf='.length)
       },
       body: JSON.stringify(data)
+    }).catch(() => {
+      if (action === 'create' || action === 'update') requiresReload = true;
+      throw new Error('連線中斷，結果未確認；請重新載入查核後再操作。');
     });
     if (!response.ok) {
+      if (action === 'update' && response.status === 409) requiresReload = true;
       if ([401, 403, 404, 503].includes(response.status)) {
         canManage = false;
         editor.disabled = true;
@@ -60,7 +88,10 @@ function venueManagementController() {
       }
       throw new Error(failure(response.status));
     }
-    return response.json();
+    return response.json().catch(() => {
+      if (action === 'create' || action === 'update') requiresReload = true;
+      throw new Error('回應無效，結果未確認；請重新載入查核後再操作。');
+    });
   }
   const row = (v: unknown): v is LinkedVenue => {
     if (!v || typeof v !== 'object') return false;
@@ -90,6 +121,7 @@ function venueManagementController() {
       node('h2', venue.name_zh_tw),
       node('p', venue.code),
       node('p', venue.is_active ? '場地已啟用' : '場地已停用：舊網址不能簽到'),
+      node('p', '網址文字牌（非 QR 圖片）'),
       node('p', venue.urls.link)
     );
     for (const [key, label] of [
@@ -123,7 +155,7 @@ function venueManagementController() {
   }
   function edit(venue: LinkedVenue | null) {
     selected = venue;
-    editor.disabled = !canManage;
+    editorState();
     get('vm-version').textContent = venue
       ? '場地 UUID：' + venue.id + '／版本 ' + venue.version
       : '新增：由系統產生 UUID，代碼建立後永久保留。';
@@ -142,14 +174,14 @@ function venueManagementController() {
         'vm-' + key,
         venue?.[key] ??
           (key === 'region_id'
-            ? value('vm-region')
+            ? loadedRegion
             : key === 'radius_meters'
               ? 50
               : key === 'timezone'
                 ? 'Asia/Taipei'
                 : '')
       );
-    get<HTMLInputElement>('vm-code').readOnly = !!venue;
+    get<HTMLInputElement>('vm-code').readOnly = !canManage || !!venue;
     get<HTMLInputElement>('vm-active').checked = venue?.is_active ?? true;
     const rules = venue?.active_time_rules ?? {
       day_of_week: [0, 6],
@@ -180,27 +212,36 @@ function venueManagementController() {
       const button = document.createElement('button');
       button.type = 'button';
       button.textContent = canManage ? '編輯／網址' : '檢視／網址';
-      button.disabled = busy;
+      button.disabled = busy || requiresReload;
       button.addEventListener('click', () => {
-        if (!busy) edit(venue);
+        if (!busy && !requiresReload) {
+          edit(venue);
+          get('vm-version').focus();
+        }
       });
       item.append(button);
       list.append(item);
     }
-    if (!list.childNodes.length) list.append(node('p', '沒有符合條件的場地。'));
+    if (!list.childNodes.length)
+      list.append(
+        node('p', loaded ? '沒有符合條件的場地。' : '尚未成功載入場地；請確認區域與權限後重試。')
+      );
   }
   async function load() {
     if (busy) return;
     busy = true;
     canManage = false;
     rows = [];
+    loaded = false;
+    requiresReload = false;
+    loadedRegion = value('vm-region').trim();
     edit(null);
     list.replaceChildren();
     get<HTMLButtonElement>('vm-add').disabled = true;
     get<HTMLButtonElement>('vm-load').disabled = true;
     say('重新驗證登入與區域權限中…');
     try {
-      const regionId = value('vm-region').trim();
+      const regionId = loadedRegion;
       const caps = (await api('capabilities', { regionId })) as {
         canRead?: unknown;
         canManage?: unknown;
@@ -211,6 +252,7 @@ function venueManagementController() {
       if (!Array.isArray(data?.fields) || !data.fields.every(row))
         throw new Error('資料回應無效，停止操作。');
       rows = data.fields;
+      loaded = true;
       canManage = caps.canManage;
       get<HTMLButtonElement>('vm-add').disabled = !canManage;
       say(
@@ -228,7 +270,15 @@ function venueManagementController() {
   }
   async function save(event: SubmitEvent) {
     event.preventDefault();
-    if (!canManage || busy) return;
+    if (!canManage || busy || requiresReload) return;
+    if (
+      selected?.is_active &&
+      !get<HTMLInputElement>('vm-active').checked &&
+      !window.confirm('確認停用此場地？舊 NFC／QR／連結將無法簽到；既有出席紀錄保留，不會刪除。')
+    ) {
+      say('已取消停用，尚未儲存。');
+      return;
+    }
     const number = (id: string) => (value(id).trim() ? Number(value(id)) : Number.NaN);
     const field: VenueManagementField = {
       region_id: value('vm-region_id').trim(),
@@ -255,22 +305,26 @@ function venueManagementController() {
     say('驗證與儲存中…');
     try {
       const data = (await api(selected ? 'update' : 'create', {
-        regionId: selected?.region_id ?? value('vm-region').trim(),
+        regionId: selected?.region_id ?? loadedRegion,
         field,
         reason: value('vm-reason').trim(),
         ...(selected ? { id: selected.id, version: selected.version } : {})
       })) as { field?: unknown };
-      if (!row(data?.field)) throw new Error('未收到有效儲存結果，請重新載入查核；不能確認儲存。');
+      if (!row(data?.field)) {
+        requiresReload = true;
+        throw new Error('未收到有效儲存結果，請重新載入查核；不能確認儲存。');
+      }
       selected = data.field;
-      rows = rows.filter((r) => r.id !== selected?.id).concat(selected);
+      rows = rows.filter((r) => r.id !== selected?.id);
+      if (selected.region_id === loadedRegion) rows = rows.concat(selected);
       edit(selected);
       say('已儲存，版本 ' + selected.version + '。網址代碼未變；若跨區移動請重新查詢目標區域。');
     } catch (error) {
       say(error instanceof Error ? error.message : '儲存失敗，請重新載入查核。');
     } finally {
       busy = false;
-      editor.disabled = !canManage;
-      get<HTMLButtonElement>('vm-add').disabled = !canManage;
+      editorState();
+      get<HTMLButtonElement>('vm-add').disabled = !canManage || requiresReload;
       renderList();
     }
   }
@@ -278,7 +332,10 @@ function venueManagementController() {
     void load();
   });
   get('vm-add').addEventListener('click', () => {
-    if (canManage && !busy) edit(null);
+    if (canManage && !busy && !requiresReload) {
+      edit(null);
+      get('vm-version').focus();
+    }
   });
   get('vm-search').addEventListener('input', renderList);
   get('vm-filter').addEventListener('change', renderList);
@@ -286,7 +343,7 @@ function venueManagementController() {
     void save(event);
   });
   get('vm-print').addEventListener('click', () => {
-    if (selected) window.print();
+    if (selected && !busy) window.print();
   });
   say('請輸入場地所屬區域 UUID，按「查詢」。未接線／未授權不會模擬成功。');
 }
@@ -311,17 +368,17 @@ export const renderVenueManagementPage = (locale: AdminLocale = 'zh_TW'): string
   return renderAdminShell(
     'fieldSchedule',
     `<style>
-#vm-root label{display:block;margin:.5rem 0}#vm-root input,#vm-root select,#vm-root button{font:inherit;min-height:44px;max-width:100%}#vm-root article{border:1px solid #bbb;padding:1rem;margin:1rem 0}#vm-sign{overflow-wrap:anywhere;border:2px solid #555;padding:1rem}#vm-root :focus-visible{outline:3px solid #185}
+#vm-root{min-width:0;overflow-wrap:anywhere}#vm-root fieldset{min-width:0}#vm-root label{display:block;margin:.5rem 0}#vm-root input,#vm-root select,#vm-root button{font:inherit;min-height:44px;max-width:100%}#vm-root article{border:1px solid #bbb;padding:1rem;margin:1rem 0}#vm-sign{overflow-wrap:anywhere;border:2px solid #555;padding:1rem}#vm-root :focus-visible{outline:3px solid #185}
 @media print{body *{visibility:hidden}#vm-sign,#vm-sign *{visibility:visible}#vm-sign{position:absolute;left:0;top:0;width:90%;font-size:24px}#vm-sign::after{content:'Developed with ❤️ by Bean, Bird & Badminton Tech Consulting';display:block;font-size:12px}}
 </style><section id="vm-root"><h1>團練場出席管理 · 場地設定與 NFC／QR 網址</h1>
 <p>UUID 與代碼建立後不可變更；停用而非刪除。已有出席不可改區域／時區。更動中心、半徑或時段需明確原因並記錄前後版本。</p>
 <label>查詢區域 UUID <input id="vm-region" autocomplete="off"></label><button id="vm-load" type="button">查詢／重新載入</button><button id="vm-add" type="button" disabled>新增場地</button>
 <p id="vm-status" role="status" aria-live="polite"></p><label>搜尋名稱／代碼 <input id="vm-search"></label><label>狀態 <select id="vm-filter"><option value="">全部</option><option value="true">啟用</option><option value="false">停用</option></select></label><div id="vm-list"></div>
-<form id="vm-form"><fieldset id="vm-editor" disabled><legend>場地資料</legend><p id="vm-version"></p>${fields}
+<form id="vm-form"><fieldset id="vm-editor" disabled><legend>場地資料</legend><p id="vm-version" tabindex="-1"></p>${fields}
 <p>每週時段（以場地時區計算，結束時間不含；同日，可用 24:00）</p>${['日', '一', '二', '三', '四', '五', '六'].map((label, day) => `<label><input id="vm-day-${day}" type="checkbox">週${label}</label>`).join('')}
 <label>開始 HH:mm <input id="vm-start" required pattern="([01][0-9]|2[0-3]):[0-5][0-9]"></label><label>結束 HH:mm <input id="vm-end" required pattern="(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)"></label>
-<label><input id="vm-active" type="checkbox">啟用（取消即停用，保留舊網址與出席）</label><label>本次修改原因（必要，寫入稽核） <input id="vm-reason" required maxlength="500"></label><button type="submit">儲存場地</button></fieldset></form>
-<h2>NFC／QR URL 管理</h2><div id="vm-links"></div><p>尚無已核准本地 QR 編碼器，因此沒有 QR 圖片／下載功能。僅提供 QR 目標網址及可列印場地牌，不外送第三方；source 可轉傳，不是出席證明。停用舊網址顯示需父代理接入可信 lookup。</p><button id="vm-print" type="button" disabled>列印選取場地牌（網址，非 QR 圖）</button><section id="vm-sign"></section></section>`,
+<label><input id="vm-active" type="checkbox">啟用（取消即停用，保留舊網址與出席）</label><label>設定異動原因（必要，寫入稽核；勿填學員個資或心得） <input id="vm-reason" required maxlength="500"></label><button id="vm-save" type="submit" disabled>儲存場地</button></fieldset></form>
+<h2>NFC／QR URL 管理</h2><div id="vm-links"></div><p>QR 圖片待編碼套件核准：尚無已核准本地 QR 編碼器，因此沒有 QR 圖片／下載功能。僅提供 QR 目標網址及可列印場地牌，不外送第三方；source 可轉傳，不是出席證明。啟用場地管理時，停用場地的公開入口會拒絕簽到；功能尚未開啟不代表網址已可簽到。</p><button id="vm-print" type="button" disabled>列印選取場地牌（網址，非 QR 圖）</button><section id="vm-sign"></section></section>`,
     `(${venueManagementController.toString()})();`,
     locale
   );

@@ -155,6 +155,43 @@ const browser = (
   return { get, liff, fetch, history, location, forbidden, submit, timeout };
 };
 
+describe('own test history tab', () => {
+  it('keeps normal totals formal, labels tests and never asks for GPS or persists tokens', async () => {
+    const ui = browser(base, {
+      fetch: async (url, init) => {
+        void url;
+        const testing = JSON.parse(init.body).view === 'test';
+        return response(
+          testing
+            ? success({
+                totals: { attendanceCount: 0, attendanceDays: 0, monthCount: 0 },
+                entries: [{ ...row, isTest: true, verificationMode: 'distance_debug' }]
+              })
+            : success()
+        );
+      }
+    });
+    await settle();
+    expect(ui.get('count').textContent).toBe('31');
+    ui.get('view').value = 'test';
+    ui.get('view').onchange!();
+    await settle();
+    expect(JSON.parse(ui.fetch.mock.calls[1]![1].body).view).toBe('test');
+    expect(ui.get('totals').hidden).toBe(true);
+    expect(ui.get('entries').children[0]?.textContent).toContain('異地測試，未計入正式出席');
+    expect(ui.forbidden).not.toHaveBeenCalled();
+    expect(JSON.stringify(ui.history.replaceState.mock.calls)).not.toMatch(
+      /mock-token|view=test|isTest/
+    );
+    ui.get('view').value = 'formal';
+    ui.get('view').onchange!();
+    await settle();
+    expect(ui.get('count').textContent).toBe('31');
+    expect(ui.get('totals').hidden).toBe(false);
+    expect(ui.get('entries').children[0]?.textContent).not.toContain('異地測試');
+  });
+});
+
 describe('check-in success history link', () => {
   it.each([200, 503])(
     'reveals the link only on validated check-in success: HTTP %s',

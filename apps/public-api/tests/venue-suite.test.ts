@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { checkVenueFeatureReadiness, validateVenueSuiteConfig } from '../src/venue-suite.js';
 
 describe('independent venue capability evidence', () => {
-  it.each(['history', 'management', 'people'] as const)(
+  it.each(['history', 'management', 'people', 'debug'] as const)(
     'probes %s without reading PII or invoking operations',
     async (feature) => {
       const query = vi.fn(async (sql: string) => ({
@@ -14,6 +14,7 @@ describe('independent venue capability evidence', () => {
       expect(await checkVenueFeatureReadiness(pool, feature)).toEqual({ feature, ready: true });
       const probe = query.mock.calls.find(([sql]) => sql.includes(' AS ready'))?.[0];
       expect(probe).toContain('count(*)=54');
+      expect(probe).toContain('count(*)=55');
       expect(probe).toContain('relforcerowsecurity');
       expect(probe).toContain('pg_auth_members');
       expect(probe).not.toMatch(/SELECT .* FROM (core|identity)\./);

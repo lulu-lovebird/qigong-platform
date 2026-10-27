@@ -42,6 +42,7 @@ const events = [
   'request_completed',
   'request_failed',
   'readiness_failed',
+  'venue_debug_audit_attempt',
   'channel_invite_unavailable',
   'help_image_unavailable'
 ] as const;
@@ -80,6 +81,7 @@ export type SafeLogError =
 export interface SafeLogRecord {
   readonly event: LogEvent;
   readonly reqId?: string;
+  readonly auditRequestId?: string;
   readonly method?: string;
   readonly route?: string;
   readonly statusCode?: number;
@@ -325,6 +327,7 @@ export const sanitizeLogRecord = (
           ? 'request_failed'
           : fallbackEvent);
   const reqId = ownLogValue(input, 'reqId') ?? ownLogValue(input, 'requestId');
+  const auditRequestId = ownLogValue(input, 'auditRequestId');
   const method = ownLogValue(input, 'method');
   const route = ownLogValue(input, 'route');
   const statusCode = ownLogValue(input, 'statusCode');
@@ -337,6 +340,11 @@ export const sanitizeLogRecord = (
   return {
     event,
     ...(isLogRequestId(reqId) ? { reqId } : {}),
+    ...(event === 'venue_debug_audit_attempt' &&
+    typeof auditRequestId === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(auditRequestId)
+      ? { auditRequestId }
+      : {}),
     ...(typeof method === 'string' && methods.has(method) ? { method } : {}),
     ...(typeof route === 'string' && registeredRoutes.has(route) ? { route } : {}),
     ...(typeof statusCode === 'number' &&
