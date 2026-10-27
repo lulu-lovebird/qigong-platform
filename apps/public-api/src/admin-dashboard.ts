@@ -132,7 +132,7 @@ export const renderAdminShell = (
       : locale === 'zh_CN'
         ? ['团练场出席管理', '场地设置', '人员／CSV']
         : ['團練場出席管理', '場地設定', '人員／CSV'];
-  const suiteNavigation = `<details class="nav-group" name="admin-navigation-groups" data-nav-group="venue-suite" hidden><summary>${suiteLabels[0]}</summary><div class="nav-group-links"><a href="/admin/venue-management${adminLocaleQuery(locale)}" data-venue-suite-nav="management" hidden>${suiteLabels[1]}</a><a href="/admin/venue-people" data-venue-suite-nav="people" hidden>${suiteLabels[2]}</a></div></details>`;
+  const suiteNavigation = `<details class="nav-group" name="admin-navigation-groups" data-nav-group="venue-suite" aria-labelledby="nav-group-venue-suite" hidden><summary class="nav-group-title" id="nav-group-venue-suite">${suiteLabels[0]}</summary><div class="nav-group-links"><a href="/admin/venue-management${adminLocaleQuery(locale)}" data-venue-suite-nav="management" hidden>${suiteLabels[1]}</a><a href="/admin/venue-people" data-venue-suite-nav="people" hidden>${suiteLabels[2]}</a></div></details>`;
   const navigationMarkup = navigationGroups
     .map((group) => {
       const items = group.pages
