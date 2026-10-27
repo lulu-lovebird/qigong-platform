@@ -10,8 +10,8 @@ import {
 
 const base = '/line/venue-history';
 const primary = (suffix = '/venue-history') => '/line/?liff.state=' + encodeURIComponent(suffix);
-const htmlFor = (url = base, liffId = 'existing-liff') => {
-  const request = venueHistoryRequest(url);
+const htmlFor = (url = base, liffId = 'existing-liff', cookie?: string) => {
+  const request = venueHistoryRequest(url, cookie);
   return renderLineVenueHistoryPage({
     liffId,
     entry: request.kind === 'history' ? request.entry : null
@@ -60,6 +60,8 @@ const browser = (
   url = base,
   options: {
     html?: string;
+    cookie?: string;
+    preferences?: (url: string, init: HistoryRequestInit) => Promise<MockResponse>;
     loggedIn?: boolean;
     inClient?: boolean;
     idToken?: string;
@@ -67,7 +69,7 @@ const browser = (
     fetch?: (url: string, init: HistoryRequestInit) => Promise<MockResponse>;
   } = {}
 ) => {
-  const html = options.html ?? htmlFor(url);
+  const html = options.html ?? htmlFor(url, 'existing-liff', options.cookie);
   const nodes = new Map<string, NodeStub>();
   const forbidden = vi.fn(() => {
     throw new Error('Forbidden storage / logging / GPS / HTML sink');
@@ -124,6 +126,20 @@ const browser = (
   const fetch = vi.fn<(url: string, init: HistoryRequestInit) => Promise<MockResponse>>(
     options.fetch ?? (async () => response())
   );
+  const preferences = vi.fn(options.preferences ?? (async () => response({ locale: 'zh_TW' })));
+  let cookie = options.cookie ?? '';
+  const cookieWrites = vi.fn<(value: string) => void>();
+  const document = {
+    get cookie() {
+      return cookie;
+    },
+    set cookie(value: string) {
+      cookie = value;
+      cookieWrites(value);
+    },
+    getElementById: (id: string) => get(id.replace(/^history-/, '')),
+    createElement: createNode
+  };
   const timeout = vi.fn(() => ({}));
   const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
   if (!script) throw new Error('Missing controller');
@@ -131,15 +147,12 @@ const browser = (
     URL,
     URLSearchParams,
     Intl,
-    document: {
-      cookie: '',
-      getElementById: (id: string) => get(id.replace(/^history-/, '')),
-      createElement: createNode
-    },
+    document,
     location,
     history,
     liff,
-    fetch,
+    fetch: (url: string, init: HistoryRequestInit) =>
+      url === '/line/preferences/language' ? preferences(url, init) : fetch(url, init),
     AbortSignal: { timeout },
     localStorage: { getItem: forbidden, setItem: forbidden },
     sessionStorage: { getItem: forbidden, setItem: forbidden },
@@ -152,8 +165,291 @@ const browser = (
     expect(preventDefault).toHaveBeenCalledOnce();
     await settle();
   };
-  return { get, liff, fetch, history, location, forbidden, submit, timeout };
+  return {
+    get,
+    liff,
+    fetch,
+    preferences,
+    cookieWrites,
+    history,
+    location,
+    forbidden,
+    submit,
+    timeout
+  };
 };
+
+describe('history language preference contract (real bootstrap, mocked SDK and network)', () => {
+  it('keeps resolved fallback and cookie locales distinct from explicit direct and primary queries', () => {
+    for (const route of [base, primary()]) {
+      const parsed = venueHistoryRequest(route);
+      expect(parsed).toEqual({ kind: 'history', entry: { lang: 'zh_TW', explicitLang: false } });
+      if (parsed.kind === 'history') expect(venueHistoryUrl(parsed.entry)).toBe(base);
+      expect(venueHistoryRequest(route, '__Host-qigong-learner-locale=en')).toEqual({
+        kind: 'history',
+        entry: { lang: 'en', explicitLang: false }
+      });
+    }
+    for (const route of [base + '?lang=zh_TW', primary('/venue-history?lang=zh_TW')]) {
+      expect(venueHistoryRequest(route, '__Host-qigong-learner-locale=en')).toEqual({
+        kind: 'history',
+        entry: { lang: 'zh_TW', explicitLang: true }
+      });
+    }
+  });
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'reads the authenticated stored %s without a cookie and never writes on open',
+    async (locale) => {
+      let complete: (() => void) | undefined;
+      const init = new Promise<void>((resolve) => {
+        complete = resolve;
+      });
+      const vm = browser(base, {
+        init: () => init,
+        preferences: async () => response({ locale })
+      });
+      expect(vm.preferences).not.toHaveBeenCalled();
+      expect(vm.fetch).not.toHaveBeenCalled();
+      expect(vm.history.replaceState).not.toHaveBeenCalled();
+      complete?.();
+      await settle();
+      expect(vm.preferences).toHaveBeenCalledOnce();
+      expect(vm.preferences.mock.calls[0]).toEqual([
+        '/line/preferences/language',
+        {
+          method: 'POST',
+          cache: 'no-store',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idToken: 'mock-token-memory-only' })
+        }
+      ]);
+      expect(vm.cookieWrites).not.toHaveBeenCalled();
+      if (locale === 'zh_TW') {
+        expect(vm.location.replace).not.toHaveBeenCalled();
+        expect(vm.fetch).toHaveBeenCalledOnce();
+        expect(vm.history.replaceState.mock.calls.every((call) => call[2] === base)).toBe(true);
+      } else {
+        expect(vm.location.replace).toHaveBeenCalledWith(base + '?lang=' + locale);
+        expect(vm.fetch).not.toHaveBeenCalled();
+        const next = browser(base + '?lang=' + locale);
+        await settle();
+        expect(next.get('language').value).toBe(locale);
+        expect(next.preferences).not.toHaveBeenCalled();
+        expect(next.location.replace).not.toHaveBeenCalled();
+        expect(next.cookieWrites).not.toHaveBeenCalled();
+        expect(next.fetch).toHaveBeenCalledOnce();
+      }
+      expect(vm.forbidden).not.toHaveBeenCalled();
+    }
+  );
+  it.each([
+    { query: '', cookie: 'en', expected: 'en' },
+    { query: '', cookie: 'zh_CN', expected: 'zh_CN' },
+    { query: '?lang=zh_TW', cookie: 'en', expected: 'zh_TW' },
+    { query: '?lang=zh_CN', cookie: 'en', expected: 'zh_CN' },
+    { query: '?lang=en', cookie: 'zh_CN', expected: 'en' }
+  ])(
+    'retains the existing explicit > cookie > stored contract, including stale cookies: %j',
+    async ({ query, cookie, expected }) => {
+      const vm = browser(base + query, {
+        cookie: '__Host-qigong-learner-locale=' + cookie,
+        preferences: async () => response({ locale: 'zh_TW' })
+      });
+      await settle();
+      expect(vm.get('language').value).toBe(expected);
+      expect(vm.preferences).not.toHaveBeenCalled();
+      expect(vm.cookieWrites).not.toHaveBeenCalled();
+      expect(vm.location.replace).not.toHaveBeenCalled();
+      expect(vm.fetch).toHaveBeenCalledOnce();
+    }
+  );
+  it('ignores an invalid cookie and picks up a cross-device stored preference', async () => {
+    const vm = browser(base, {
+      cookie: '__Host-qigong-learner-locale=fr',
+      preferences: async () => response({ locale: 'en' })
+    });
+    await settle();
+    expect(vm.preferences).toHaveBeenCalledOnce();
+    expect(vm.location.replace).toHaveBeenCalledWith(base + '?lang=en');
+    expect(vm.cookieWrites).not.toHaveBeenCalled();
+  });
+  it('keeps implicit language absent through external login, strips callback secrets and preserves every public filter on preference redirect', async () => {
+    const route = base + '?month=2026-10&venue=tw-test-one&page=2';
+    const first = browser(route, { loggedIn: false });
+    await settle();
+    expect(first.liff.login).toHaveBeenCalledWith({
+      redirectUri: 'https://app.test' + route + '&_line_login_attempt=1'
+    });
+    expect(first.preferences).not.toHaveBeenCalled();
+    expect(first.fetch).not.toHaveBeenCalled();
+    const second = browser(
+      route +
+        '&_line_login_attempt=1&code=callback-secret&state=callback-state&liffRedirectUri=https%3A%2F%2Fevil.test',
+      {
+        preferences: async () => response({ locale: 'en' })
+      }
+    );
+    await settle();
+    expect(second.history.replaceState).toHaveBeenCalledWith(null, '', route);
+    expect(second.location.replace).toHaveBeenCalledWith(route + '&lang=en');
+    expect(second.preferences.mock.calls[0]?.[1].body).not.toMatch(/callback|evil/);
+    expect(second.fetch).not.toHaveBeenCalled();
+    expect(second.cookieWrites).not.toHaveBeenCalled();
+  });
+  it('lets primary liff.state navigation remain exclusively SDK-owned even without lang', async () => {
+    const vm = browser(primary('/venue-history?month=2026-10&venue=tw-test-one&page=2'));
+    await settle();
+    expect(vm.liff.init).toHaveBeenCalledOnce();
+    expect(vm.liff.isLoggedIn).not.toHaveBeenCalled();
+    expect(vm.preferences).not.toHaveBeenCalled();
+    expect(vm.fetch).not.toHaveBeenCalled();
+    expect(vm.cookieWrites).not.toHaveBeenCalled();
+    expect(vm.history.replaceState).not.toHaveBeenCalled();
+    expect(vm.location.replace).not.toHaveBeenCalled();
+  });
+  it.each(['http', 'network', 'unknown', 'xss'] as const)(
+    'uses fallback after preference %s failure but still requires authenticated history and supports retry',
+    async (failure) => {
+      const vm = browser(base, {
+        preferences: async () => {
+          if (failure === 'network') throw new Error('private-preference-error');
+          return response(
+            { locale: failure === 'xss' ? '</script><img src=x>' : 'fr' },
+            failure === 'http' ? 503 : 200
+          );
+        },
+        fetch: async () => response({ error: 'private-identity-error' }, 401)
+      });
+      await settle();
+      expect(vm.preferences).toHaveBeenCalledOnce();
+      expect(vm.fetch).toHaveBeenCalledOnce();
+      expect(JSON.parse(vm.fetch.mock.calls[0]![1].body)).toEqual({
+        idToken: 'mock-token-memory-only',
+        page: 1
+      });
+      expect(vm.get('totals').hidden).toBe(true);
+      expect(vm.get('apply').disabled).toBe(true);
+      expect(vm.get('status').textContent).not.toMatch(/private|script/);
+      expect(vm.location.replace).not.toHaveBeenCalled();
+      expect(vm.cookieWrites).not.toHaveBeenCalled();
+      vm.get('retry').onclick?.();
+      expect(vm.location.replace).toHaveBeenCalledWith(
+        'https://liff.line.me/existing-liff/venue-history'
+      );
+      expect(vm.forbidden).not.toHaveBeenCalled();
+    }
+  );
+  it('rechecks identity after preference lookup rather than using a stale bootstrap token', async () => {
+    let complete: ((value: MockResponse) => void) | undefined;
+    const pending = new Promise<MockResponse>((resolve) => {
+      complete = resolve;
+    });
+    const vm = browser(base, { preferences: async () => pending });
+    await settle();
+    vm.liff.getIDToken.mockReturnValue('');
+    complete?.(response({ locale: 'zh_TW' }));
+    await settle();
+    expect(vm.fetch).not.toHaveBeenCalled();
+    expect(vm.get('apply').disabled).toBe(true);
+    expect(vm.cookieWrites).not.toHaveBeenCalled();
+  });
+  it('persists deliberate changes with a fresh SDK credential, then sets the secure cookie and retains month/venue/page', async () => {
+    let complete: ((value: MockResponse) => void) | undefined;
+    const pending = new Promise<MockResponse>((resolve) => {
+      complete = resolve;
+    });
+    const route = base + '?month=2026-10&venue=tw-test-one&page=2&lang=zh_TW';
+    const vm = browser(route, {
+      fetch: async () => response(success({ page: 2 })),
+      preferences: async () => pending
+    });
+    await settle();
+    expect(vm.preferences).not.toHaveBeenCalled();
+    vm.liff.getIDToken.mockReturnValue('fresh-token-memory-only');
+    vm.get('language').value = 'en';
+    vm.get('language').onchange?.();
+    expect(vm.preferences).toHaveBeenCalledOnce();
+    expect(vm.preferences.mock.calls[0]).toEqual([
+      '/line/preferences/language',
+      {
+        method: 'POST',
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ idToken: 'fresh-token-memory-only', locale: 'en' })
+      }
+    ]);
+    expect(vm.get('language').disabled).toBe(true);
+    expect(vm.location.replace).not.toHaveBeenCalled();
+    expect(vm.cookieWrites).not.toHaveBeenCalled();
+    vm.get('language').onchange?.();
+    expect(vm.preferences).toHaveBeenCalledOnce();
+    complete?.(response({ locale: 'en' }));
+    await settle();
+    expect(vm.cookieWrites).toHaveBeenCalledExactlyOnceWith(
+      '__Host-qigong-learner-locale=en; Path=/; Max-Age=31536000; Secure; SameSite=Lax'
+    );
+    expect(vm.location.replace).toHaveBeenCalledWith(
+      base + '?month=2026-10&venue=tw-test-one&page=2&lang=en'
+    );
+    expect(vm.fetch).toHaveBeenCalledOnce();
+    expect(vm.forbidden).not.toHaveBeenCalled();
+  });
+  it.each(['http', 'network'] as const)(
+    'does not change cookie or navigate after a %s persistence failure and allows retry',
+    async (failure) => {
+      const vm = browser(base + '?lang=en', {
+        preferences: async () => {
+          if (failure === 'network') throw new Error('private-post-error');
+          return response({ error: 'private-post-error' }, 503);
+        }
+      });
+      await settle();
+      vm.get('language').value = 'zh_CN';
+      vm.get('language').onchange?.();
+      await settle();
+      expect(vm.get('language').value).toBe('en');
+      expect(vm.get('language').disabled).toBe(false);
+      expect(vm.get('status').textContent).toBe('Language could not be saved. Please retry.');
+      expect(vm.cookieWrites).not.toHaveBeenCalled();
+      expect(vm.location.replace).not.toHaveBeenCalled();
+      vm.preferences.mockResolvedValueOnce(response({ locale: 'zh_CN' }));
+      vm.get('language').value = 'zh_CN';
+      vm.get('language').onchange?.();
+      await settle();
+      expect(vm.cookieWrites).toHaveBeenCalledOnce();
+      expect(vm.location.replace).toHaveBeenCalledWith(base + '?lang=zh_CN');
+    }
+  );
+  it.each(['fr', '</script><img src=x>', 'en'])(
+    'ignores unknown or unchanged selector values: %s',
+    async (selected) => {
+      const vm = browser(base + '?lang=en');
+      await settle();
+      vm.get('language').value = selected;
+      vm.get('language').onchange?.();
+      await settle();
+      expect(vm.get('language').value).toBe('en');
+      expect(vm.preferences).not.toHaveBeenCalled();
+      expect(vm.cookieWrites).not.toHaveBeenCalled();
+      expect(vm.location.replace).not.toHaveBeenCalled();
+    }
+  );
+  it('does not persist a language after the SDK credential expires', async () => {
+    const vm = browser(base + '?lang=en');
+    await settle();
+    vm.liff.getIDToken.mockReturnValue('');
+    vm.get('language').value = 'zh_CN';
+    vm.get('language').onchange?.();
+    await settle();
+    expect(vm.preferences).not.toHaveBeenCalled();
+    expect(vm.get('totals').hidden).toBe(true);
+    expect(vm.get('apply').disabled).toBe(true);
+    expect(vm.cookieWrites).not.toHaveBeenCalled();
+    expect(vm.location.replace).not.toHaveBeenCalled();
+  });
+});
 
 describe('own test history tab', () => {
   it('keeps normal totals formal, labels tests and never asks for GPS or persists tokens', async () => {
@@ -346,7 +642,7 @@ describe('history request discriminator and safe renderer', () => {
   it('uses enumerated locale or the existing presentation cookie', () => {
     expect(venueHistoryRequest(base, '__Host-qigong-learner-locale=en')).toEqual({
       kind: 'history',
-      entry: { lang: 'en' }
+      entry: { lang: 'en', explicitLang: false }
     });
     expect(venueHistoryUrl({ lang: 'zh_CN', month: '2026-10', venue: 'tw-test', page: 2 })).toBe(
       base + '?month=2026-10&venue=tw-test&page=2&lang=zh_CN'
@@ -461,6 +757,7 @@ describe('actual inline controller in VM with mocked SDK and fetch', () => {
     expect(JSON.parse(String(vm.fetch.mock.calls[3]?.[1].body)).page).toBe(1);
     vm.get('language').value = 'en';
     vm.get('language').onchange?.();
+    await settle();
     expect(vm.location.replace).toHaveBeenCalledWith(
       base + '?month=2026-10&venue=tw-test-one&lang=en'
     );
@@ -602,6 +899,7 @@ describe('actual inline controller in VM with mocked SDK and fetch', () => {
     expect(vm.liff.isLoggedIn).not.toHaveBeenCalled();
     expect(vm.liff.login).not.toHaveBeenCalled();
     expect(vm.fetch).not.toHaveBeenCalled();
+    expect(vm.preferences).not.toHaveBeenCalled();
     expect(vm.history.replaceState).not.toHaveBeenCalled();
     expect(vm.location.replace).not.toHaveBeenCalled();
     expect(vm.get('status').textContent).toContain('Opening the LINE page');
