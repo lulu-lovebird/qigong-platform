@@ -34,7 +34,7 @@ const checkin = (test = true, venue = 'tw-location-test', lat = -25, issuedOffse
 };
 describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () => {
   beforeAll(async () => {
-    if (!directory || !/^\/tmp\/venue-debug-[A-Za-z0-9]+$/.test(directory))
+    if (!directory || !/^\/tmp\/venue-debug-(?:integration-)?[A-Za-z0-9]+$/.test(directory))
       throw new Error('owned debug harness required');
     const actual = await realpath(directory);
     const info = await stat(directory);

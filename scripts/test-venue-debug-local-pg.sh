@@ -10,7 +10,7 @@ done
 clean() { env -i HOME="$HOME" PATH="$PATH" LANG=C LC_ALL=C TZ=UTC "$@"; }
 [[ $(clean node -p 'process.versions.node.split(".")[0]') == 24 ]]
 [[ $(clean initdb --version) == *' 17.'* ]]
-root=$(mktemp -d /tmp/venue-debug-XXXXXXXX)
+root=$(mktemp -d /tmp/venue-debug-integration-XXXXXXXX)
 chmod 700 "$root"
 mkdir -m 700 "$root/socket"
 printf '%s\n' "$root" >"$root/venue-debug-owner-marker"
@@ -18,7 +18,7 @@ cleanup() {
   clean node --input-type=module - "$root" <<'JS'
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 const root=process.argv[2], info=statSync(root);
-if(!/^\/tmp\/venue-debug-[A-Za-z0-9]+$/.test(root)||info.uid!==process.getuid()||(info.mode&0o777)!==0o700||readFileSync(root+'/venue-debug-owner-marker','utf8').trim()!==root)process.exit(1);
+if(!/^\/tmp\/venue-debug-integration-[A-Za-z0-9]+$/.test(root)||info.uid!==process.getuid()||(info.mode&0o777)!==0o700||readFileSync(root+'/venue-debug-owner-marker','utf8').trim()!==root)process.exit(1);
 try { const pid=readFileSync(root+'/data/postmaster.pid','utf8').split('\n'); if(realpathSync(pid[1])!==realpathSync(root+'/data')||pid[3]!=='55485'||realpathSync(pid[4])!==realpathSync(root+'/socket'))process.exit(1); } catch(error) { if(error.code!=='ENOENT')throw error; }
 JS
   if [[ -f "$root/data/postmaster.pid" ]]; then clean pg_ctl -D "$root/data" -m immediate -w stop >/dev/null; fi
