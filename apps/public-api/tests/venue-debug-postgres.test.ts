@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp, checkStartupReadiness } from '../src/app.js';
+import { ownLogValue } from '../src/log-privacy.js';
 import { createVenuePeopleService } from '../src/venue-people-service.js';
 import { parseVenuePeopleQuery, encodeVenuePeopleCsv } from '../src/venue-people-helpers.js';
 import { readVenueQrAttendance } from '../src/venue-qr.js';
@@ -246,6 +247,11 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
     };
     const verified = vi.fn(async () => new Response(JSON.stringify(claims)));
     vi.stubGlobal('fetch', verified);
+    // Reusing a client correlation header must never reuse the DB proof nonce.
+    const priorAudits = await owner.query<{ request_id: string }>(
+      'SELECT request_id FROM audit.events'
+    );
+    const httpRequestId = crypto.randomUUID();
     const send = (debugToken: string | undefined = fixtureToken, venue = 'tw-location-test') =>
       app.inject({
         method: 'POST',
@@ -253,6 +259,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
         headers: {
           origin,
           'x-venue-checkin': '1',
+          'x-request-id': httpRequestId,
           ...(debugToken === undefined ? {} : { 'x-venue-debug-token': debugToken })
         },
         payload: {
@@ -292,7 +299,36 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
         replayed: false
       });
       expect(success.headers['cache-control']).toBe('no-store');
-      expect((await send()).json()).toMatchObject({ isTest: true, replayed: true });
+      const replay = await send();
+      expect(replay.json()).toMatchObject({ isTest: true, replayed: true });
+      expect(success.headers['x-request-id']).toBe(httpRequestId);
+      expect(replay.headers['x-request-id']).toBe(httpRequestId);
+      const audits = await owner.query<{ request_id: string; metadata: { replayed: boolean } }>(
+        "SELECT request_id,metadata FROM audit.events WHERE action='venue.qr_checkin' AND metadata->>'isTest'='true' AND NOT(request_id=ANY($1::uuid[])) ORDER BY occurred_at,id",
+        [priorAudits.rows.map((row) => row.request_id)]
+      );
+      expect(audits.rows).toHaveLength(2);
+      expect(audits.rows.map((row) => row.metadata.replayed)).toEqual([false, true]);
+      const auditIds = audits.rows.map((row) => row.request_id);
+      expect(new Set(auditIds).size).toBe(2);
+      expect(auditIds).not.toContain(httpRequestId);
+      const mappings = logs
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as unknown)
+        .filter((record) => ownLogValue(record, 'event') === 'venue_debug_audit_attempt');
+      expect(mappings).toHaveLength(2);
+      for (const auditRequestId of auditIds) {
+        expect(mappings).toContainEqual(
+          expect.objectContaining({
+            reqId: httpRequestId,
+            auditRequestId,
+            method: 'POST',
+            route: '/api/line/venue-checkin'
+          })
+        );
+      }
+      expect(logs).not.toContain(hash);
       const history = (view?: string) =>
         app.inject({
           method: 'POST',

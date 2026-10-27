@@ -77,6 +77,11 @@ const denied = (status: 400 | 401 | 403 | 409 | 503, error: string): VenueQrOutc
   body: { ok: false, error }
 });
 
+/** Request-scoped diagnostics only: never receives credentials, payloads or SQL errors. */
+export interface VenueDebugRequestLogger {
+  (correlation: { readonly auditRequestId: string }): void;
+}
+
 export const createVenueQrCheckin = (pool: Pool, line: LineConfig, debug?: VenueDebugConfig) => {
   const trustedDebug = debug ? validateVenueDebugConfig(debug) : undefined;
   // The legacy verifyIdToken subject-only adapter is deliberately not used here.
@@ -89,7 +94,8 @@ export const createVenueQrCheckin = (pool: Pool, line: LineConfig, debug?: Venue
   return async (
     requestId: string,
     input: unknown,
-    debugToken?: unknown
+    debugToken?: unknown,
+    logDebugAttempt?: VenueDebugRequestLogger
   ): Promise<VenueQrOutcome> => {
     const parsed = venueQrInputSchema.safeParse(input);
     if (!parsed.success) return denied(400, 'invalid_input');
@@ -100,8 +106,16 @@ export const createVenueQrCheckin = (pool: Pool, line: LineConfig, debug?: Venue
     if (!verified.ok) return denied(verified.statusCode, verified.error);
     try {
       // A fresh server nonce, not an inbound X-Request-Id, owns debug authority.
-      // Identity lookup retains the HTTP correlation ID; debug audit uses this nonce.
+      // Log only the nonsensitive UUID mapping, never reuse HTTP IDs as authority.
       const writeRequestId = isDebug ? randomUUID() : requestId;
+      if (isDebug && logDebugAttempt) {
+        try {
+          logDebugAttempt({ auditRequestId: writeRequestId });
+        } catch {
+          // An unavailable diagnostic sink cannot change authorization or commit outcome.
+          // No raw-error fallback or retry (a write may already have succeeded).
+        }
+      }
       const body = await withRequestContext(
         pool,
         'qigong_api_runtime',
@@ -241,7 +255,8 @@ export const registerVenueQrCheckinRoutes = (
       const result = await checkin(
         request.id,
         request.body,
-        request.headers['x-venue-debug-token']
+        request.headers['x-venue-debug-token'],
+        (correlation) => request.log.info({ event: 'venue_debug_audit_attempt', ...correlation })
       );
       return reply.code(result.status).send(result.body);
     }

@@ -4,6 +4,7 @@ import type { Pool } from '@qigong/database';
 import { describe, expect, it, vi } from 'vitest';
 import { apiLogRedaction, buildApp, checkStartupReadiness } from '../src/app.js';
 import { createVenueQrCheckin } from '../src/venue-qr.js';
+import { ownLogValue } from '../src/log-privacy.js';
 import { loadVenueDebugConfig, validateVenueDebugConfig } from '../src/venue-debug.js';
 
 const token = 'synthetic-distance-fixture-only-token';
@@ -107,9 +108,11 @@ describe('distance debug API authority (mock SQL / LINE)', () => {
         m.line,
         candidate === undefined ? undefined : debug()
       );
+      const logger = vi.fn();
       expect(
-        await checkin(requestId, input, candidate === undefined ? token : candidate)
+        await checkin(requestId, input, candidate === undefined ? token : candidate, logger)
       ).toMatchObject({ status: 403, body: { error: 'venue_debug_denied' } });
+      expect(logger).not.toHaveBeenCalled();
       expect(m.query).not.toHaveBeenCalled();
       expect(m.line.verifyIdentity).not.toHaveBeenCalled();
     }
@@ -117,7 +120,15 @@ describe('distance debug API authority (mock SQL / LINE)', () => {
   it('valid header generates short lived context-bound proof; SQL never receives raw tokens', async () => {
     const m = mock(),
       config = debug();
-    const result = await createVenueQrCheckin(m.pool, m.line, config)(requestId, input, token);
+    const logger = vi.fn(() => {
+      throw new Error('synthetic unavailable diagnostic sink');
+    });
+    const result = await createVenueQrCheckin(m.pool, m.line, config)(
+      requestId,
+      input,
+      token,
+      logger
+    );
     expect(result).toEqual({ status: 200, body: testResult });
     const call = m.query.mock.calls.find(([sql]) => sql.includes('venue_debug_checkin'))!;
     const params = call[1]!;
@@ -129,6 +140,7 @@ describe('distance debug API authority (mock SQL / LINE)', () => {
     const nonce = nonces.at(-1)![1]![0];
     expect(nonce).not.toBe(requestId);
     expect(nonce).toMatch(/^[0-9a-f-]{36}$/);
+    expect(logger).toHaveBeenCalledExactlyOnceWith({ auditRequestId: nonce });
     expect(params[5]).toBe(
       createHmac('sha256', Buffer.from(config.tokenHash, 'hex'))
         .update([nonce, subject, input.venue, params[4]].join('|'))
@@ -210,13 +222,28 @@ describe('distance debug API authority (mock SQL / LINE)', () => {
         headers: {
           origin: 'https://app.test',
           'x-venue-checkin': '1',
-          'x-venue-debug-token': token
+          'x-venue-debug-token': token,
+          'x-request-id': requestId
         },
         payload: input
       });
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual(testResult);
       expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.headers['x-request-id']).toBe(requestId);
+      const mappings = () =>
+        logs
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line) as unknown)
+          .filter((record) => ownLogValue(record, 'event') === 'venue_debug_audit_attempt');
+      const nonce = m.query.mock.calls
+        .filter(([sql]) => sql.includes("set_config('qigong.request_id'"))
+        .at(-1)![1]![0];
+      expect(mappings()).toEqual([
+        expect.objectContaining({ reqId: requestId, auditRequestId: nonce })
+      ]);
+      expect(nonce).not.toBe(requestId);
       const invalid = await app.inject({
         method: 'POST',
         url: '/api/line/venue-checkin',
@@ -228,6 +255,22 @@ describe('distance debug API authority (mock SQL / LINE)', () => {
         payload: input
       });
       expect(invalid.statusCode).toBe(403);
+      expect(mappings()).toHaveLength(1);
+      for (const incoming of ['injected\\r\\nprivate', token, 'a'.repeat(300), input.idToken]) {
+        const rejected = await app.inject({
+          method: 'POST',
+          url: '/api/line/venue-checkin',
+          headers: { origin: 'https://app.test', 'x-venue-checkin': '1', 'x-request-id': incoming },
+          payload: { ...input, isTest: true }
+        });
+        expect(rejected.statusCode).toBe(400);
+        expect(rejected.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
+        expect(rejected.headers['x-request-id']).not.toBe(incoming);
+        expect(logs).not.toContain(incoming);
+      }
+      const proofs = m.query.mock.calls.filter(([sql]) => sql.includes('venue_debug_checkin'));
+      for (const [, params] of proofs) expect(logs).not.toContain(String(params![5]));
+      expect(logs).not.toContain(debug().tokenHash);
       expect(logs).not.toMatch(
         /synthetic-distance|synthetic-id-token|latitude|longitude|wrongwrong/
       );
