@@ -179,6 +179,8 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 full 55-chain', () =>
       "UPDATE platform.venue_debug_config SET enabled=TRUE,expires_at=clock_timestamp()-interval '1 second'"
     );
     await expect(checkin()).rejects.toMatchObject({ code: '42501' });
+    await owner.query('TRUNCATE platform.venue_debug_config');
+    await expect(checkin()).rejects.toMatchObject({ code: '42501' });
     expect((await owner.query('SELECT 1 FROM core.field_attendance')).rowCount).toBe(0);
   });
   it('revalidates identity, consent and time window', async () => {

@@ -123,13 +123,24 @@ describe('distance debug API authority (mock SQL / LINE)', () => {
     const params = call[1]!;
     expect(params.slice(0, 4)).toEqual([subject, input.venue, -25, 121]);
     expect(params[4]).toBeGreaterThan(Math.floor(Date.now() / 1000) - 3);
+    const nonces = m.query.mock.calls.filter(([sql]) =>
+      sql.includes("set_config('qigong.request_id'")
+    );
+    const nonce = nonces.at(-1)![1]![0];
+    expect(nonce).not.toBe(requestId);
+    expect(nonce).toMatch(/^[0-9a-f-]{36}$/);
     expect(params[5]).toBe(
       createHmac('sha256', Buffer.from(config.tokenHash, 'hex'))
-        .update([requestId, subject, input.venue, params[4]].join('|'))
+        .update([nonce, subject, input.venue, params[4]].join('|'))
         .digest('hex')
     );
     expect(JSON.stringify(m.query.mock.calls)).not.toContain(token);
     expect(JSON.stringify(result)).not.toMatch(/token|latitude|longitude|personId/);
+    await createVenueQrCheckin(m.pool, m.line, config)(requestId, input, token);
+    const replayNonce = m.query.mock.calls
+      .filter(([sql]) => sql.includes("set_config('qigong.request_id'"))
+      .at(-1)![1]![0];
+    expect(replayNonce).not.toBe(nonce);
   });
   it('wrong venue and expiry fail closed; no token still uses formal function', async () => {
     const m = mock(),

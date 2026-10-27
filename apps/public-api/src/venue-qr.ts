@@ -1,5 +1,6 @@
 /** Developed with ❤️ by Bean, Bird & Badminton Tech Consulting */
 import { withRequestContext, type Pool } from '@qigong/database';
+import { randomUUID } from 'node:crypto';
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
@@ -98,10 +99,13 @@ export const createVenueQrCheckin = (pool: Pool, line: LineConfig, debug?: Venue
     const verified = await identity(requestId, { idToken: parsed.data.idToken });
     if (!verified.ok) return denied(verified.statusCode, verified.error);
     try {
+      // A fresh server nonce, not an inbound X-Request-Id, owns debug authority.
+      // Identity lookup retains the HTTP correlation ID; debug audit uses this nonce.
+      const writeRequestId = isDebug ? randomUUID() : requestId;
       const body = await withRequestContext(
         pool,
         'qigong_api_runtime',
-        { requestId },
+        { requestId: writeRequestId },
         async (client) => {
           // Recheck expiry after identity lookup; the DB rechecks its own enablement
           // after serialization too. No client boolean can select the debug function.
@@ -119,7 +123,7 @@ export const createVenueQrCheckin = (pool: Pool, line: LineConfig, debug?: Venue
               issued,
               venueDebugProof(
                 trustedDebug,
-                requestId,
+                writeRequestId,
                 verified.identity.subject,
                 parsed.data.venue,
                 issued
