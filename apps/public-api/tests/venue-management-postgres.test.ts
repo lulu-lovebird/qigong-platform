@@ -73,8 +73,8 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
     );
     expect(migrations.applied).toContain('0053_venue_management.sql');
     expect(migrations.applied).toContain('0052_venue_personal_history.sql');
-    expect(migrations.applied).toHaveLength(55);
-    expect(migrations.currentVersion).toBe('0055_venue_distance_debug.sql');
+    expect(migrations.applied).toHaveLength(56);
+    expect(migrations.currentVersion).toBe('0056_venue_cks_distance_debug.sql');
     const visibleMigrations = (await readdir(resolve(process.cwd(), '../../migrations')))
       .filter((file) => /^\d{4}_[a-z0-9_]+\.sql$/.test(file))
       .sort();
@@ -246,7 +246,7 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
       }
     }
   });
-  it('55-chain readiness independently rejects missing ACLs, unsafe owner roles and disabled FORCE RLS', async () => {
+  it('56-chain readiness independently rejects missing ACLs, unsafe owner roles and disabled FORCE RLS', async () => {
     const enabled = { enabled: true, publicOrigin: 'https://synthetic.invalid' } as const;
     const suite = { history: enabled, management: enabled, people: enabled };
     const ready = () => checkStartupReadiness(runtime, true, suite, true);
@@ -260,7 +260,7 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
       ],
       [
         'debug',
-        'platform.venue_debug_checkin(text,text,double precision,double precision,bigint,text)'
+        'platform.venue_debug_checkin(text,text,double precision,double precision,bigint,bigint,text)'
       ]
     ] as const;
     // Signatures are fixed server-side test literals, not SQL input from a caller.
@@ -276,6 +276,28 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
         await owner.query(`GRANT EXECUTE ON FUNCTION ${signature} TO qigong_api_runtime`);
       }
       expect(await ready()).toMatchObject({ ready: true });
+    }
+    await owner.query(
+      'REVOKE EXECUTE ON FUNCTION platform.venue_debug_region_active(uuid) FROM qigong_venue_debug'
+    );
+    try {
+      expect(await ready()).toMatchObject({
+        ready: false,
+        capability: { feature: 'debug', ready: false }
+      });
+    } finally {
+      await owner.query(
+        'GRANT EXECUTE ON FUNCTION platform.venue_debug_region_active(uuid) TO qigong_venue_debug'
+      );
+    }
+    await owner.query('ALTER ROLE qigong_venue_debug_region_guard LOGIN');
+    try {
+      expect(await ready()).toMatchObject({
+        ready: false,
+        capability: { feature: 'debug', ready: false }
+      });
+    } finally {
+      await owner.query('ALTER ROLE qigong_venue_debug_region_guard NOLOGIN');
     }
     await owner.query('ALTER TABLE platform.venue_debug_context NO FORCE ROW LEVEL SECURITY');
     try {

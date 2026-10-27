@@ -150,13 +150,13 @@ describe.skipIf(!directory)('isolated real PG: full migrations + synthetic LINE/
       resolve(process.cwd(), '../../migrations'),
       'synthetic-local-qr'
     );
-    expect(result.currentVersion).toBe('0055_venue_distance_debug.sql');
+    expect(result.currentVersion).toBe('0056_venue_cks_distance_debug.sql');
     expect(result.applied).toContain(venueQrMigrationVersion);
     const migrationFiles = (await readdir(resolve(process.cwd(), '../../migrations')))
       .filter((file) => /^\d{4}_[a-z0-9_]+\.sql$/.test(file))
       .sort();
     expect(result.applied).toEqual(migrationFiles);
-    expect(migrationFiles).toHaveLength(55);
+    expect(migrationFiles).toHaveLength(56);
     expect(
       (await runMigrations(owner, resolve(process.cwd(), '../../migrations'))).applied
     ).toEqual([]);
