@@ -1,86 +1,93 @@
-# 限時異地驗收（未啟用／未部署）
-
-整合版驗證／來源提交對照見 [venue-debug-admin-integration.md](venue-debug-admin-integration.md)。
+# 限時中正紀念堂異地驗收（schema56；預設關閉）
 
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 
-## 範圍與授權邊界
+本輪本地驗證與交接見 [venue-cks-debug-verification.md](venue-cks-debug-verification.md)。
+[venue-debug-admin-integration.md](venue-debug-admin-integration.md) 與
+[venue-distance-debug-verification.md](venue-distance-debug-verification.md) 為舊 schema55 歷史證據，不是 schema56 操作指示。
 
-- 僅 `tw-location-test`；僅豁免定位半徑，仍由裝置取得並傳送實際 GPS。
-- LINE audience、issuer、expiry、active person、approved application、active identity/channel、最新必要隱私同意仍必須通過。DB 在寫入交易內重新驗證身份與同意。
-- 場地 active、timezone、開放星期／時段、同人同場當地日期冪等都保留；重播也重新檢查當前條件。
-- 只有 `X-Venue-Debug-Token` header 能請求此模式；無 header 一律走原正式流程。錯碼、過期、未啟用或錯場地明確回覆 `403 venue_debug_denied`，不降級為正式成功。
-- input schema 不接受 `isTest`、`debug`、person、subject 或 channel 覆寫。
-- 此分支沒有設定或產生正式 token，沒有連外 LINE、phone DB 或任何部署操作。
+## 範圍
 
-## 預設關閉與設定
+- 本輪只允許 `tw-taipei-cks`，不是任意場地白名單；舊 `tw-location-test` 不再接受新 Debug 寫入。
+- **只豁免距離**。仍取得並傳送裝置的實際 GPS，保留 LINE audience/issuer/expiry、active person、approved application、active identity/channel、當前必要隱私同意。
+- DB 在寫入交易重查身分、同意、場地 active、operational → country → global 各層 active、timezone、開放星期／時段。學員不必住在場地所屬地區。
+- 在家測試也必須在場地的開放時段內；不得為成功而默默放寬時段或捏造 GPS。
+- 同人、場地、場地當地日期、`is_test` 冪等；重播也重驗當前條件。測試和正式出席互不覆寫／阻擋。
+- 只有 `X-Venue-Debug-Token` header 能選此模式；缺 header 走正式流程。錯碼、過期、關閉、錯場地、API/DB 設定不一致均明確拒絕，不降級為正式成功。
+- Body 不接受 `isTest`、`debug`、person、subject 或 channel 覆寫。
 
-遷移 `0055_venue_distance_debug.sql` 不建立 config 資料，也不建立 secret。
+## 初始關閉與版本
 
-API composition root 的必要條件：
+已發布 0001–0055 不變。`0056_venue_cks_distance_debug.sql` 由 migration runner 包在交易中：
 
-| 設定                                | 意義                                                                  |
-| ----------------------------------- | --------------------------------------------------------------------- |
-| `VENUE_QR_CHECKIN_ENABLED`          | 原正式 QR 功能必須已啟用                                              |
-| `VENUE_QR_PUBLIC_ORIGIN`            | 精確 HTTPS origin，沿用原 origin/CSRF-like header 防護                |
-| `VENUE_DISTANCE_DEBUG_ENABLED`      | 預設 `false`，只有明確 `true` 才讀 debug 設定                         |
-| `VENUE_DISTANCE_DEBUG_EXPIRES_AT`   | 明確有限到期時間，啟動時不得已過期；每次請求重查                      |
-| `VENUE_DISTANCE_DEBUG_TOKEN_SHA256` | 64 位小寫 hex hash；同時是 DB proof 的 HMAC key，必須當成認證秘密保護 |
+1. **只刪除秘密設定表 `platform.venue_debug_config` 的舊 singleton row**，撤銷舊場地憑證，絕不把它轉授權 CKS。
+2. 不建立 enabled row、不產生 secret、不刪 attendance、audit、context 或任何場地／學員資料。
+3. 增加無 default 的 `venue_code`，硬 CHECK 為 `tw-taipei-cks`；有限的 `configured_at`；`expires_at > configured_at` 且最長 60 分鐘，expiry 必須對齊整數毫秒。
+4. 移除舊六參數 Debug checkin 函式及其 ACL，換七參數函式，proof 綁定明確 expiry。
+5. 僅 CKS 可 INSERT 測試筆；歷史 SELECT 保留舊 `tw-location-test` 並加入 CKS，正式 restrictive exclusion 不變。
 
-DB 的 `platform.venue_debug_config` 必須另經授權管理者安全配置相符 hash、`enabled`、有限 `expires_at`。API/runtime/worker 沒有讀寫 config 的權限，沒有 HTTP setter；任一側關閉、到期或 key 不符皆拒絕寫入。實際有效期限是兩側期限的較早者。Capability readiness **不是** DB 啟用狀態確認，不能用 health ready 推論測試碼已可用。
+Debug enabled 需要精確 schema56 與獨立 capability readiness。Debug off 時，QR／history／管理／報表保留精確 schema55 相容，也接受 schema56；舊的其他已審閱相容版本維持原規則，未知版本拒絕。相容或 health ready 都不代表已啟用／已配置有效憑證。
 
-本次未執行配置步驟。正式 secret 的安全發放、owner provisioning 與外層 proxy/DB logging 政策須獨立審查，不能從 fixture 複用測試碼。
+## 另行批准後才能配置
 
-## LIFF 操作與回傳
+本輪未連正式環境、未配置正式 row、未產生／發放正式 token，以下僅為後續操作契約。
 
-啟用且未到期時，只有 test venue 的正式簽到頁顯示測試區：
+| API 設定名稱                        | 契約                                                                                       |
+| ----------------------------------- | ------------------------------------------------------------------------------------------ |
+| `VENUE_QR_CHECKIN_ENABLED`          | 正式 QR 路徑需明確啟用                                                                     |
+| `VENUE_QR_PUBLIC_ORIGIN`            | 精確 HTTPS origin，沿用 Origin 與請求 header 防護                                          |
+| `VENUE_DISTANCE_DEBUG_ENABLED`      | 預設 `false`；只有明確 `true` 才載入 Debug 設定                                            |
+| `VENUE_DISTANCE_DEBUG_VENUE_CODE`   | 必填且只能是 `tw-taipei-cks`；空值、多碼、萬用字元、舊場地均拒絕啟動                       |
+| `VENUE_DISTANCE_DEBUG_EXPIRES_AT`   | 必填 canonical UTC ISO（整數毫秒、結尾 Z）；啟動時在未來、距今不超過 60 分鐘，每次請求重查 |
+| `VENUE_DISTANCE_DEBUG_TOKEN_SHA256` | 64 位小寫 hex；同時是 proof 的 HMAC authority，必須當作秘密，不可公開                      |
 
-1. 人工勾選異地測試、輸入短效測試碼。
-2. 按鈕才取得 GPS；測試碼立即從 input 清空，僅保留於此次 async 請求記憶體。
-3. header 帶碼，body 仍只有原 idToken、venue、實際 latitude/longitude；禁止 URL、QR、bundle、storage、console 傳遞測試碼。
-4. 成功須有 `isTest: true` 與 `verificationMode: distance_debug`，顯示 **異地測試，未計入正式出席**。回日課仍只是連結，不會替使用者日課打卡。
-5. 重試需重新人工輸碼；若測試碼無效不會偷偷轉成正式流程。
+DB `platform.venue_debug_config` 只能由另行授權 operator／DB owner 安全配置；runtime／worker 無讀寫權限、無 HTTP setter。DB row 需 `enabled`、相同 `venue_code`、相同 hash，且 **API/DB expiry 必須是同一 epoch-millisecond**，不是各自設定稍有不同的到期時間或取較早者。請先選定一次到期值，再安全配置兩側，避免捨入或時間格式偏差。DB CHECK 的 60 分鐘由 `configured_at` 起算，API 啟動再獨立限制不超過未來 60 分鐘。
 
-本人團練紀錄預設只有正式紀錄／正式 lifetime、month、day totals。可在頁內切換明確標示的測試類別；API 使用 `view: test` 呼叫獨立的本人測試讀取函式，仍每次驗證登入、身份及同意，不需要測試碼、GPS，也不能查別人。測試頁隱藏正式 totals，DB test DTO totals 固定為零，不將驗收筆加進正式數字。測試 tab 可在 debug 關閉後保留查閱；在尚未具備 0055 的相容舊 DB 會明確不可用，沒有 mock fallback。
+若任一側 off、過期、hash／expiry 不一致，寫入 fail closed。Readiness 只確認版本／安全 capability，不讀秘密設定，不確認 token 已可用。改變 DB expiry 也會立即撤銷舊 API proof；不能用於靜默延長已配置的憑證。
 
-## DB 信任與資料分類
+啟用前須審查外層 proxy、APM、Cloudflare 和 DB 診斷政策；不能由本地 logger 測試推論外部服務沒有擷取 body／headers。正式 secret 生成、人工發放、owner provisioning 與 feature activation 必須另行授權，不能複用 fixtures。
 
-- API 先 SHA-256 + fixed-length `timingSafeEqual` 驗證 header，再建立短效 HMAC。
-- 每個 debug 寫入使用全新 server UUID nonce 作為 DB request ID，不能由 inbound `X-Request-Id` 指定。proof 綁定 nonce、已驗證 LINE subject、venue、issued seconds。
-- 整合版以 request-scoped logger 的 `venue_debug_audit_attempt` 記錄 HTTP `reqId` → server `auditRequestId` UUID 映射；不是 success／commit 證明。專用 privacy boundary 僅接受 UUIDv4 audit ID，不記任何 header/body、token/hash/proof/GPS/SQL exception。logger 關閉／故障會失去映射，不改授權或寫入結果；HMAC／0055 signature 沒有變更。
-- DB 獨立確認 config、到期、場地、proof（過去最多 30 秒，未來最多 2 秒），並在 advisory lock **之後** 檢查。proof 不作為 API 回傳資料。
-- 受限 `qigong_venue_debug` 為 NOLOGIN、NOINHERIT、NOBYPASSRLS、非 table owner；無 role membership；僅精確函式 EXECUTE 給 API，PUBLIC／worker 不可執行。
-- context table 受 FORCE RLS 約束，綁 backend PID + transaction ID + person；runtime 不可讀寫，也不能用自訂 GUC 授權。成功刪除 context；失敗交易回滾。
-- GPS：僅當次 API／SQL 參數使用；attendance 原始 latitude/longitude 均 NULL，無 note、daily checkin ID、volunteer ID。不得啟用會記錄 bind parameters、request headers/body 或 SQL error statements 的外層診斷。
-- 認證資料：原碼只存在人工輸入／header／請求記憶體；hash 是 HMAC authority，不是公開資訊。API logger 排除 body、URL、header，且有額外 `req.headers.x-venue-debug-token` redaction。DB harness 關閉 statement-on-error／parameter logging。
-- 持久化：person/venue/date/time、derived distance、`is_test`、`verification_mode` 為受限個人出席資料；audit 僅記結果、replayed、test/mode，不含原碼、hash、proof 或 GPS。
-- 正式 SELECT 的 PUBLIC **restrictive exclusion** 為 `NOT is_test`（僅不可登入 debug owner 例外），不是 PUBLIC bypass 授權。原 history／admin people/detail／read/export 都由各自非 owner reader 執行，故測試筆不進 totals 或 CSV。
-- 日課 stats/rewards 使用 `core.checkins`，debug 不寫入該表。PG 驗證日課 metrics、checkins、badges、jobs、achievement transitions 在驗收前後不變。
-- 唯一鍵為 `(person_id, field_id, attendance_date, is_test)`：正式 FALSE 分區仍只能一筆，測試 TRUE 分區也只能一筆。兩者不能覆寫、不互相阻擋；正式重播不會回傳測試成功。
-- `NUMERIC(10,2)` 能容納地球最大球面距離；`pg` 回傳 NUMERIC 字串，測試先驗證十進位契約才轉數值，不修改全域 numeric parser。
+## LIFF 與本人紀錄
 
-## 版本與整合
+只有 Debug enabled 的 CKS 正式簽到頁顯示人工測試區；舊測試場地與 preview 頁不顯示。
 
-- 保留已發布 0001–0054 bytes；0055 為唯一新 forward migration。
-- enabled debug 必須精確 0055 且通過角色、function ACL/owner、FORCE RLS capability probe；普通 QR／suite 可接受各自既有版本與精確 0055，未知同號或未來版本仍拒絕。相容不等於啟用。
-- 原 debug 來源未改 admin UI／shared admin-auth；本地整合版已逐 commit 納入 admin usability、私有 capability endpoint 與 55-chain tests。保留 read/manage/export 獨立 scope，沒有整檔覆蓋共享檔或修改另一 worktree。詳見整合驗證紀錄。
+1. 人工勾選異地測試並輸入短效碼；按鈕取得真實 GPS。
+2. 輸入框立即清空，碼僅留於該次 async 請求記憶體；重試須重新輸入。
+3. Token 只進 header，不進 URL、QR、Rich Menu、bundle、browser storage 或 console；body 仍只有 idToken、venue、實際 latitude／longitude。
+4. 成功必須有 `isTest: true`、`verificationMode: distance_debug`，明示 **異地測試，未計入正式出席**。
+5. 回日課只是連結；不會自動建立日課／心得／練功紀錄。
 
-## 本地驗證
+本人團練紀錄預設正式類別／正式 totals。頁內測試類別呼叫獨立 API `view: test`，仍驗登入、身分與同意，不需要 GPS／測試碼，也不能查別人。測試類別隱藏 totals、DB test DTO totals 固定零；Debug 關閉或過期後仍可查已存在的本人測試紀錄，包含舊場地紀錄。歷史 URL 不支援 `view=test` 授權參數。
 
-只使用既有 Node24／PG17，不安裝套件；腳本以 `env -i` 清除外部 DB/provider 環境，不讀 `.env` 或採用未知 `TEST_DATABASE_URL`。整合版所有新 cluster 在 0700 `/tmp/venue-debug-integration-*`、socket-only、marker/owner/PID/port 檢查後 cleanup。
+## DB 信任、RLS 與保密
+
+- API 先用 SHA-256 和 `timingSafeEqual` 驗 header，再以全新 server UUID nonce 建立 proof；不能由 inbound `X-Request-Id` 指定 nonce。
+- HMAC message 精確為 `nonce|verified subject|venue|issued seconds|expires epoch-ms`。SQL 七參數為 subject、venue、latitude、longitude、issued、expires-ms、proof；原始 token 絕不進 SQL。
+- DB 在 advisory lock 後查獨立 enablement、CKS scope、未到期、expiry 精確一致、proof（過去最多 30 秒、未來最多 2 秒）；proof 不回傳。
+- `qigong_venue_debug` 保持 NOLOGIN／NOINHERIT／NOBYPASSRLS、非 table owner、無 memberships；runtime 僅精確入口 EXECUTE，PUBLIC／worker 無 EXECUTE。
+- 新 `qigong_venue_debug_region_guard` 同樣不可登入、不可繼承、不可 bypass RLS、非 table owner、無 memberships。只讀 `core.regions` 的 id／parent_region_id／region_type／active 四欄；固定 `search_path=pg_catalog`、`row_security=on` 的 SECURITY DEFINER helper 只回傳 active hierarchy 布林，EXECUTE 只給 Debug role，不給 PUBLIC／runtime／worker。
+- **既有 `core.regions` 並未啟用 RLS**；本輪不改其全域 RLS 或其他角色權限。新增定向 guard SELECT policy，保留現況；安全邊界是窄欄位 ACL＋helper EXECUTE，不宣稱該表已 FORCE RLS。其他既有 Debug context／attendance／venue／audit 表的 FORCE RLS 保持不變。
+- Context 以 backend PID＋transaction ID＋person 綁定，runtime 不可讀寫、不能用自訂 GUC 授權；成功清除 context，失敗整筆交易回滾。
+- Attendance 原始 GPS 均 NULL；僅保存 person／venue／date／time、derived distance、test／mode。沒有 note、日課 checkin ID 或 volunteer ID。
+- Audit 僅保存結果、replayed、test／mode；request-scoped diagnostic 只映射 HTTP reqId → server auditRequestId UUID，不能當作 commit 成功證據。原碼／hash／proof／GPS／SQL 例外不進 API response／logger。
+- 正式 SELECT 的 PUBLIC restrictive exclusion 仍排除 test，不授權 PUBLIC 讀取。正式 history、管理、people／detail、CSV totals 全部排除測試筆。
+- 日課 stats／rewards 仍用 `core.checkins`；測試不建立日課、badge、job 或 achievement transition。
+
+## 停用、撤銷與回退
+
+- 隨時將 DB `enabled` 關閉／刪除 config 可撤銷 Debug；API feature off、到期或移除 API 秘密亦會拒絕，不必刪除測試歷史。
+- 秘密外洩需撤銷兩側配置並安全處理，不把 hash 當作無害可公開值。
+- Schema56 是 forward-only；部署前須另核准備份／rehearsal／相容 release。**不得直接退回最大只支援 schema55 的 `5d98a04` API**，也不得以舊 snapshot 覆蓋新寫入或編輯 0055。停用後使用 schema56 相容 release 或 fix-forward。
+
+## 本地驗證入口
+
+僅既有 Node24／PG17、隔離 0700 `/tmp/venue-debug-integration-*`、Unix socket、synthetic data。腳本以 `env -i` 清除 DB／provider 環境，不讀 `.env`、不採用未知 DB URL，cleanup 驗 marker／owner／PID／port。
 
 ```sh
+bash scripts/test-venue-debug-local-pg.sh migration
 bash scripts/test-venue-debug-local-pg.sh focused
 bash scripts/test-venue-debug-local-pg.sh full
 ```
 
-- 整合版 `focused`：debug HTTP/DB security 9、settings/management 14、people 11、QR 10，共 **44 passed、0 skipped**；每套獨立新 cluster，完整 55-chain。
-- `full`：腳本自行建立 disposable database URL 後執行 `pnpm verify`，接著 full source/tests `tsc -p tsconfig.eslint.json --noEmit` 與 receipt-health tsc。
-- 整合版 full suite 結果見 `venue-debug-admin-integration.md`；`venue-distance-debug-verification.md` 保留原 debug 來源的歷史驗證數字。
-
-## 尚須獨立審查／不代表完成的工作
-
-- 整合版已有唯讀跨模型 code review（範圍／限制見整合紀錄），不是正式環境／手機驗收。啟用前仍須獨立審查 HMAC/config/context/RLS、proxy/DB logger 與安全 secret 發放／撤銷。
-- 未做實體手機／真 LINE provider 驗收，未建立正式 token 或 owner config，未部署、push、merge、改 Rich Menu／Console。
-- 0055 變更無自動 downgrade／資料刪除方案；停用只需維持 server feature off 或到期，測試資料仍保持隔離供本人查閱。不得為回退覆寫已發布 migration 或刪正式出席。
+實際 pass／skip、commit 與限制見 [交接紀錄](venue-cks-debug-verification.md)。未做真 LINE／實體手機／正式 PG16 驗收；本地通過不代表正式功能已開放。
