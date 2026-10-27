@@ -474,7 +474,14 @@ export const buildApp = ({
   if (telegramOnboarding)
     registerTelegramOnboarding(app, pool, telegramOnboarding, enabledInviteTransports.telegram);
   if (line) {
-    registerLineOnboarding(app, pool, line, qr?.enabled === true, suite.history?.enabled === true);
+    registerLineOnboarding(
+      app,
+      pool,
+      line,
+      qr?.enabled === true,
+      suite.history?.enabled === true,
+      qr?.debug?.expiresAt
+    );
     if (suite.history)
       registerVenueHistoryRoutes(app, pool, {
         publicOrigin: suite.history.publicOrigin,

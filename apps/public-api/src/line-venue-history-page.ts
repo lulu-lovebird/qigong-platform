@@ -1,4 +1,5 @@
 import { lineLoginScript } from './application-page.js';
+import { venueDebugLabel } from './venue-debug.js';
 import {
   htmlLocale,
   isLocale,
@@ -211,6 +212,7 @@ export const renderLineVenueHistoryPage = ({ liffId, entry }: VenueHistoryPageCo
 ${
   entry
     ? `<label for="history-language">${t.language}</label><select id="history-language" disabled>${languageOptions(lang)}</select>
+<label for="history-view">紀錄類別</label><select id="history-view" disabled><option value="formal">正式出席</option><option value="test">${venueDebugLabel}</option></select>
 <form id="history-filters"><label for="history-month">${t.month}</label><input id="history-month" type="month" min="0001-01" max="9999-12" value="${escapeHtml(entry.month ?? '')}" disabled>
 <label for="history-venue">${t.venue}</label><input id="history-venue" type="text" maxlength="64" value="${escapeHtml(entry.venue ?? '')}" autocapitalize="none" spellcheck="false" aria-describedby="history-filter-help" disabled>
 <p id="history-filter-help">${t.filters}</p><button id="history-apply" type="submit" disabled>${t.apply}</button></form>
@@ -230,7 +232,8 @@ const get=id=>document.getElementById('history-'+id);
 const main=get('main'),status=get('status'),language=get('language'),form=get('filters'),month=get('month'),venue=get('venue'),apply=get('apply'),totals=get('totals'),entries=get('entries'),previous=get('previous'),next=get('next'),retry=get('retry');
 let ready=false,busy=false,hasMore=false,page=historyInitial.page||1,activeMonth=historyInitial.month||'',activeVenue=historyInitial.venue||'';
 const canonicalUrl=()=>{const target=new URL(historyCanonical,location.href);target.search='';if(activeMonth)target.searchParams.set('month',activeMonth);if(activeVenue)target.searchParams.set('venue',activeVenue);if(page!==1)target.searchParams.set('page',String(page));target.searchParams.set('lang',language.value);return target.pathname+target.search;};
-const controls=()=>{for(const node of [language,month,venue,apply])node.disabled=busy||!ready;previous.disabled=busy||!ready||page<=1;next.disabled=busy||!ready||!hasMore;retry.disabled=busy;main.setAttribute('aria-busy',String(busy));};
+const view=get('view');
+const controls=()=>{for(const node of [language,month,venue,apply,view])node.disabled=busy||!ready;previous.disabled=busy||!ready||page<=1;next.disabled=busy||!ready||!hasMore;retry.disabled=busy;main.setAttribute('aria-busy',String(busy));};
 const clear=()=>{entries.replaceChildren();totals.hidden=true;for(const id of ['count','days','month-count','month-period','page'])get(id).textContent='';hasMore=false;};
 const fail=message=>{clear();status.textContent=message;retry.hidden=false;retry.textContent=ready?historyText.retry:historyText.reopen;};
 const integer=value=>Number.isSafeInteger(value)&&value>=0;
@@ -239,6 +242,7 @@ const validDate=value=>text(value,10)&&/^(?!0000)[0-9]{4}-[0-9]{2}-[0-9]{2}$/.te
 const validResult=data=>{
   if(!data||data.ok!==true||data.timezone!=='Asia/Taipei'||data.page!==page||data.pageSize!==20||typeof data.hasMore!=='boolean'||!data.totals||!['attendanceCount','attendanceDays','monthCount'].every(key=>integer(data.totals[key]))||!Array.isArray(data.entries)||data.entries.length>20)return false;
   return data.entries.every(row=>{
+    if((view.value==='test'?(row?.isTest!==true||row?.verificationMode!=='distance_debug'):(row?.isTest!==undefined||row?.verificationMode!==undefined)))return false;
     if(!row||!text(row.id,128)||!text(row.venueCode,64)||!text(row.venueName,300)||!text(row.checkedInAt,64)||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})$/.test(row.checkedInAt)||!Number.isFinite(Date.parse(row.checkedInAt))||!validDate(row.venueLocalDate)||!text(row.venueTimezone,100)||!/^[A-Za-z][A-Za-z0-9._+-]*(?:\\/[A-Za-z0-9._+-]+)*$/.test(row.venueTimezone))return false;
     try{new Intl.DateTimeFormat(historyLocale,{timeZone:row.venueTimezone}).format(new Date(row.checkedInAt));return true;}catch{return false;}
   });
@@ -250,7 +254,7 @@ const load=async()=>{
   try{
     const currentToken=liff.getIDToken()||'';
     if(!liff.isLoggedIn()||!currentToken){ready=false;idToken='';fail(historyText.loginError);return;}
-    const body={idToken:currentToken,page};if(activeMonth)body.month=activeMonth;if(activeVenue)body.venue=activeVenue;
+    const body={idToken:currentToken,page};if(view.value==='test')body.view='test';if(activeMonth)body.month=activeMonth;if(activeVenue)body.venue=activeVenue;
     const response=await fetch('/api/line/venue-history',{method:'POST',cache:'no-store',credentials:'omit',redirect:'error',signal:AbortSignal.timeout(15000),headers:{'content-type':'application/json','x-venue-history':'1'},body:JSON.stringify(body)});
     if(!response.ok){
       if(response.status===401){ready=false;idToken='';fail(historyText.loginError);}
@@ -259,15 +263,16 @@ const load=async()=>{
     }
     const data=await response.json();if(!validResult(data))throw new Error('invalid history result');
     const rows=[...data.entries].sort((a,b)=>Date.parse(b.checkedInAt)-Date.parse(a.checkedInAt));
-    const items=rows.map(row=>{const item=document.createElement('li');const time=new Intl.DateTimeFormat(historyLocale,{timeZone:row.venueTimezone,hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(new Date(row.checkedInAt));item.textContent=row.venueLocalDate+' '+time+' ('+row.venueTimezone+') — '+row.venueName+' ['+row.venueCode+']';return item;});
+    const items=rows.map(row=>{const item=document.createElement('li');const time=new Intl.DateTimeFormat(historyLocale,{timeZone:row.venueTimezone,hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(new Date(row.checkedInAt));item.textContent=(row.isTest===true?${scriptJson(venueDebugLabel)}+' — ':'')+row.venueLocalDate+' '+time+' ('+row.venueTimezone+') — '+row.venueName+' ['+row.venueCode+']';return item;});
     entries.replaceChildren(...items);
     get('count').textContent=String(data.totals.attendanceCount);get('days').textContent=String(data.totals.attendanceDays);get('month-count').textContent=String(data.totals.monthCount);
     const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit'}).formatToParts(new Date());
     get('month-period').textContent=activeMonth||parts.find(p=>p.type==='year').value+'-'+parts.find(p=>p.type==='month').value;
-    totals.hidden=false;hasMore=data.hasMore;get('page').textContent=historyText.page+' '+page;status.textContent=rows.length?historyText.loaded:historyText.empty;
+    totals.hidden=view.value==='test';hasMore=data.hasMore;get('page').textContent=historyText.page+' '+page;status.textContent=rows.length?historyText.loaded:historyText.empty;
   }catch{fail(historyText.unavailable);}finally{busy=false;controls();}
 };
 form.onsubmit=event=>{event.preventDefault();if(!ready||busy)return;const m=month.value,v=venue.value.trim();if((m&&!/^(?!0000)[0-9]{4}-(?:0[1-9]|1[0-2])$/.test(m))||(v&&(v.length>64||!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/.test(v)))){clear();status.textContent=historyText.invalid;controls();return;}activeMonth=m;activeVenue=v;page=1;void load();};
+view.onchange=()=>{if(!ready||busy)return;page=1;void load();};
 previous.onclick=()=>{if(!previous.disabled){page-=1;void load();}};
 next.onclick=()=>{if(!next.disabled&&Number.isSafeInteger(page+1)){page+=1;void load();}};
 retry.onclick=()=>{if(busy)return;if(ready)void load();else location.replace('https://liff.line.me/'+encodeURIComponent(liffId)+canonicalUrl().slice('/line'.length));};

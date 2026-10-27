@@ -19,6 +19,7 @@ const venueCode = z
   .regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/);
 export const venueHistoryInputSchema = z.strictObject({
   idToken: z.string().trim().min(1).max(4096),
+  view: z.enum(['formal', 'test']).optional(),
   month: z
     .string()
     .regex(/^(?!0000)[0-9]{4}-(?:0[1-9]|1[0-2])$/)
@@ -42,6 +43,8 @@ export const venueHistorySuccessSchema = z.strictObject({
         venueName: z.string().min(1).max(120),
         checkedInAt: z.iso.datetime({ offset: true }),
         venueLocalDate: z.iso.date(),
+        isTest: z.literal(true).optional(),
+        verificationMode: z.literal('distance_debug').optional(),
         venueTimezone: z
           .string()
           .min(1)
@@ -88,7 +91,9 @@ export const createVenueHistory = (pool: Pool, config: VenueHistoryConfig) => {
         { requestId },
         async (client) => {
           const result = await client.query<{ data: unknown }>(
-            'SELECT platform.venue_personal_history($1,$2,$3,$4,$5) AS data',
+            parsed.data.view === 'test'
+              ? 'SELECT platform.venue_debug_history($1,$2,$3,$4,$5) AS data'
+              : 'SELECT platform.venue_personal_history($1,$2,$3,$4,$5) AS data',
             [
               'line',
               verified.identity.subject,
@@ -103,6 +108,12 @@ export const createVenueHistory = (pool: Pool, config: VenueHistoryConfig) => {
             success.page !== (parsed.data.page ?? 1) ||
             success.totals.attendanceDays > success.totals.attendanceCount ||
             success.totals.monthCount > success.totals.attendanceCount ||
+            (parsed.data.view === 'test' && Object.values(success.totals).some((n) => n !== 0)) ||
+            success.entries.some((entry) =>
+              parsed.data.view === 'test'
+                ? entry.isTest !== true || entry.verificationMode !== 'distance_debug'
+                : entry.isTest !== undefined || entry.verificationMode !== undefined
+            ) ||
             success.entries.some(
               (entry) =>
                 (parsed.data.venue !== undefined && entry.venueCode !== parsed.data.venue) ||

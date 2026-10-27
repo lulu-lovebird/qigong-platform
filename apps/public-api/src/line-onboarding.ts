@@ -66,7 +66,8 @@ export const registerLineOnboarding = (
   pool: Pool,
   config: LineConfig,
   venueCheckinEnabled = false,
-  venueHistoryEnabled = false
+  venueHistoryEnabled = false,
+  venueDebugExpiresAt?: string
 ) => {
   const liffBase = `https://liff.line.me/${encodeURIComponent(config.liffId)}`;
   const replyHelp = createHelpReplyGuard();
@@ -154,7 +155,8 @@ export const registerLineOnboarding = (
           config.liffId,
           preview.kind === 'preview' ? preview.entry : null,
           venueCheckinEnabled ? 'checkin' : 'preview',
-          venueHistoryEnabled
+          venueHistoryEnabled,
+          venueDebugExpiresAt !== undefined && Date.parse(venueDebugExpiresAt) > Date.now()
         )
       );
   };

@@ -1,4 +1,5 @@
 import { lineLoginScript } from './application-page.js';
+import { venueDebugLabel } from './venue-debug.js';
 import {
   htmlLocale,
   isLocale,
@@ -227,10 +228,12 @@ export const renderVenuePreview = (
   liffId: string,
   entry: VenuePreviewEntry | null,
   mode: 'preview' | 'checkin' = 'preview',
-  historyEnabled = false
+  historyEnabled = false,
+  debugEnabled = false
 ): string => {
   const lang = entry?.lang ?? 'zh_TW';
   const live = mode === 'checkin';
+  const debugAvailable = live && debugEnabled && entry?.venue === 'tw-location-test';
   const t = live ? { ...texts[lang], ...checkinTexts[lang] } : texts[lang];
   const canonical = entry ? venuePreviewUrl(entry) : '';
   const historyHref = /^[A-Za-z0-9-]{1,100}$/.test(liffId)
@@ -243,6 +246,7 @@ export const renderVenuePreview = (
 :root{font:125%/1.65 system-ui,sans-serif;color:#172b24;background:#f3f7f3}*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;padding:1rem}main{max-width:36rem;margin:auto}h1{font-size:1.6rem}p{overflow-wrap:anywhere}.notice{border:3px solid #725000;background:#fff5d6;padding:1rem;font-weight:700}button,a,select{font:inherit;min-height:48px}button,a{display:block;padding:.75rem;margin:1rem 0}button{width:100%;color:white;background:#195941;border:2px solid #195941;border-radius:.5rem}button:disabled{color:#404040;background:#ddd;border-color:#777}a{color:#164b83}select{max-width:100%}:focus-visible{outline:3px solid #ad5100;outline-offset:3px}footer{font-size:.8rem;overflow-wrap:anywhere;margin-top:2rem}
 </style></head><body><main><h1>${t.title}</h1><p class="notice">${t.notice}</p>
 ${entry ? `<p>${t.venue}：<strong>${escapeHtml(entry.venue)}</strong></p><p>${t.unknown}</p><p>${t.privacy}</p><label for="preview-language">${t.language}</label><select id="preview-language" disabled>${languageOptions(lang)}</select><button id="preview-test" type="button" disabled>${t.button}</button>` : ''}
+${debugAvailable ? `<details><summary>${venueDebugLabel}</summary><p>僅豁免距離；仍需真實 GPS、身份、同意與開放時段。測試碼限人工輸入，僅當次記憶體使用，不放入網址或儲存。</p><label><input id="preview-debug-enabled" type="checkbox">使用異地測試</label><label for="preview-debug-token">短效測試碼</label><input id="preview-debug-token" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="256"></details>` : ''}
 <p id="preview-status" role="status" aria-live="polite" aria-atomic="true">${entry ? t.loading : t.invalid}</p>
 ${live && entry && historyEnabled ? `<a id="preview-history" href="${escapeHtml(historyHref)}" referrerpolicy="no-referrer" hidden>${t.history}</a>` : ''}
 <a href="/line/checkin?lang=${lang}" referrerpolicy="no-referrer">${t.daily}</a>
@@ -254,13 +258,26 @@ ${lineLoginScript(liffId, lang, canonical)}
 const previewText=${scriptJson(t)},previewCanonical=${scriptJson(canonical)};
 const status=document.getElementById('preview-status'),button=document.getElementById('preview-test'),language=document.getElementById('preview-language');
 let previewReady=false;
+${
+  debugAvailable
+    ? `const debugToggle=document.getElementById('preview-debug-enabled'),debugInput=document.getElementById('preview-debug-token');
+globalThis.addEventListener?.('pagehide',()=>{debugInput.value='';debugToggle.checked=false;});`
+    : ''
+}
 language.onchange=()=>{if(!previewReady)return;const next=language.value;if(!['zh_TW','zh_CN','en'].includes(next))return;const target=new URL(previewCanonical,location.href);target.searchParams.set('lang',next);location.replace(target.pathname+target.search);};
 lineReady.then(()=>{previewReady=true;button.disabled=false;language.disabled=false;status.textContent=previewText.ready;}).catch(()=>{status.textContent=linePrimaryRedirect?lineLoginText.primary:previewText.loginError;});
 button.onclick=()=>{
   if(!previewReady||button.disabled)return;
   if(!navigator.geolocation){status.textContent=previewText.unsupported;return;}
+  ${
+    debugAvailable
+      ? `const testing=debugToggle.checked;let debugToken=testing?debugInput.value:'';debugInput.value='';
+  if(testing&&(debugToken.length<32||debugToken.length>256)){status.textContent='測試碼無效、已到期或測試未開啟；未完成簽到。';return;}
+  debugToggle.disabled=true;debugInput.disabled=true;`
+      : 'const testing=false;'
+  }
   button.disabled=true;language.disabled=true;status.textContent=previewText.locating;
-  const finish=message=>{status.textContent=message;button.disabled=false;language.disabled=false;};
+  const finish=message=>{status.textContent=message;button.disabled=false;language.disabled=false;${debugAvailable ? "debugToken='';debugToggle.disabled=false;debugInput.disabled=false;" : ''}};
   try{navigator.geolocation.getCurrentPosition(
     ${
       live
@@ -268,18 +285,20 @@ button.onclick=()=>{
       status.textContent=previewText.sending;
       try {
         const response=await fetch('/api/line/venue-checkin',{
-          method:'POST',cache:'no-store',credentials:'omit',
-          headers:{'content-type':'application/json','x-venue-checkin':'1'},
+          method:'POST',cache:'no-store',credentials:'omit',redirect:'error',
+          headers:{'content-type':'application/json','x-venue-checkin':'1'${debugAvailable ? ",...(testing?{'X-Venue-Debug-Token':debugToken}:{})" : ''}},
           body:JSON.stringify({idToken,venue:${scriptJson(entry?.venue)},latitude:position.coords.latitude,longitude:position.coords.longitude})
         });
         const data=await response.json();
         if(!response.ok||data.ok!==true){
-          finish(response.status>=500?previewText.retry:data.error==='outside_radius'?previewText.outside_radius:data.error==='outside_window'?previewText.outside_window:previewText.rejected);return;
+          finish(data.error==='venue_debug_denied'?'測試碼無效、已到期或測試未開啟；未完成簽到。':response.status>=500?previewText.retry:data.error==='outside_radius'?previewText.outside_radius:data.error==='outside_window'?previewText.outside_window:previewText.rejected);return;
         }
+        if((testing?(data.isTest!==true||data.verificationMode!=='distance_debug'):(data.isTest!==undefined||data.verificationMode!==undefined)))throw new Error('invalid result mode');
         if(!data.venue||typeof data.venue.name!=='string'||typeof data.checkedInAt!=='string'||typeof data.venue.timezone!=='string')throw new Error('invalid result');
         const time=new Intl.DateTimeFormat(${scriptJson(htmlLocale(lang))},{timeZone:data.venue.timezone,dateStyle:'medium',timeStyle:'short'}).format(new Date(data.checkedInAt));
-        status.textContent=previewText.success+' — '+data.venue.name+' / '+time+' ('+data.venue.timezone+'). '+previewText.daily;
+        status.textContent=(data.isTest===true?${scriptJson(venueDebugLabel)}:previewText.success)+' — '+data.venue.name+' / '+time+' ('+data.venue.timezone+'). '+previewText.daily;
         ${historyEnabled ? "document.getElementById('preview-history').hidden=false;" : ''}
+        ${debugAvailable ? "debugToken='';debugInput.value='';" : ''}
         button.disabled=true;language.disabled=false;
       }catch{finish(previewText.retry);}
     }`
