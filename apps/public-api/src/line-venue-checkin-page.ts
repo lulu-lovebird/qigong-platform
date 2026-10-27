@@ -12,6 +12,7 @@ export interface VenuePreviewEntry {
   venue: string;
   source?: 'nfc' | 'qr' | 'link';
   lang: Locale;
+  explicitLang?: boolean;
 }
 type PreviewRequest =
   { kind: 'none' } | { kind: 'invalid' } | { kind: 'preview'; entry: VenuePreviewEntry };
@@ -69,14 +70,15 @@ export const venuePreviewRequest = (rawUrl: string, cookie?: string): PreviewReq
     entry: {
       venue,
       ...(source === null ? {} : { source }),
-      lang: resolveLocale({ lang }, cookie)
+      lang: resolveLocale({ lang }, cookie),
+      explicitLang: lang !== null
     }
   };
 };
 export const venuePreviewUrl = (entry: VenuePreviewEntry): string => {
   const query = new URLSearchParams({ venue: entry.venue });
   if (entry.source) query.set('source', entry.source);
-  query.set('lang', entry.lang);
+  if (entry.explicitLang !== false) query.set('lang', entry.lang);
   return path + '?' + query.toString();
 };
 const escapeHtml = (value: string) =>
@@ -114,6 +116,7 @@ const texts = {
     daily: '記錄今天功法與感受',
     history: '查看我的團練紀錄',
     language: '介面語言',
+    languageFailed: '語言偏好未儲存。請稍後重新選擇語言重試。',
     invalid: '入口參數無效或缺少場地代碼。請重新取得正確連結；尚未記錄出席。'
   },
   zh_CN: {
@@ -137,6 +140,7 @@ const texts = {
     daily: '记录今天功法与感受',
     history: '查看我的团练记录',
     language: '界面语言',
+    languageFailed: '语言偏好未保存。请稍后重新选择语言重试。',
     invalid: '入口参数无效或缺少场地代码。请重新取得正确链接；尚未记录出席。'
   },
   en: {
@@ -166,6 +170,7 @@ const texts = {
     daily: 'Record today’s practice and reflections',
     history: 'View my group practice history',
     language: 'Language',
+    languageFailed: 'Language preference was not saved. Select the language again to retry.',
     invalid:
       'Invalid entry parameters or missing venue code. Obtain a valid link. Attendance has NOT been recorded.'
   }
@@ -254,41 +259,64 @@ ${live && entry && historyEnabled ? `<a id="preview-history" href="${escapeHtml(
 ${
   entry
     ? `<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script><script>
-${lineLoginScript(liffId, lang, canonical)}
-const previewText=${scriptJson(t)},previewCanonical=${scriptJson(canonical)};
+${lineLoginScript(liffId, lang, canonical, { explicitLocale: entry.explicitLang === false ? null : lang })}
+const previewText=${scriptJson(t)},previewCanonical=${scriptJson(canonical)},previewInitial=${scriptJson(entry)};
 const status=document.getElementById('preview-status'),button=document.getElementById('preview-test'),language=document.getElementById('preview-language');
-let previewReady=false;
+let previewReady=false,previewBusy=false,previewCompleted=false;
 ${
   debugAvailable
     ? `const debugToggle=document.getElementById('preview-debug-enabled'),debugInput=document.getElementById('preview-debug-token');
-globalThis.addEventListener?.('pagehide',()=>{debugInput.value='';debugToggle.checked=false;});`
-    : ''
+let debugToken='';
+const clearDebug=(reset=false)=>{debugToken='';debugInput.value='';if(reset)debugToggle.checked=false;};
+globalThis.addEventListener?.('pagehide',()=>clearDebug(true));`
+    : 'const clearDebug=()=>{};'
 }
-language.onchange=()=>{if(!previewReady)return;const next=language.value;if(!['zh_TW','zh_CN','en'].includes(next))return;const target=new URL(previewCanonical,location.href);target.searchParams.set('lang',next);location.replace(target.pathname+target.search);};
-lineReady.then(()=>{previewReady=true;button.disabled=false;language.disabled=false;status.textContent=previewText.ready;}).catch(()=>{status.textContent=linePrimaryRedirect?lineLoginText.primary:previewText.loginError;});
+const controls=()=>{button.disabled=previewBusy||!previewReady||previewCompleted;language.disabled=previewBusy||!previewReady;${debugAvailable ? 'debugToggle.disabled=debugInput.disabled=previewBusy||!previewReady||previewCompleted;' : ''}};
+const invalidate=()=>{previewReady=false;idToken='';clearDebug(true);status.textContent=previewText.loginError;};
+const currentCredential=()=>{try{const currentToken=liff.getIDToken()||'';if(liff.isLoggedIn()&&currentToken)return currentToken;}catch{/* SDK failure never authorizes a request. */}invalidate();return '';};
+language.onchange=async()=>{
+  const next=language.value;
+  if(!previewReady||previewBusy||!['zh_TW','zh_CN','en'].includes(next)||next===previewInitial.lang){language.value=previewInitial.lang;return;}
+  previewBusy=true;clearDebug(true);controls();
+  let navigating=false;
+  try{
+    const currentToken=currentCredential();if(!currentToken){language.value=previewInitial.lang;return;}
+    const response=await fetch('/line/preferences/language',{method:'POST',cache:'no-store',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({idToken:currentToken,locale:next})});
+    if(response.status===401){invalidate();language.value=previewInitial.lang;return;}
+    if(!response.ok)throw new Error('language');
+    document.cookie='__Host-qigong-learner-locale='+next+'; Path=/; Max-Age=31536000; Secure; SameSite=Lax';
+    const target=new URL(previewCanonical,location.href);target.searchParams.set('lang',next);
+    status.textContent=lineLoginText.switching;
+    location.replace(target.pathname+target.search);navigating=true;
+  }catch{language.value=previewInitial.lang;status.textContent=previewText.languageFailed;}finally{if(!navigating){previewBusy=false;controls();}}
+};
+lineReady.then(()=>{previewReady=true;controls();status.textContent=previewText.ready;}).catch(error=>{if(error?.message===lineLoginText.switching){previewBusy=true;clearDebug();status.textContent=lineLoginText.switching;}else status.textContent=linePrimaryRedirect?lineLoginText.primary:previewText.loginError;controls();});
+controls();
 button.onclick=()=>{
-  if(!previewReady||button.disabled)return;
+  if(!previewReady||previewBusy||previewCompleted||button.disabled)return;
+  if(!currentCredential()){controls();return;}
   if(!navigator.geolocation){status.textContent=previewText.unsupported;return;}
   ${
     debugAvailable
-      ? `const testing=debugToggle.checked;let debugToken=testing?debugInput.value:'';debugInput.value='';
-  if(testing&&(debugToken.length<32||debugToken.length>256)){status.textContent='測試碼無效、已到期或測試未開啟；未完成簽到。';return;}
-  debugToggle.disabled=true;debugInput.disabled=true;`
+      ? `const testing=debugToggle.checked;debugToken=testing?debugInput.value:'';debugInput.value='';
+  if(testing&&(debugToken.length<32||debugToken.length>256)){clearDebug();status.textContent='測試碼無效、已到期或測試未開啟；未完成簽到。';return;}`
       : 'const testing=false;'
   }
-  button.disabled=true;language.disabled=true;status.textContent=previewText.locating;
-  const finish=message=>{status.textContent=message;button.disabled=false;language.disabled=false;${debugAvailable ? "debugToken='';debugToggle.disabled=false;debugInput.disabled=false;" : ''}};
+  previewBusy=true;controls();status.textContent=previewText.locating;
+  const finish=message=>{status.textContent=message;previewBusy=false;clearDebug();controls();};
   try{navigator.geolocation.getCurrentPosition(
     ${
       live
         ? `async position=>{
       status.textContent=previewText.sending;
       try {
+        const currentToken=currentCredential();if(!currentToken){finish(previewText.loginError);return;}
         const response=await fetch('/api/line/venue-checkin',{
           method:'POST',cache:'no-store',credentials:'omit',redirect:'error',
           headers:{'content-type':'application/json','x-venue-checkin':'1'${debugAvailable ? ",...(testing?{'X-Venue-Debug-Token':debugToken}:{})" : ''}},
-          body:JSON.stringify({idToken,venue:${scriptJson(entry?.venue)},latitude:position.coords.latitude,longitude:position.coords.longitude})
+          body:JSON.stringify({idToken:currentToken,venue:${scriptJson(entry?.venue)},latitude:position.coords.latitude,longitude:position.coords.longitude})
         });
+        if(response.status===401){invalidate();finish(previewText.loginError);return;}
         const data=await response.json();
         if(!response.ok||data.ok!==true){
           finish(data.error==='venue_debug_denied'?'測試碼無效、已到期或測試未開啟；未完成簽到。':response.status>=500?previewText.retry:data.error==='outside_radius'?previewText.outside_radius:data.error==='outside_window'?previewText.outside_window:previewText.rejected);return;
@@ -298,8 +326,7 @@ button.onclick=()=>{
         const time=new Intl.DateTimeFormat(${scriptJson(htmlLocale(lang))},{timeZone:data.venue.timezone,dateStyle:'medium',timeStyle:'short'}).format(new Date(data.checkedInAt));
         status.textContent=(data.isTest===true?${scriptJson(venueDebugLabel)}:previewText.success)+' — '+data.venue.name+' / '+time+' ('+data.venue.timezone+'). '+previewText.daily;
         ${historyEnabled ? "document.getElementById('preview-history').hidden=false;" : ''}
-        ${debugAvailable ? "debugToken='';debugInput.value='';" : ''}
-        button.disabled=true;language.disabled=false;
+        clearDebug();previewCompleted=true;previewBusy=false;controls();
       }catch{finish(previewText.retry);}
     }`
         : '()=>finish(previewText.located)'
