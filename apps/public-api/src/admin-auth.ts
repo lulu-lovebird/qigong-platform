@@ -10,6 +10,7 @@ import type { VenueSuiteConfig } from './venue-suite.js';
 import { registerVenueManagementRoutes } from './venue-management-routes.js';
 import { registerVenuePeopleRoutes } from './venue-people-routes.js';
 import { createVenuePeopleService } from './venue-people-service.js';
+import { readVenueAdminCapabilities } from './venue-admin-capabilities.js';
 import { z } from 'zod';
 import { accessCookie, registerAdminAccessRoutes } from './admin-access.js';
 import { renderReviewPage } from './admin-pages.js';
@@ -629,18 +630,69 @@ export const registerAdminRoutes = (
     );
   };
   if (venueSuite.management || venueSuite.people) {
-    // Navigation exposes only empty shells. Every data operation independently
-    // checks its actual credential, permission, action and region in SQL.
+    const adminOrigin = new URL(provider.callbackUrl).origin;
+    const venueCapabilitiesFor = (request: FastifyRequest, regionId?: string) =>
+      readVenueAdminCapabilities(
+        pool,
+        request.id,
+        venueSessionFor(request) ?? '',
+        venueSuite,
+        regionId
+      );
+    // Navigation is permission-aware, but never a substitute for per-operation SQL authorization.
     app.get('/admin/api/venue-suite', async (request, reply) => {
       reply.header('cache-control', 'no-store').header('referrer-policy', 'no-referrer');
-      if (!(await venuePrincipalFor(request)))
-        return reply.code(401).send({ error: 'unauthenticated' });
-      return {
-        management: venueSuite.management?.enabled === true,
-        people: venueSuite.people?.enabled === true
-      };
+      if (!venueSessionFor(request)) return reply.code(401).send({ error: 'unauthenticated' });
+      if (!z.object({}).strict().safeParse(request.query).success)
+        return reply.code(400).send({ error: 'invalid_query' });
+      try {
+        const { management, people } = await venueCapabilitiesFor(request);
+        return { management, people };
+      } catch (error) {
+        const unauthorized = error instanceof Error && error.message === 'unauthenticated';
+        return reply
+          .code(unauthorized ? 401 : 503)
+          .send({ error: unauthorized ? 'unauthenticated' : 'venue_capabilities_unavailable' });
+      }
     });
-    const adminOrigin = new URL(provider.callbackUrl).origin;
+    app.post(
+      '/admin/api/venue-suite/capabilities',
+      {
+        bodyLimit: 1024,
+        errorHandler: (error, _request, reply) => {
+          const status =
+            typeof error.statusCode === 'number' && [400, 413, 415].includes(error.statusCode)
+              ? error.statusCode
+              : 503;
+          void reply
+            .header('cache-control', 'no-store')
+            .header('referrer-policy', 'no-referrer')
+            .code(status)
+            .send({ error: status === 503 ? 'venue_capabilities_unavailable' : 'invalid_request' });
+        }
+      },
+      async (request, reply) => {
+        reply.header('cache-control', 'no-store').header('referrer-policy', 'no-referrer');
+        if (!venueSessionFor(request)) return reply.code(401).send({ error: 'unauthenticated' });
+        if (
+          request.headers.origin !== adminOrigin ||
+          !venueValidCsrf(request) ||
+          (request.headers['sec-fetch-site'] !== undefined &&
+            request.headers['sec-fetch-site'] !== 'same-origin')
+        )
+          return reply.code(403).send({ error: 'invalid_csrf_or_origin' });
+        const parsed = z.object({ regionId: z.uuid() }).strict().safeParse(request.body);
+        if (!parsed.success) return reply.code(400).send({ error: 'invalid_request' });
+        try {
+          return await venueCapabilitiesFor(request, parsed.data.regionId);
+        } catch (error) {
+          const unauthorized = error instanceof Error && error.message === 'unauthenticated';
+          return reply
+            .code(unauthorized ? 401 : 503)
+            .send({ error: unauthorized ? 'unauthenticated' : 'venue_capabilities_unavailable' });
+        }
+      }
+    );
     if (venueSuite.management)
       registerVenueManagementRoutes(app, pool, {
         ...venueSuite.management,

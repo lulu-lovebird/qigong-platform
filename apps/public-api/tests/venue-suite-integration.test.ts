@@ -30,7 +30,27 @@ const fixture = (version = venueSuiteMigrationVersion, capable = true) => {
       value: { code: 'tw-test-one', name: '<Synthetic venue>', active: true },
       fail: false
     };
+  const permissions = {
+    management: true,
+    canReadPeople: true,
+    canExportPeople: false,
+    fail: false,
+    revoked: false
+  };
   const query = vi.fn(async (sql: string, values?: unknown[]) => {
+    if (sql.includes(' AS management,')) {
+      if (permissions.fail) throw new Error('private permission diagnostics');
+      const allowed = !values?.length || values[0] === personId;
+      return {
+        rows: [
+          {
+            management: allowed && permissions.management,
+            canReadPeople: allowed && permissions.canReadPeople,
+            canExportPeople: allowed && permissions.canExportPeople
+          }
+        ]
+      };
+    }
     if (sql.includes('venue_management_lookup')) {
       if (managed.fail) throw new Error('private diagnostics');
       return { rows: [{ data: managed.value }] };
@@ -55,7 +75,9 @@ const fixture = (version = venueSuiteMigrationVersion, capable = true) => {
     if (sql.includes('FROM pg_auth_members'))
       return { rows: [{ role_name: 'qigong_api_runtime' }] };
     if (sql.includes('session_principal'))
-      return { rows: [{ principal_id: values?.[0] === session ? principal : null }] };
+      return {
+        rows: [{ principal_id: values?.[0] === session && !permissions.revoked ? principal : null }]
+      };
     if (sql.includes('resolve_line_learner_identity'))
       return {
         rows: [
@@ -96,7 +118,7 @@ const fixture = (version = venueSuiteMigrationVersion, capable = true) => {
     connect: async () => ({ query, release: vi.fn() }),
     query: async () => ({ rows: [] })
   } as unknown as Pool;
-  return { pool, query, managed };
+  return { pool, query, managed, permissions };
 };
 const apps: ReturnType<typeof buildApp>[] = [];
 const appFor = (
@@ -262,6 +284,82 @@ describe('venue suite through buildApp', () => {
       'SELECT platform.venue_personal_history($1,$2,$3,$4,$5) AS data',
       ['line', subject, null, null, 1]
     );
+  });
+  it('navigation and scoped controls fail closed, preserve independent export, and recheck live session', async () => {
+    const f = fixture(),
+      app = appFor(f);
+    const cookie = '__Host-qigong-admin=' + session + '; __Host-qigong-admin-csrf=' + csrf;
+    const navigation = () => app.inject({ url: '/admin/api/venue-suite', headers: { cookie } });
+    const scoped = (regionId = personId, extra = {}) =>
+      app.inject({
+        method: 'POST',
+        url: '/admin/api/venue-suite/capabilities',
+        headers: { origin, cookie, 'x-csrf-token': csrf, ...extra },
+        payload: { regionId }
+      });
+    expect((await navigation()).json()).toEqual({ management: true, people: true });
+    f.permissions.management = false;
+    f.permissions.canReadPeople = false;
+    expect((await navigation()).json()).toEqual({ management: false, people: false });
+    f.permissions.canExportPeople = true;
+    expect((await navigation()).json()).toEqual({ management: false, people: true });
+    expect((await scoped()).json()).toMatchObject({ canReadPeople: false, canExportPeople: true });
+    expect((await scoped(principal)).json()).toMatchObject({
+      people: false,
+      canExportPeople: false
+    });
+    for (const extra of [
+      { origin: 'https://evil.invalid' },
+      { 'x-csrf-token': '' },
+      { cookie: cookie + '; __Host-qigong-admin-csrf=' + csrf },
+      { 'sec-fetch-site': 'cross-site' }
+    ]) {
+      const calls = f.query.mock.calls.length;
+      expect((await scoped(personId, extra)).statusCode).toBe(403);
+      expect(f.query.mock.calls).toHaveLength(calls);
+    }
+    expect((await scoped('invalid')).statusCode).toBe(400);
+    f.permissions.fail = true;
+    const unavailable = await navigation();
+    expect(unavailable.statusCode).toBe(503);
+    expect(unavailable.body).not.toContain('private');
+    f.permissions.fail = false;
+    f.permissions.revoked = true;
+    expect((await navigation()).statusCode).toBe(401);
+    expect((await scoped()).statusCode).toBe(401);
+    expect(f.query.mock.calls.some(([sql]) => sql.includes('venue_people_read('))).toBe(false);
+    const off = appFor(fixture(), {});
+    expect(
+      (
+        await off.inject({
+          method: 'POST',
+          url: '/admin/api/venue-suite/capabilities',
+          payload: { regionId: personId }
+        })
+      ).statusCode
+    ).toBe(404);
+  });
+  it('feature configuration vetoes permission hints and malformed capability input has fixed errors', async () => {
+    const f = fixture(),
+      app = appFor(f, { management: enabled });
+    f.permissions.canExportPeople = true;
+    const cookie = '__Host-qigong-admin=' + session + '; __Host-qigong-admin-csrf=' + csrf;
+    expect(
+      (await app.inject({ url: '/admin/api/venue-suite', headers: { cookie } })).json()
+    ).toEqual({ management: true, people: false });
+    for (const payload of [
+      { regionId: personId, principalId: principal },
+      '{"private":"fragment",'
+    ]) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/admin/api/venue-suite/capabilities',
+        headers: { origin, cookie, 'x-csrf-token': csrf, 'content-type': 'application/json' },
+        payload
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.body).not.toContain('fragment');
+    }
   });
   it('admin shells and navigation require fresh private credentials, not body principal claims', async () => {
     const app = appFor();

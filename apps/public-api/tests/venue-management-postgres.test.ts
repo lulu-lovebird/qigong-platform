@@ -658,6 +658,31 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
       expect(
         (await app.inject({ url: '/admin/api/venue-suite', headers: headers() })).json()
       ).toEqual({ management: true, people: true });
+      const capabilities = (regionId: string, token = 'v'.repeat(43)) =>
+        app.inject({
+          method: 'POST',
+          url: '/admin/api/venue-suite/capabilities',
+          headers: headers(token),
+          payload: { regionId }
+        });
+      expect((await capabilities(tw)).json()).toEqual({
+        management: true,
+        people: true,
+        canReadPeople: true,
+        canExportPeople: false
+      });
+      expect((await capabilities(tw, 'e'.repeat(43))).json()).toEqual({
+        management: false,
+        people: true,
+        canReadPeople: false,
+        canExportPeople: true
+      });
+      expect((await capabilities(sg)).json()).toEqual({
+        management: false,
+        people: false,
+        canReadPeople: false,
+        canExportPeople: false
+      });
       expect((await app.inject('/admin/venue-people')).statusCode).toBe(401);
       expect((await app.inject('/admin/fields')).statusCode).toBe(404);
       expect((await app.inject('/admin/venue-manual')).statusCode).toBe(404);
@@ -665,6 +690,10 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
         "UPDATE admin.sessions SET revoked_at=clock_timestamp() WHERE token_hash=public.digest(repeat('v',43),'sha256')"
       );
       expect((await read()).statusCode).toBe(401);
+      expect((await capabilities(tw)).statusCode).toBe(401);
+      expect(
+        (await app.inject({ url: '/admin/api/venue-suite', headers: headers() })).statusCode
+      ).toBe(401);
       expect((await call('list', { regionId: tw }, 'v'.repeat(43))).statusCode).toBe(401);
       expect(
         (await app.inject({ url: '/admin/venue-people', headers: headers() })).statusCode
