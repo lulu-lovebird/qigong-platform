@@ -13,7 +13,7 @@ const venueFiles = [
 describe('unpublished venue renumber integration (static, not deployment evidence)', () => {
   it('keeps one artifact per number, including the published invitation migration', () => {
     const files = readdirSync(directory).filter((file) => /^\d{4}_[a-z0-9_]+\.sql$/.test(file));
-    expect(files).toHaveLength(56);
+    expect(files).toHaveLength(57);
     expect(new Set(files.map((file) => file.slice(0, 4))).size).toBe(files.length);
     expect(files.sort().slice(46, 51)).toEqual(['0047_channel_invitations.sql', ...venueFiles]);
     expect(files.slice(51)).toEqual([
@@ -21,7 +21,8 @@ describe('unpublished venue renumber integration (static, not deployment evidenc
       '0053_venue_management.sql',
       '0054_venue_people_read.sql',
       '0055_venue_distance_debug.sql',
-      '0056_venue_cks_distance_debug.sql'
+      '0056_venue_cks_distance_debug.sql',
+      '0057_venue_test_scope.sql'
     ]);
   });
 

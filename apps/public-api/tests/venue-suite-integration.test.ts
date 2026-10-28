@@ -313,7 +313,9 @@ describe('venue suite through buildApp', () => {
     '0053_venue_management.sql',
     '0054_unknown.sql',
     '0055_future.sql',
-    '0056_future.sql'
+    '0056_future.sql',
+    '0057_future.sql',
+    '0058_future.sql'
   ])('does not admit unknown/transition schema %s', async (version) => {
     expect(await checkStartupReadiness(fixture(version).pool)).toMatchObject({
       ready: false,
@@ -325,6 +327,7 @@ describe('venue suite through buildApp', () => {
   it.each([
     venueSuiteMigrationVersion,
     '0055_venue_distance_debug.sql',
+    '0056_venue_cks_distance_debug.sql',
     venueDebugMigrationVersion
   ])(
     'keeps independently authorized administration and history operational on %s with debug off',
@@ -351,7 +354,7 @@ describe('venue suite through buildApp', () => {
       );
     }
   );
-  it('probes all four independent capabilities on exact 56 without inferring readiness from version', async () => {
+  it('probes all four independent capabilities on exact 57 without inferring readiness from version', async () => {
     const suite = { history: enabled, management: enabled, people: enabled };
     const f = fixture();
     expect(await checkStartupReadiness(f.pool, true, suite, true)).toMatchObject({ ready: true });
@@ -379,7 +382,9 @@ describe('venue suite through buildApp', () => {
     for (const version of [
       venueSuiteMigrationVersion,
       '0055_venue_distance_debug.sql',
-      '0056_future.sql'
+      '0056_venue_cks_distance_debug.sql',
+      '0057_future.sql',
+      '0058_future.sql'
     ])
       expect(await checkStartupReadiness(fixture(version).pool, true, suite, true)).toMatchObject({
         ready: false,

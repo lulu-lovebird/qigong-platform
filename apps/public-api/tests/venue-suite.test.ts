@@ -15,7 +15,10 @@ describe('independent venue capability evidence', () => {
       const probe = query.mock.calls.find(([sql]) => sql.includes(' AS ready'))?.[0];
       expect(probe).toContain('count(*)=54');
       expect(probe).toContain('count(*)=55');
-      expect(probe).toContain('count(*)=56');
+      expect(probe).toContain(
+        "count(*)=56 AND max(version)='0056_venue_cks_distance_debug.sql' AND NOT $6"
+      );
+      expect(probe).toContain('count(*)=57 AND max(version)=$5');
       expect(probe).toContain('relforcerowsecurity');
       expect(probe).toContain('pg_auth_members');
       expect(probe).not.toMatch(/SELECT .* FROM (core|identity)\./);

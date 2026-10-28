@@ -100,6 +100,9 @@ export const createVenueQrCheckin = (pool: Pool, line: LineConfig, debug?: Venue
     const parsed = venueQrInputSchema.safeParse(input);
     if (!parsed.success) return denied(400, 'invalid_input');
     const isDebug = debugToken !== undefined;
+    // Public test-site code can never select the standard writer, even with debug off.
+    if (parsed.data.venue === 'tw-location-test' && !isDebug)
+      return denied(403, 'venue_test_code_required');
     if (isDebug && !acceptsVenueDebugToken(trustedDebug, debugToken, parsed.data.venue))
       return denied(403, 'venue_debug_denied');
     const verified = await identity(requestId, { idToken: parsed.data.idToken });
@@ -168,6 +171,8 @@ export const createVenueQrCheckin = (pool: Pool, line: LineConfig, debug?: Venue
     } catch (error) {
       // No GPS, credentials, SQL diagnostics or arbitrary exception messages in responses/logs.
       if (error instanceof Error && 'code' in error) {
+        if (error.code === '42501' && error.message === 'venue_test_code_required')
+          return denied(403, 'venue_test_code_required');
         if (error.code === '42501' && error.message === 'venue_debug_denied')
           return denied(403, 'venue_debug_denied');
         if (error.code === '42501') return denied(403, 'identity_consent_or_venue_unavailable');

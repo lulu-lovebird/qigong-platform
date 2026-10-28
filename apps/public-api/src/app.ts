@@ -81,6 +81,7 @@ const defaultOffMigrationVersions = new Set([
   venueQrMigrationVersion,
   venueSuiteMigrationVersion,
   '0055_venue_distance_debug.sql',
+  '0056_venue_cks_distance_debug.sql',
   venueDebugMigrationVersion
 ]);
 // HTTP error classes can inherit status/message data (unlike log diagnostics,
@@ -256,11 +257,13 @@ export const checkStartupReadiness = async (
         : enabledFeatures.length > 0
           ? status.currentVersion === venueSuiteMigrationVersion ||
             status.currentVersion === '0055_venue_distance_debug.sql' ||
+            status.currentVersion === '0056_venue_cks_distance_debug.sql' ||
             status.currentVersion === venueDebugMigrationVersion
           : venueQrEnabled
             ? status.currentVersion === venueQrMigrationVersion ||
               status.currentVersion === venueSuiteMigrationVersion ||
               status.currentVersion === '0055_venue_distance_debug.sql' ||
+              status.currentVersion === '0056_venue_cks_distance_debug.sql' ||
               status.currentVersion === venueDebugMigrationVersion
             : status.currentVersion !== null &&
               defaultOffMigrationVersions.has(status.currentVersion))
@@ -483,7 +486,7 @@ export const buildApp = ({
       line,
       qr?.enabled === true,
       suite.history?.enabled === true,
-      qr?.debug?.expiresAt
+      qr?.debug ? { venueCode: qr.debug.venueCode, expiresAt: qr.debug.expiresAt } : undefined
     );
     if (suite.history)
       registerVenueHistoryRoutes(app, pool, {
