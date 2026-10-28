@@ -1,20 +1,23 @@
 /** Developed with ❤️ by Bean, Bird & Badminton Tech Consulting */
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
-export const venueDebugMigrationVersion = '0056_venue_cks_distance_debug.sql';
+export const venueDebugMigrationVersion = '0057_venue_test_scope.sql';
+export type VenueDebugVenueCode = 'tw-location-test' | 'tw-taipei-cks';
+const isDebugVenue = (code: unknown): code is VenueDebugVenueCode =>
+  code === 'tw-location-test' || code === 'tw-taipei-cks';
 export const venueDebugVenueCode = 'tw-taipei-cks' as const;
 export const venueDebugLabel = '異地測試，未計入正式出席';
 /** Server-owned, never serialized to pages. DB enablement is separately owner-provisioned. */
 export interface VenueDebugConfig {
   readonly enabled: true;
-  readonly venueCode: typeof venueDebugVenueCode;
+  readonly venueCode: VenueDebugVenueCode;
   readonly expiresAt: string;
   readonly tokenHash: string;
 }
 export const validateVenueDebugConfig = (config: VenueDebugConfig): VenueDebugConfig => {
   if (
     config.enabled !== true ||
-    config.venueCode !== venueDebugVenueCode ||
+    !isDebugVenue(config.venueCode) ||
     !/^[0-9a-f]{64}$/.test(config.tokenHash) ||
     !Number.isFinite(Date.parse(config.expiresAt)) ||
     Date.parse(config.expiresAt) <= Date.now() ||
@@ -35,7 +38,7 @@ export const loadVenueDebugConfig = (source: NodeJS.ProcessEnv): VenueDebugConfi
   if (enabled !== 'true') throw new Error('invalid venue debug configuration');
   return validateVenueDebugConfig({
     enabled: true,
-    venueCode: source.VENUE_DISTANCE_DEBUG_VENUE_CODE as typeof venueDebugVenueCode,
+    venueCode: source.VENUE_DISTANCE_DEBUG_VENUE_CODE as VenueDebugVenueCode,
     expiresAt: source.VENUE_DISTANCE_DEBUG_EXPIRES_AT ?? '',
     tokenHash: source.VENUE_DISTANCE_DEBUG_TOKEN_SHA256 ?? ''
   });
@@ -53,7 +56,7 @@ export const acceptsVenueDebugToken = (
   );
   return (
     matches &&
-    venue === venueDebugVenueCode &&
+    isDebugVenue(venue) &&
     venue === config.venueCode &&
     Date.parse(config.expiresAt) > Date.now()
   );

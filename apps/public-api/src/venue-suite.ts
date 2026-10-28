@@ -82,7 +82,8 @@ export const checkVenueFeatureReadiness = async (
           `SELECT
             (SELECT (count(*)=54 AND max(version)=$4 AND NOT $6)
               OR (count(*)=55 AND max(version)='0055_venue_distance_debug.sql' AND NOT $6)
-              OR (count(*)=56 AND max(version)=$5) FROM public.schema_migrations)
+              OR (count(*)=56 AND max(version)='0056_venue_cks_distance_debug.sql' AND NOT $6)
+              OR (count(*)=57 AND max(version)=$5) FROM public.schema_migrations)
             AND (NOT $6 OR EXISTS(SELECT 1 FROM pg_proc g
               WHERE g.oid=to_regprocedure('platform.venue_debug_region_active(uuid)')
                 AND g.prosecdef AND g.proconfig @> ARRAY['search_path=pg_catalog','row_security=on']
