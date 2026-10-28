@@ -143,7 +143,7 @@ const texts = {
     venue: '場地代碼（選填）',
     filters: '留白查詢所有月份／場地。場地請輸入完整代碼；這不是全部場地清單，可向老師確認代碼。',
     apply: '套用篩選',
-    total: '終身正式出席（所有場地）',
+    total: '累計正式出席（所有場地）',
     welcome: '尚無正式出席，歡迎到場團練。',
     days: '累計出席日數（場地當地日期去重）',
     monthCount: '月份出席次數（不受場地篩選影響）',
@@ -191,7 +191,7 @@ const texts = {
     venue: '场地代码（选填）',
     filters: '留白查询所有月份／场地。场地请输入完整代码；这不是全部场地清单，可向老师确认代码。',
     apply: '应用筛选',
-    total: '终身正式出席（所有场地）',
+    total: '累计正式出席（所有场地）',
     welcome: '尚无正式出席，欢迎到场团练。',
     days: '累计出席日数（场地当地日期去重）',
     monthCount: '月份出席次数（不受场地筛选影响）',
@@ -274,16 +274,17 @@ export const renderLineVenueHistoryPage = ({ liffId, entry }: VenueHistoryPageCo
 <meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">
 <title>${t.title}</title><style>
 :root{font:20px/1.65 system-ui,sans-serif;color:#172b24;background:#f3f7f3}*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;padding:1rem}main{min-inline-size:0;inline-size:100%;max-inline-size:36rem;margin:auto}form{min-inline-size:0;inline-size:100%;max-inline-size:100%}h1{font-size:1.6rem}h1,p,li,dt,dd,label,button,a,footer{overflow-wrap:anywhere}button,a,input,select{font:inherit;min-height:48px}input,select{display:block;min-width:0;min-inline-size:0;width:100%;inline-size:100%;max-inline-size:100%;padding:.6rem;margin:.4rem 0 1rem}input[type=month]::-webkit-date-and-time-value{min-inline-size:0;text-align:start}input[type=month]::-webkit-datetime-edit{min-inline-size:0;padding:0}button,a{display:block;padding:.75rem;margin:1rem 0}button{width:100%;color:white;background:#195941;border:2px solid #195941;border-radius:.5rem}button:disabled{color:#404040;background:#ddd;border-color:#777}a{color:#164b83}label{display:block}dt{font-weight:700}dd{margin:0 0 1rem}li{padding:1rem .25rem;border-bottom:1px solid #777}ul{padding-left:1.25rem}:focus-visible{outline:3px solid #ad5100;outline-offset:3px}footer{font-size:18px;margin-top:2rem}#history-status{padding:1rem;border:2px solid #567365}
-.venue-card{min-inline-size:0;max-inline-size:100%;padding:.65rem;border:2px solid #50785e;border-radius:1rem;background:#fffdf7;box-shadow:0 3px 12px #172b2412}.venue-card[data-view=test]{border:2px dashed #9a570c;background:#fff8e8;color:#703e08}.venue-card p{margin:.35rem 0}.hero{margin:0;text-align:center}.hero dt{font-weight:600}.hero dd{margin:0}.count{display:block;font-size:3rem;line-height:1.15;font-weight:800;color:#195941}.metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.4rem;margin:.5rem 0}.metrics div{min-inline-size:0;padding:.3rem;border:1px solid #c5d9ce;border-radius:.5rem;background:#f0f5ef}.metrics dt{font-size:1rem;line-height:1.3}.metrics dd{margin:0;font-weight:700}.stamp-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.35rem;list-style:none;margin:.5rem 0;padding:0}.stamp-grid li{min-inline-size:0;padding:0;border:0}.stamp{min-inline-size:0;border:1px solid #50785e;border-radius:.6rem;background:#edf5e9;box-shadow:1px 2px 0 #c5d9ce}.stamp summary{min-height:48px;text-align:center;cursor:pointer;padding:.35rem .1rem;line-height:1.4}.stamp summary::marker{color:#195941}.seal{display:block;font-size:1.25rem}.stamp p{padding:.35rem;overflow-wrap:anywhere}.stamp[open]{grid-column:1/-1}.stamp-grid li:has(.stamp[open]){grid-column:1/-1}.venue-card[data-view=test] .stamp{border:1px dashed #9a570c;background:#ffefc5}.card-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem}.card-nav button{margin:.4rem 0}.filters-panel{margin:1rem 0;padding:.5rem .65rem;border:2px solid #567365;border-radius:.65rem;background:white}summary{min-height:48px;padding:.35rem 0;cursor:pointer;overflow-wrap:anywhere}h1{margin:.25rem 0 .6rem;line-height:1.3}#history-status:empty{display:none}#history-scope,#history-sheet{line-height:1.4}#history-empty{border:1px dashed #9ab2a0;border-radius:.5rem;padding:.4rem}span,summary,section,details{min-inline-size:0;overflow-wrap:anywhere}@media(max-width:360px){body{padding:.5rem}.stamp-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:24rem){.metrics{grid-template-columns:minmax(0,1fr)}}
+.venue-card{min-inline-size:0;max-inline-size:100%;padding:.65rem;border:2px solid #50785e;border-radius:1rem;background:#fffdf7;box-shadow:0 3px 12px #172b2412}.venue-card[data-view=test]{border:2px dashed #9a570c;background:#fff8e8;color:#703e08}.venue-card p{margin:.35rem 0}.hero{margin:0;text-align:center}.hero dt{font-weight:600}.hero dd{margin:0}.count{font-size:3rem;line-height:1.15;font-weight:800;color:#195941}.metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.4rem;margin:.5rem 0}.metrics div{min-inline-size:0;padding:.3rem;border:1px solid #c5d9ce;border-radius:.5rem;background:#f0f5ef}.metrics dt{font-size:1rem;line-height:1.3}.metrics dd{margin:0;font-weight:700}.stamp-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.35rem;list-style:none;margin:.5rem 0;padding:0}.stamp-grid li{min-inline-size:0;padding:0;border:0}.stamp{min-inline-size:0;border:1px solid #50785e;border-radius:.6rem;background:#edf5e9;box-shadow:1px 2px 0 #c5d9ce}.stamp summary{min-height:48px;text-align:center;cursor:pointer;padding:.35rem .1rem;line-height:1.4}.stamp summary::marker{color:#195941}.seal{display:block;font-size:1.25rem}.stamp p{padding:.35rem;overflow-wrap:anywhere}.stamp[open]{grid-column:1/-1}.stamp-grid li:has(.stamp[open]){grid-column:1/-1}.venue-card[data-view=test] .stamp{border:1px dashed #9a570c;background:#ffefc5}.card-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem}.card-nav button{margin:.4rem 0}.filters-panel{margin:1rem 0;padding:.5rem .65rem;border:2px solid #567365;border-radius:.65rem;background:white}summary{min-height:48px;padding:.35rem 0;cursor:pointer;overflow-wrap:anywhere}h1{margin:.25rem 0 .6rem;line-height:1.3}#history-status[data-state=loaded]{position:absolute;inline-size:1px;block-size:1px;padding:0;border:0;margin:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.empty-stamps span{min-block-size:3.8rem;border:1px dashed #9ab2a0;border-radius:.6rem;background:#f7f8f0}.empty-stamps span::before{content:'';display:block;inline-size:1.8em;block-size:1.8em;margin:.6rem auto;border:1px solid #b4c8b6;border-radius:50%}#history-scope,#history-sheet{line-height:1.4}#history-empty{border:1px dashed #9ab2a0;border-radius:.5rem;padding:.4rem}span,summary,section,details{min-inline-size:0;overflow-wrap:anywhere}@media(max-width:360px){body{padding:.5rem}.stamp-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:24rem){.metrics{grid-template-columns:minmax(0,1fr)}}
 /* Font-relative minimum tracks preserve legible dates when text grows to 200%. */
 .stamp-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,max(3.25em,calc(25% - .3rem))),1fr))}.metrics{grid-template-columns:repeat(auto-fit,minmax(min(100%,7em),1fr))}.card-nav{grid-template-columns:repeat(auto-fit,minmax(min(100%,6em),1fr))}
 </style></head><body><main id="history-main" aria-busy="${entry ? 'true' : 'false'}"><h1>${t.title}</h1>
-<p id="history-status" role="status" aria-live="polite" aria-atomic="true">${entry ? t.loading : t.invalid}</p>
+<p id="history-status" data-state="visible" role="status" aria-live="polite" aria-atomic="true">${entry ? t.loading : t.invalid}</p>
 ${
   entry
     ? `<section id="history-card" class="venue-card" hidden aria-label="${t.title}">
-<section id="history-totals" hidden aria-label="${t.total}"><dl class="hero"><dt>${t.total}</dt><dd><span id="history-count" class="count"></span> ${t.unit}</dd></dl><dl class="metrics"><div><dt aria-label="${t.days}">${t.shortDays}</dt><dd id="history-days"></dd></div><div><dt aria-label="${t.monthCount}">${t.shortMonth}<br><span id="history-month-period"></span></dt><dd id="history-month-count"></dd></div></dl></section>
+<section id="history-totals" hidden aria-label="${t.total}"><dl class="hero"><dt>${t.total}</dt><dd><span id="history-count" class="count"></span> <span class="count-unit">${t.unit}</span></dd></dl><dl class="metrics"><div><dt aria-label="${t.days}">${t.shortDays}</dt><dd id="history-days"></dd></div><div><dt aria-label="${t.monthCount}">${t.shortMonth}<br><span id="history-month-period"></span></dt><dd id="history-month-count"></dd></div></dl></section>
 <p id="history-test-label" hidden>${t.test}</p><p id="history-scope"></p><p id="history-sheet"></p><p id="history-empty" hidden>${t.empty}</p>
+<div id="history-blank-slots" class="stamp-grid empty-stamps" aria-hidden="true" hidden></div>
 <ul id="history-entries" class="stamp-grid" aria-label="${t.stamp}"></ul><p id="history-page"></p><nav class="card-nav" aria-label="${t.page}"><button id="history-previous" type="button" disabled>${t.previous}</button><button id="history-next" type="button" disabled>${t.next}</button></nav>
 <details><summary>${t.about}</summary><p>${t.intro}</p><p>${t.stampHelp}</p><p>${t.monthNote}</p></details></section>
 <button id="history-retry" type="button" hidden disabled>${t.retry}</button>
@@ -307,7 +308,7 @@ let ready=false,busy=false,hasMore=false,page=historyInitial.page||1,activeMonth
 const canonicalUrl=selectedLocale=>{const target=new URL(historyCanonical,location.href);target.search='';if(activeMonth)target.searchParams.set('month',activeMonth);if(activeVenue)target.searchParams.set('venue',activeVenue);if(page!==1)target.searchParams.set('page',String(page));if(selectedLocale||historyInitial.explicitLang!==false)target.searchParams.set('lang',selectedLocale||historyInitial.lang);return target.pathname+target.search;};
 const view=get('view');
 const controls=()=>{for(const node of [language,month,venue,apply,view])node.disabled=busy||!ready;previous.disabled=busy||!ready||page<=1;next.disabled=busy||!ready||!hasMore;retry.disabled=busy;main.setAttribute('aria-busy',String(busy));};
-const clear=()=>{entries.replaceChildren();get('card').hidden=true;totals.hidden=true;get('test-label').hidden=true;get('empty').hidden=true;status.hidden=false;for(const id of ['count','days','month-count','month-period','page','scope','sheet'])get(id).textContent='';hasMore=false;};
+const clear=()=>{entries.replaceChildren();get('blank-slots').replaceChildren();get('blank-slots').hidden=true;status.setAttribute('data-state','visible');get('card').hidden=true;totals.hidden=true;get('test-label').hidden=true;get('empty').hidden=true;status.hidden=false;for(const id of ['count','days','month-count','month-period','page','scope','sheet'])get(id).textContent='';hasMore=false;};
 const fail=message=>{clear();status.textContent=message;retry.hidden=false;retry.textContent=ready?historyText.retry:historyText.reopen;};
 const integer=value=>Number.isSafeInteger(value)&&value>=0;
 const text=(value,max)=>typeof value==='string'&&value.length>0&&value.length<=max;
@@ -357,9 +358,11 @@ const load=async()=>{
     get('card').setAttribute('data-view',view.value);get('test-label').hidden=!testing;totals.hidden=testing;
     get('scope').textContent=(testing?historyText.test:historyText.formal)+' · '+(activeMonth||historyText.allMonths)+' · '+(activeVenue||historyText.allVenues);
     get('sheet').textContent=numbered(testing?historyText.testLoaded:activeMonth||activeVenue?historyText.filtered:page===1?historyText.recent:historyText.pageLoaded,rows.length)+' / '+numbered(historyText.sheet,page);
-    get('empty').textContent=!testing&&data.totals.attendanceCount===0&&!activeMonth&&!activeVenue&&page===1?historyText.welcome:historyText.empty;
+    const welcoming=!testing&&data.totals.attendanceCount===0&&!activeMonth&&!activeVenue&&page===1;
+    get('blank-slots').replaceChildren(...(welcoming?Array.from({length:20},()=>document.createElement('span')):[]));get('blank-slots').hidden=!welcoming;
+    get('empty').textContent=welcoming?historyText.welcome:historyText.empty;
     get('empty').hidden=rows.length!==0;entries.setAttribute('aria-label',testing?historyText.testStamp:historyText.stamp);
-    get('card').hidden=false;hasMore=data.hasMore;get('page').textContent=historyText.page+' '+page;status.textContent=rows.length?historyText.loaded:historyText.empty;status.hidden=true;
+    get('card').hidden=false;hasMore=data.hasMore;get('page').textContent=historyText.page+' '+page;status.textContent=rows.length?historyText.loaded:historyText.empty;status.setAttribute('data-state','loaded');
   }catch{fail(historyText.unavailable);}finally{busy=false;controls();}
 };
 form.onsubmit=event=>{event.preventDefault();if(!ready||busy)return;const m=month.value,v=venue.value.trim();if((m&&!/^(?!0000)[0-9]{4}-(?:0[1-9]|1[0-2])$/.test(m))||(v&&(v.length>64||!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/.test(v)))){clear();status.textContent=historyText.invalid;controls();return;}activeMonth=m;activeVenue=v;page=1;void load();};
@@ -380,7 +383,7 @@ language.onchange=async()=>{
     document.cookie='__Host-qigong-learner-locale='+selectedLocale+'; Path=/; Max-Age=31536000; Secure; SameSite=Lax';
     location.replace(canonicalUrl(selectedLocale));
     navigating=true;
-  }catch{language.value=historyInitial.lang;status.hidden=false;status.textContent=historyText.languageFailed;}finally{if(!navigating){busy=false;controls();}}
+  }catch{language.value=historyInitial.lang;status.setAttribute('data-state','visible');status.hidden=false;status.textContent=historyText.languageFailed;}finally{if(!navigating){busy=false;controls();}}
 };
 lineReady.then(()=>{ready=true;void load();}).catch(error=>{if(error?.message===lineLoginText.switching){busy=true;retry.hidden=true;status.textContent=lineLoginText.switching;controls();return;}fail(linePrimaryRedirect?lineLoginText.primary:historyText.loginError);main.setAttribute('aria-busy','false');controls();});
 </script>`

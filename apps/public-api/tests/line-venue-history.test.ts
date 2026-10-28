@@ -114,6 +114,9 @@ const browser = (
     const tag = new RegExp('<[a-z]+\\b[^>]*\\bid="' + key + '"[^>]*>').exec(html)?.[0] ?? '';
     if (!tag) throw new Error('Missing real DOM element: ' + key);
     const node = createNode(/^<([a-z]+)/.exec(tag)?.[1]);
+    for (const attribute of tag.matchAll(/\s([a-z][\w-]*)="([^"]*)"/g)) {
+      node.setAttribute(attribute[1]!, attribute[2]!);
+    }
     node.disabled = /\sdisabled(?:\s|>)/.test(tag);
     node.hidden = /\shidden(?:\s|>)/.test(tag);
     node.value = /\bvalue="([^"]*)"/.exec(tag)?.[1] ?? '';
@@ -739,9 +742,10 @@ describe('native month sizing and unchanged filter semantics', () => {
       expect(css).toContain(':focus-visible{outline:3px solid');
       expect(html).toMatch(/id="history-month" type="month" min="0001-01" max="9999-12"/);
       expect(html).toContain('name="viewport" content="width=device-width, initial-scale=1"');
-      expect(css).not.toMatch(
-        /overflow(?:-x|-y)?\s*:\s*(?:hidden|clip)|appearance\s*:|zoom\s*:|transform\s*:\s*scale/
-      );
+      // Only the successful live announcement may be clipped, never the page or native input.
+      const layoutCss = css.replace(/#history-status\[data-state=loaded\]\{[^}]+\}/, '');
+      expect(layoutCss).not.toMatch(/overflow(?:-x|-y)?\s*:\s*(?:hidden|clip)/);
+      expect(css).not.toMatch(/appearance\s*:|zoom\s*:|transform\s*:\s*scale/);
       expect(html).not.toMatch(/user-scalable|maximum-scale|type="(?:date|number)"/);
     }
   );
@@ -802,6 +806,16 @@ describe('stamp card truthful display (real renderer and controller)', () => {
     }));
   const descendants = (node: NodeStub): NodeStub[] =>
     node.children.flatMap((child) => [child, ...descendants(child)]);
+  const assertStatus = (ui: ReturnType<typeof browser>, loaded: boolean) => {
+    expect(ui.get('status').hidden).toBe(false);
+    expect(ui.get('status').attributes).toMatchObject({
+      'data-state': loaded ? 'loaded' : 'visible',
+      role: 'status',
+      'aria-live': 'polite',
+      'aria-atomic': 'true'
+    });
+    expect(ui.get('status').attributes['aria-hidden']).toBeUndefined();
+  };
   const assertCleared = (ui: ReturnType<typeof browser>) => {
     expect(ui.get('card').hidden).toBe(true);
     expect(ui.get('totals').hidden).toBe(true);
@@ -812,7 +826,9 @@ describe('stamp card truthful display (real renderer and controller)', () => {
     expect(ui.get('scope').textContent).toBe('');
     expect(ui.get('sheet').textContent).toBe('');
     expect(ui.get('entries').children).toEqual([]);
-    expect(ui.get('status').hidden).toBe(false);
+    expect(ui.get('blank-slots').hidden).toBe(true);
+    expect(ui.get('blank-slots').children).toEqual([]);
+    assertStatus(ui, false);
   };
   it.each([0, 1, 12, 13, 20, 21, 31, 123456789, Number.MAX_SAFE_INTEGER])(
     'keeps lifetime %s independent of at most 20 actual stickers',
@@ -831,6 +847,9 @@ describe('stamp card truthful display (real renderer and controller)', () => {
       assertCleared(ui);
       await settle();
       expect(ui.get('card').hidden).toBe(false);
+      assertStatus(ui, true);
+      expect(ui.get('blank-slots').hidden).toBe(n !== 0);
+      expect(ui.get('blank-slots').children).toHaveLength(n === 0 ? 20 : 0);
       expect(ui.get('count').textContent).toBe(String(n));
       expect(ui.get('days').textContent).toBe(n ? '1' : '0');
       expect(ui.get('entries').children).toHaveLength(count);
@@ -895,7 +914,9 @@ describe('stamp card truthful display (real renderer and controller)', () => {
       expect(ui.get('entries').children).toHaveLength(count);
       expect(ui.get('next').disabled).toBe(false);
       expect(ui.get('empty').hidden).toBe(count !== 0);
-      expect(ui.get('status').hidden).toBe(true);
+      assertStatus(ui, true);
+      expect(ui.get('blank-slots').hidden).toBe(true);
+      expect(ui.get('blank-slots').children).toEqual([]);
       if (!count) {
         expect(ui.get('empty').textContent).toContain('此篩選與頁次沒有');
         expect(ui.get('empty').textContent).not.toContain('歡迎');
@@ -1040,14 +1061,14 @@ describe('stamp card truthful display (real renderer and controller)', () => {
     await settle();
     assertCleared(ui);
   });
-  it('exposes language save failures even when the success status was hidden and settings are closed', async () => {
+  it('exposes language save failures even when the success status was sr-only and settings are closed', async () => {
     const ui = browser(base, { preferences: async () => response({}, 503) });
     await settle();
-    expect(ui.get('status').hidden).toBe(true);
+    assertStatus(ui, true);
     ui.get('language').value = 'en';
     ui.get('language').onchange?.();
     await settle();
-    expect(ui.get('status').hidden).toBe(false);
+    assertStatus(ui, false);
     expect(ui.get('status').textContent).toBe('語言設定失敗，請稍後再試。');
     expect(ui.get('language').disabled).toBe(false);
     expect(ui.location.replace).not.toHaveBeenCalled();
@@ -1068,7 +1089,19 @@ describe('stamp card truthful display (real renderer and controller)', () => {
       await settle();
       expect(ui.get('card').hidden).toBe(false);
       expect(ui.get('count').textContent).toBe('0');
-      expect(ui.get('status').hidden).toBe(true);
+      assertStatus(ui, true);
+      const slots = ui.get('blank-slots');
+      expect(slots.hidden).toBe(route !== base);
+      expect(slots.tagName).toBe('DIV');
+      expect(slots.attributes['aria-hidden']).toBe('true');
+      expect(slots.children).toHaveLength(route === base ? 20 : 0);
+      for (const slot of slots.children) {
+        expect(slot.tagName).toBe('SPAN');
+        expect(slot.textContent).toBe('');
+        expect(slot.attributes).toEqual({});
+        expect(slot.children).toEqual([]);
+      }
+      expect(ui.get('entries').children).toEqual([]);
       expect(ui.get('empty').hidden).toBe(false);
       expect(ui.get('empty').textContent).toContain(
         route === base ? '歡迎到場團練' : '此篩選與頁次沒有'
@@ -1084,6 +1117,7 @@ describe('stamp card truthful display (real renderer and controller)', () => {
       'month-period',
       'totals',
       'entries',
+      'blank-slots',
       'previous',
       'next',
       'status',
@@ -1099,10 +1133,79 @@ describe('stamp card truthful display (real renderer and controller)', () => {
       expect(html.split('id="history-' + id + '"')).toHaveLength(2);
     }
     expect(html.indexOf('id="history-status"')).toBeLessThan(html.indexOf('id="history-settings"'));
-    expect(html).toContain('終身正式出席（所有場地）');
+    expect(html).toContain('累計正式出席（所有場地）');
     expect(htmlFor(base + '?lang=en')).toContain('Lifetime formal attendance (all venues)');
-    expect(htmlFor(base + '?lang=zh_CN')).toContain('终身正式出席（所有场地）');
+    expect(htmlFor(base + '?lang=zh_CN')).toContain('累计正式出席（所有场地）');
   });
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'keeps %s success in the live region with only scoped sr-only CSS',
+    async (lang) => {
+      const html = htmlFor(base + '?lang=' + lang);
+      const css = /<style>([\s\S]*?)<\/style>/.exec(html)?.[1] ?? '';
+      const loadedCss = /#history-status\[data-state=loaded\]\{([^}]+)\}/.exec(css)?.[1] ?? '';
+      expect(loadedCss).toContain('position:absolute');
+      expect(loadedCss).toContain('inline-size:1px;block-size:1px');
+      expect(loadedCss).toContain('clip-path:inset(50%)');
+      expect(loadedCss).not.toMatch(/display:|visibility:|content-visibility:/);
+      expect(css).not.toMatch(/#history-status(?::empty)?\{[^}]*display:none/);
+      expect(css).not.toMatch(/\.count\{[^}]*display:block/);
+      expect(html).toContain('class="count"></span> <span class="count-unit">');
+      const ui = browser(base + '?lang=' + lang);
+      assertStatus(ui, false);
+      await settle();
+      assertStatus(ui, true);
+      expect(ui.get('status').textContent.length).toBeGreaterThan(0);
+    }
+  );
+  it.each(['loading', 'failure', 'test'] as const)(
+    'removes zero-card decoration and restores the live region for %s',
+    async (state) => {
+      const ui = browser(base, {
+        fetch: async () =>
+          response(
+            success({
+              totals: { attendanceCount: 0, attendanceDays: 0, monthCount: 0 },
+              entries: []
+            })
+          )
+      });
+      await settle();
+      expect(ui.get('blank-slots').children).toHaveLength(20);
+      assertStatus(ui, true);
+      let complete: ((value: MockResponse) => void) | undefined;
+      ui.fetch.mockImplementationOnce(
+        async () =>
+          new Promise<MockResponse>((resolve) => {
+            complete = resolve;
+          })
+      );
+      if (state === 'test') {
+        ui.get('view').value = 'test';
+        ui.get('view').onchange?.();
+      } else void ui.submit();
+      assertCleared(ui);
+      expect(ui.get('status').textContent).toContain('正在載入');
+      await settle();
+      complete?.(
+        state === 'test'
+          ? response(
+              success({
+                totals: { attendanceCount: 0, attendanceDays: 0, monthCount: 0 },
+                entries: []
+              })
+            )
+          : response({}, 503)
+      );
+      await settle();
+      if (state === 'test') {
+        assertStatus(ui, true);
+        expect(ui.get('card').hidden).toBe(false);
+        expect(ui.get('blank-slots').hidden).toBe(true);
+        expect(ui.get('blank-slots').children).toEqual([]);
+        expect(ui.get('totals').hidden).toBe(true);
+      } else assertCleared(ui);
+    }
+  );
   it('shows true test venue-local date, time and timezone, never a formal zero badge', async () => {
     const ui = browser();
     await settle();
