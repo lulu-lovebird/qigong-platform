@@ -895,7 +895,12 @@ describe('stamp card truthful display (real renderer and controller)', () => {
       expect(ui.get('entries').children).toHaveLength(count);
       expect(ui.get('next').disabled).toBe(false);
       expect(ui.get('empty').hidden).toBe(count !== 0);
-      if (!count) expect(ui.get('status').textContent).toContain('此篩選與頁次沒有');
+      expect(ui.get('status').hidden).toBe(true);
+      if (!count) {
+        expect(ui.get('empty').textContent).toContain('此篩選與頁次沒有');
+        expect(ui.get('empty').textContent).not.toContain('歡迎');
+        expect(ui.get('status').textContent).toContain('此篩選與頁次沒有');
+      }
       ui.get('month').value = '2025-01';
       ui.get('venue').value = 'tw-unsent';
       expect(ui.get('scope').textContent).toBe('正式出席 · 2026-10 · tw-test-one');
@@ -1063,6 +1068,8 @@ describe('stamp card truthful display (real renderer and controller)', () => {
       await settle();
       expect(ui.get('card').hidden).toBe(false);
       expect(ui.get('count').textContent).toBe('0');
+      expect(ui.get('status').hidden).toBe(true);
+      expect(ui.get('empty').hidden).toBe(false);
       expect(ui.get('empty').textContent).toContain(
         route === base ? '歡迎到場團練' : '此篩選與頁次沒有'
       );

@@ -359,7 +359,7 @@ const load=async()=>{
     get('sheet').textContent=numbered(testing?historyText.testLoaded:activeMonth||activeVenue?historyText.filtered:page===1?historyText.recent:historyText.pageLoaded,rows.length)+' / '+numbered(historyText.sheet,page);
     get('empty').textContent=!testing&&data.totals.attendanceCount===0&&!activeMonth&&!activeVenue&&page===1?historyText.welcome:historyText.empty;
     get('empty').hidden=rows.length!==0;entries.setAttribute('aria-label',testing?historyText.testStamp:historyText.stamp);
-    get('card').hidden=false;hasMore=data.hasMore;get('page').textContent=historyText.page+' '+page;status.textContent=rows.length?historyText.loaded:historyText.empty;status.hidden=rows.length>0;
+    get('card').hidden=false;hasMore=data.hasMore;get('page').textContent=historyText.page+' '+page;status.textContent=rows.length?historyText.loaded:historyText.empty;status.hidden=true;
   }catch{fail(historyText.unavailable);}finally{busy=false;controls();}
 };
 form.onsubmit=event=>{event.preventDefault();if(!ready||busy)return;const m=month.value,v=venue.value.trim();if((m&&!/^(?!0000)[0-9]{4}-(?:0[1-9]|1[0-2])$/.test(m))||(v&&(v.length>64||!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/.test(v)))){clear();status.textContent=historyText.invalid;controls();return;}activeMonth=m;activeVenue=v;page=1;void load();};
