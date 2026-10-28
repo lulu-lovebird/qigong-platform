@@ -23,6 +23,7 @@ import {
 import { lineApplicationPage } from './line-application-page.js';
 import { renderChannelWorkspacePage } from './channel-workspace-pages.js';
 import { renderVenuePreview, venuePreviewRequest } from './line-venue-checkin-page.js';
+import type { VenueDebugVenueCode } from './venue-debug.js';
 import { renderLineVenueHistoryPage, venueHistoryRequest } from './line-venue-history-page.js';
 import { registerChannelWorkspace } from './channel-workspace.js';
 import {
@@ -67,7 +68,7 @@ export const registerLineOnboarding = (
   config: LineConfig,
   venueCheckinEnabled = false,
   venueHistoryEnabled = false,
-  venueDebugExpiresAt?: string
+  venueDebug?: { readonly venueCode: VenueDebugVenueCode; readonly expiresAt: string }
 ) => {
   const liffBase = `https://liff.line.me/${encodeURIComponent(config.liffId)}`;
   const replyHelp = createHelpReplyGuard();
@@ -156,7 +157,9 @@ export const registerLineOnboarding = (
           preview.kind === 'preview' ? preview.entry : null,
           venueCheckinEnabled ? 'checkin' : 'preview',
           venueHistoryEnabled,
-          venueDebugExpiresAt !== undefined && Date.parse(venueDebugExpiresAt) > Date.now()
+          venueDebug && Date.parse(venueDebug.expiresAt) > Date.now()
+            ? venueDebug.venueCode
+            : undefined
         )
       );
   };

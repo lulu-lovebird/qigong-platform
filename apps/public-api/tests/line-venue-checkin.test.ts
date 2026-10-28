@@ -184,7 +184,7 @@ const liveBrowser = (route = valid, options: Parameters<typeof browser>[2] = {})
   const parsed = venuePreviewRequest(route, options.cookie);
   if (parsed.kind !== 'preview') throw new Error('Invalid fixture');
   return browser(
-    renderVenuePreview('mock-liff', parsed.entry, 'checkin', true, true),
+    renderVenuePreview('mock-liff', parsed.entry, 'checkin', true, 'tw-taipei-cks'),
     'https://app.test' + route,
     options
   );

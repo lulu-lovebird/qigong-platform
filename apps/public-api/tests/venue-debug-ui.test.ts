@@ -12,13 +12,17 @@ interface NodeStub {
   onclick?: () => void;
 }
 const token = 'synthetic-manual-memory-only-debug-token';
-const makeBrowser = (isTest = true) => {
+const makeBrowser = (
+  isTest = true,
+  venue = 'tw-taipei-cks',
+  selected: 'tw-location-test' | 'tw-taipei-cks' | null = 'tw-taipei-cks'
+) => {
   const html = renderVenuePreview(
     '123-test',
-    { venue: 'tw-taipei-cks', lang: 'zh_TW' },
+    { venue, lang: 'zh_TW' },
     'checkin',
     true,
-    true
+    selected ?? undefined
   );
   const nodes = new Map<string, NodeStub>();
   const get = (id: string) => {
@@ -124,19 +128,79 @@ describe('memory-only distance debug controller', () => {
     expect(ui.get('preview-status').textContent).not.toContain('出席已記錄');
     expect(ui.get('preview-test').disabled).toBe(false);
   });
+  it.each(['tw-taipei-cks', null] as const)(
+    'blocks the test site when scope is unavailable (%s), even if disabled is bypassed',
+    async (selected) => {
+      const ui = makeBrowser(true, 'tw-location-test', selected);
+      await setImmediate();
+      expect(ui.html).toContain('僅供測試，不計正式出席');
+      expect(ui.html).not.toContain('id="preview-debug-token"');
+      expect(ui.get('preview-test').disabled).toBe(true);
+      ui.get('preview-test').disabled = false;
+      ui.get('preview-test').onclick!();
+      expect(ui.geo).not.toHaveBeenCalled();
+      expect(ui.fetch).not.toHaveBeenCalled();
+      expect(ui.get('preview-status').textContent).toContain('尚未開放');
+    }
+  );
+  it('test site always requires manual code and cannot toggle into standard success', async () => {
+    const ui = makeBrowser(false, 'tw-location-test', 'tw-location-test');
+    await setImmediate();
+    expect(ui.html).toContain('僅供測試，不計正式出席');
+    expect(ui.html).toContain('checked disabled hidden');
+    ui.get('preview-debug-enabled').checked = false;
+    ui.get('preview-test').onclick!();
+    expect(ui.geo).not.toHaveBeenCalled();
+    ui.get('preview-debug-token').value = token;
+    ui.get('preview-test').onclick!();
+    ui.get('preview-test').onclick!();
+    expect(ui.geo).toHaveBeenCalledOnce();
+    await (ui.geo.mock.calls[0]![0] as (position: unknown) => Promise<void>)({
+      coords: { latitude: -25, longitude: 121 }
+    });
+    expect(ui.fetch.mock.calls[0]![1].headers).toMatchObject({ 'X-Venue-Debug-Token': token });
+    expect(ui.get('preview-status').textContent).not.toContain('出席已記錄');
+    expect(ui.forbidden).not.toHaveBeenCalled();
+  });
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'localizes test-only notice and manual controls (%s)',
+    (lang) => {
+      const html = renderVenuePreview(
+        '123-test',
+        { venue: 'tw-location-test', lang },
+        'checkin',
+        true,
+        'tw-location-test'
+      );
+      expect(html).toContain(
+        {
+          zh_TW: '僅供測試，不計正式出席',
+          zh_CN: '仅供测试，不计正式出席',
+          en: 'Testing only; excluded from formal attendance'
+        }[lang]
+      );
+      expect(html).toContain('id="preview-debug-token"');
+    }
+  );
   it('renders controls only for enabled test venue and rejects URL token/boolean authority', () => {
     const entry = { venue: 'tw-taipei-cks', lang: 'zh_TW' as const };
     for (const html of [
       renderVenuePreview('123-test', entry, 'checkin'),
-      renderVenuePreview('123-test', { ...entry, venue: 'tw-other' }, 'checkin', true, true),
+      renderVenuePreview(
+        '123-test',
+        { ...entry, venue: 'tw-other' },
+        'checkin',
+        true,
+        'tw-taipei-cks'
+      ),
       renderVenuePreview(
         '123-test',
         { ...entry, venue: 'tw-location-test' },
         'checkin',
         true,
-        true
+        'tw-taipei-cks'
       ),
-      renderVenuePreview('123-test', entry, 'preview', true, true)
+      renderVenuePreview('123-test', entry, 'preview', true, 'tw-taipei-cks')
     ])
       expect(html).not.toContain('id="preview-debug-token"');
     for (const query of ['token=secret', 'debug=true', 'isTest=true', 'X-Venue-Debug-Token=secret'])

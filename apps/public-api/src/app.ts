@@ -486,7 +486,7 @@ export const buildApp = ({
       line,
       qr?.enabled === true,
       suite.history?.enabled === true,
-      qr?.debug?.expiresAt
+      qr?.debug ? { venueCode: qr.debug.venueCode, expiresAt: qr.debug.expiresAt } : undefined
     );
     if (suite.history)
       registerVenueHistoryRoutes(app, pool, {

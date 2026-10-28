@@ -1,5 +1,5 @@
 import { lineLoginScript } from './application-page.js';
-import { venueDebugLabel, venueDebugVenueCode } from './venue-debug.js';
+import type { VenueDebugVenueCode } from './venue-debug.js';
 import {
   htmlLocale,
   isLocale,
@@ -229,17 +229,51 @@ const checkinTexts = {
   }
 } as const;
 
+const debugTexts = {
+  zh_TW: {
+    label: '異地測試，未計入正式出席',
+    testOnly: '僅供測試，不計正式出席',
+    unavailable: '測試簽到尚未開放；此場地必須使用短效測試碼，不能進行普通簽到。',
+    help: '僅豁免距離；仍需真實 GPS、身份、同意與開放時段。測試碼限人工輸入，僅當次記憶體使用，不放入網址或儲存。',
+    optIn: '使用異地測試',
+    token: '短效測試碼',
+    denied: '測試碼無效、已到期或測試未開啟；未完成簽到。'
+  },
+  zh_CN: {
+    label: '异地测试，未计入正式出席',
+    testOnly: '仅供测试，不计正式出席',
+    unavailable: '测试签到尚未开放；此场地必须使用短效测试码，不能进行普通签到。',
+    help: '仅豁免距离；仍需真实 GPS、身份、同意与开放时段。测试码限人工输入，仅当次内存使用，不放入网址或存储。',
+    optIn: '使用异地测试',
+    token: '短效测试码',
+    denied: '测试码无效、已到期或测试未开启；未完成签到。'
+  },
+  en: {
+    label: 'Distance test, excluded from formal attendance',
+    testOnly: 'Testing only; excluded from formal attendance',
+    unavailable:
+      'Test check-in is not open. This venue requires a short-lived test code; standard check-in is unavailable.',
+    help: 'Only distance is waived. Real GPS, identity, consent and opening hours are still required. Enter the code manually; it stays in request memory only, never in URLs or storage.',
+    optIn: 'Use distance test',
+    token: 'Short-lived test code',
+    denied: 'The test code is invalid, expired or testing is disabled. No check-in was completed.'
+  }
+} as const;
+
 export const renderVenuePreview = (
   liffId: string,
   entry: VenuePreviewEntry | null,
   mode: 'preview' | 'checkin' = 'preview',
   historyEnabled = false,
-  debugEnabled = false
+  debugVenue?: VenueDebugVenueCode
 ): string => {
   const lang = entry?.lang ?? 'zh_TW';
   const live = mode === 'checkin';
-  const debugAvailable = live && debugEnabled && entry?.venue === venueDebugVenueCode;
-  const t = live ? { ...texts[lang], ...checkinTexts[lang] } : texts[lang];
+  const debugAvailable = live && debugVenue !== undefined && entry?.venue === debugVenue;
+  const testOnly = entry?.venue === 'tw-location-test';
+  const testUnavailable = testOnly && !debugAvailable;
+  const d = debugTexts[lang];
+  const t = { ...(live ? { ...texts[lang], ...checkinTexts[lang] } : texts[lang]), debug: d };
   const canonical = entry ? venuePreviewUrl(entry) : '';
   const historyHref = /^[A-Za-z0-9-]{1,100}$/.test(liffId)
     ? `https://liff.line.me/${encodeURIComponent(liffId)}/venue-history?lang=${lang}`
@@ -251,7 +285,8 @@ export const renderVenuePreview = (
 :root{font:125%/1.65 system-ui,sans-serif;color:#172b24;background:#f3f7f3}*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;padding:1rem}main{max-width:36rem;margin:auto}h1{font-size:1.6rem}p{overflow-wrap:anywhere}.notice{border:3px solid #725000;background:#fff5d6;padding:1rem;font-weight:700}button,a,select{font:inherit;min-height:48px}button,a{display:block;padding:.75rem;margin:1rem 0}button{width:100%;color:white;background:#195941;border:2px solid #195941;border-radius:.5rem}button:disabled{color:#404040;background:#ddd;border-color:#777}a{color:#164b83}select{max-width:100%}:focus-visible{outline:3px solid #ad5100;outline-offset:3px}footer{font-size:.8rem;overflow-wrap:anywhere;margin-top:2rem}
 </style></head><body><main><h1>${t.title}</h1><p class="notice">${t.notice}</p>
 ${entry ? `<p>${t.venue}：<strong>${escapeHtml(entry.venue)}</strong></p><p>${t.unknown}</p><p>${t.privacy}</p><label for="preview-language">${t.language}</label><select id="preview-language" disabled>${languageOptions(lang)}</select><button id="preview-test" type="button" disabled>${t.button}</button>` : ''}
-${debugAvailable ? `<details><summary>${venueDebugLabel}</summary><p>僅豁免距離；仍需真實 GPS、身份、同意與開放時段。測試碼限人工輸入，僅當次記憶體使用，不放入網址或儲存。</p><label><input id="preview-debug-enabled" type="checkbox">使用異地測試</label><label for="preview-debug-token">短效測試碼</label><input id="preview-debug-token" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="256"></details>` : ''}
+${testOnly ? `<p class="notice">${d.testOnly}</p>${testUnavailable ? `<p>${d.unavailable}</p>` : ''}` : ''}
+${debugAvailable ? `<details${testOnly ? ' open' : ''}><summary>${testOnly ? d.testOnly : d.label}</summary><p>${d.help}</p>${testOnly ? '<input id="preview-debug-enabled" type="checkbox" checked disabled hidden>' : `<label><input id="preview-debug-enabled" type="checkbox">${d.optIn}</label>`}<label for="preview-debug-token">${d.token}</label><input id="preview-debug-token" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="256"></details>` : ''}
 <p id="preview-status" role="status" aria-live="polite" aria-atomic="true">${entry ? t.loading : t.invalid}</p>
 ${live && entry && historyEnabled ? `<a id="preview-history" href="${escapeHtml(historyHref)}" referrerpolicy="no-referrer" hidden>${t.history}</a>` : ''}
 <a href="/line/checkin?lang=${lang}" referrerpolicy="no-referrer">${t.daily}</a>
@@ -267,11 +302,11 @@ ${
   debugAvailable
     ? `const debugToggle=document.getElementById('preview-debug-enabled'),debugInput=document.getElementById('preview-debug-token');
 let debugToken='';
-const clearDebug=(reset=false)=>{debugToken='';debugInput.value='';if(reset)debugToggle.checked=false;};
+const clearDebug=(reset=false)=>{debugToken='';debugInput.value='';if(reset)debugToggle.checked=${testOnly ? 'true' : 'false'};};
 globalThis.addEventListener?.('pagehide',()=>clearDebug(true));`
     : 'const clearDebug=()=>{};'
 }
-const controls=()=>{button.disabled=previewBusy||!previewReady||previewCompleted;language.disabled=previewBusy||!previewReady;${debugAvailable ? 'debugToggle.disabled=debugInput.disabled=previewBusy||!previewReady||previewCompleted;' : ''}};
+const controls=()=>{button.disabled=${testUnavailable}||previewBusy||!previewReady||previewCompleted;language.disabled=previewBusy||!previewReady;${debugAvailable ? `debugInput.disabled=previewBusy||!previewReady||previewCompleted;debugToggle.disabled=${testOnly}||debugInput.disabled;` : ''}};
 const invalidate=()=>{previewReady=false;idToken='';clearDebug(true);status.textContent=previewText.loginError;};
 const currentCredential=()=>{try{const currentToken=liff.getIDToken()||'';if(liff.isLoggedIn()&&currentToken)return currentToken;}catch{/* SDK failure never authorizes a request. */}invalidate();return '';};
 language.onchange=async()=>{
@@ -290,16 +325,16 @@ language.onchange=async()=>{
     location.replace(target.pathname+target.search);navigating=true;
   }catch{language.value=previewInitial.lang;status.textContent=previewText.languageFailed;}finally{if(!navigating){previewBusy=false;controls();}}
 };
-lineReady.then(()=>{previewReady=true;controls();status.textContent=previewText.ready;}).catch(error=>{if(error?.message===lineLoginText.switching){previewBusy=true;clearDebug();status.textContent=lineLoginText.switching;}else status.textContent=linePrimaryRedirect?lineLoginText.primary:previewText.loginError;controls();});
+lineReady.then(()=>{previewReady=true;controls();status.textContent=${testUnavailable ? 'previewText.debug.unavailable' : 'previewText.ready'};}).catch(error=>{if(error?.message===lineLoginText.switching){previewBusy=true;clearDebug();status.textContent=lineLoginText.switching;}else status.textContent=linePrimaryRedirect?lineLoginText.primary:previewText.loginError;controls();});
 controls();
 button.onclick=()=>{
-  if(!previewReady||previewBusy||previewCompleted||button.disabled)return;
+  if(${testUnavailable}||!previewReady||previewBusy||previewCompleted||button.disabled)return;
   if(!currentCredential()){controls();return;}
   if(!navigator.geolocation){status.textContent=previewText.unsupported;return;}
   ${
     debugAvailable
-      ? `const testing=debugToggle.checked;debugToken=testing?debugInput.value:'';debugInput.value='';
-  if(testing&&(debugToken.length<32||debugToken.length>256)){clearDebug();status.textContent='測試碼無效、已到期或測試未開啟；未完成簽到。';return;}`
+      ? `const testing=${testOnly ? 'true' : 'debugToggle.checked'};debugToken=testing?debugInput.value:'';debugInput.value='';
+  if(testing&&(debugToken.length<32||debugToken.length>256)){clearDebug();status.textContent=previewText.debug.denied;return;}`
       : 'const testing=false;'
   }
   previewBusy=true;controls();status.textContent=previewText.locating;
@@ -319,12 +354,12 @@ button.onclick=()=>{
         if(response.status===401){invalidate();finish(previewText.loginError);return;}
         const data=await response.json();
         if(!response.ok||data.ok!==true){
-          finish(data.error==='venue_debug_denied'?'測試碼無效、已到期或測試未開啟；未完成簽到。':response.status>=500?previewText.retry:data.error==='outside_radius'?previewText.outside_radius:data.error==='outside_window'?previewText.outside_window:previewText.rejected);return;
+          finish((data.error==='venue_debug_denied'||data.error==='venue_test_code_required')?previewText.debug.denied:response.status>=500?previewText.retry:data.error==='outside_radius'?previewText.outside_radius:data.error==='outside_window'?previewText.outside_window:previewText.rejected);return;
         }
         if((testing?(data.isTest!==true||data.verificationMode!=='distance_debug'):(data.isTest!==undefined||data.verificationMode!==undefined)))throw new Error('invalid result mode');
         if(!data.venue||typeof data.venue.name!=='string'||typeof data.checkedInAt!=='string'||typeof data.venue.timezone!=='string')throw new Error('invalid result');
         const time=new Intl.DateTimeFormat(${scriptJson(htmlLocale(lang))},{timeZone:data.venue.timezone,dateStyle:'medium',timeStyle:'short'}).format(new Date(data.checkedInAt));
-        status.textContent=(data.isTest===true?${scriptJson(venueDebugLabel)}:previewText.success)+' — '+data.venue.name+' / '+time+' ('+data.venue.timezone+'). '+previewText.daily;
+        status.textContent=(data.isTest===true?previewText.debug.label:previewText.success)+' — '+data.venue.name+' / '+time+' ('+data.venue.timezone+'). '+previewText.daily;
         ${historyEnabled ? "document.getElementById('preview-history').hidden=false;" : ''}
         clearDebug();previewCompleted=true;previewBusy=false;controls();
       }catch{finish(previewText.retry);}
