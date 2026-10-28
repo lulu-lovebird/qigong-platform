@@ -109,6 +109,14 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 57→58 chain', () =>
       owner.query(
         `SELECT polname,polrelid,polroles,polqual::text,polwithcheck::text FROM pg_policy ORDER BY oid`
       );
+    const securityMetadata = () =>
+      owner.query(`SELECT
+      (SELECT jsonb_agg(to_jsonb(r) ORDER BY r.oid) FROM pg_roles r) AS roles,
+      (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.oid) FROM pg_auth_members m) AS members,
+      (SELECT jsonb_agg(jsonb_build_array(c.oid,c.relowner,c.relacl,c.relrowsecurity,c.relforcerowsecurity) ORDER BY c.oid)
+        FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('core','platform','admin','identity','audit')) AS tables,
+      (SELECT jsonb_agg(to_jsonb(d) ORDER BY d.oid) FROM pg_default_acl d) AS defaults`);
+    const oldSecurity = (await securityMetadata()).rows;
     const oldMetadata = (await functionMetadata()).rows;
     const oldBodies = (await functionBodies()).rows;
     const oldPolicies = (await policies()).rows;
@@ -145,6 +153,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 57→58 chain', () =>
       oldVenues
     );
     expect((await owner.query('SELECT * FROM audit.events ORDER BY id')).rows).toEqual(oldAudit);
+    expect((await securityMetadata()).rows).toEqual(oldSecurity);
     expect(
       (await functionMetadata()).rows.filter((row) =>
         oldMetadata.some((old) => old.oid === row.oid)
@@ -300,6 +309,31 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 57→58 chain', () =>
     await expect(
       call("SELECT platform.venue_checkin_window(NULL,'UTC',clock_timestamp())")
     ).rejects.toMatchObject({ code: '42501' });
+    expect(
+      await checkStartupReadiness(
+        runtime,
+        true,
+        { management: { enabled: true, publicOrigin: 'https://synthetic.invalid' } },
+        true
+      )
+    ).toMatchObject({ ready: true });
+    await owner.query(
+      'GRANT EXECUTE ON FUNCTION platform.venue_checkin_window(jsonb,text,timestamptz) TO qigong_api_runtime'
+    );
+    try {
+      expect(
+        await checkStartupReadiness(
+          runtime,
+          true,
+          { management: { enabled: true, publicOrigin: 'https://synthetic.invalid' } },
+          true
+        )
+      ).toMatchObject({ ready: false, reason: 'venue_feature_not_ready' });
+    } finally {
+      await owner.query(
+        'REVOKE ALL ON FUNCTION platform.venue_checkin_window(jsonb,text,timestamptz) FROM qigong_api_runtime'
+      );
+    }
   });
   it('uses the same early gate for normal/debug real-clock writes and replay while keeping actual local dates', async () => {
     // Pick a real IANA fixed-offset zone where local now is near noon, far from date rollover.
