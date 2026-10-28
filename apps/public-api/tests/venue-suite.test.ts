@@ -18,7 +18,13 @@ describe('independent venue capability evidence', () => {
       expect(probe).toContain(
         "count(*)=56 AND max(version)='0056_venue_cks_distance_debug.sql' AND NOT $6"
       );
-      expect(probe).toContain('count(*)=57 AND max(version)=$5');
+      expect(probe).toContain(
+        "count(*)=57 AND max(version)='0057_venue_test_scope.sql' AND NOT $6"
+      );
+      expect(probe).toContain('count(*)=58 AND max(version)=$5');
+      expect(probe).toContain('platform.venue_checkin_window(jsonb,text,timestamptz)');
+      expect(probe).toContain('AND NOT h.prosecdef');
+      expect(probe).toContain('a.is_grantable');
       expect(probe).toContain('relforcerowsecurity');
       expect(probe).toContain('pg_auth_members');
       expect(probe).not.toMatch(/SELECT .* FROM (core|identity)\./);
