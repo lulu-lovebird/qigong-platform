@@ -41,7 +41,7 @@ const checkin = (test = true, venue = 'tw-taipei-cks', lat = -25, issuedOffset =
     )
   );
 };
-describe.skipIf(!directory)('debug: owned socket-only PG17 55→56 chain', () => {
+describe.skipIf(!directory)('debug: owned socket-only PG17 56→57 chain', () => {
   beforeAll(async () => {
     if (!directory || !/^\/tmp\/venue-debug-(?:integration-)?[A-Za-z0-9]+$/.test(directory))
       throw new Error('owned debug harness required');
@@ -67,14 +67,14 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 55→56 chain', () =>
     const staging = await mkdtemp('/tmp/venue-debug-migrations-');
     try {
       for (const name of await readdir(resolve('../../migrations')))
-        if (name.endsWith('.sql') && name < '0056_')
+        if (name.endsWith('.sql') && name < '0057_')
           await copyFile(resolve('../../migrations', name), resolve(staging, name));
-      expect((await runMigrations(owner, staging)).applied).toHaveLength(55);
+      expect((await runMigrations(owner, staging)).applied).toHaveLength(56);
     } finally {
       await rm(staging, { recursive: true, force: true });
     }
     await owner.query(
-      "INSERT INTO platform.venue_debug_config(enabled,expires_at,token_hash) VALUES(TRUE,clock_timestamp()+interval '1 hour',$1)",
+      "INSERT INTO platform.venue_debug_config(enabled,expires_at,token_hash,venue_code) VALUES(TRUE,date_trunc('milliseconds',clock_timestamp()+interval '59 minutes'),$1,'tw-taipei-cks')",
       [hash]
     );
     await owner.query(
@@ -86,18 +86,22 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 55→56 chain', () =>
       SELECT region_id,'tw-taipei-cks',name_zh_tw,latitude,longitude,radius_meters,timezone,active_time_rules FROM core.practice_fields WHERE code='tw-location-test';
       INSERT INTO core.field_attendance(person_id,field_id,checkin_method,distance_meters,checkin_at,attendance_date,attendance_timezone,is_test,verification_mode)
       SELECT '20000000-0000-4000-8000-000000000001',id,'qr_gps',100000,clock_timestamp(),(clock_timestamp() AT TIME ZONE timezone)::date,timezone,TRUE,'distance_debug' FROM core.practice_fields WHERE code='tw-location-test';`);
+    // Existing formal attendance at the test site is preserved, never replayed by normal entry.
+    await owner.query(`INSERT INTO core.field_attendance(person_id,field_id,checkin_method,distance_meters,checkin_at,attendance_date,attendance_timezone)
+      SELECT '20000000-0000-4000-8000-000000000001',id,'qr_gps',0,clock_timestamp(),(clock_timestamp() AT TIME ZONE timezone)::date,timezone FROM core.practice_fields WHERE code='tw-location-test'`);
+    const oldAudit = (await owner.query('SELECT * FROM audit.events ORDER BY id')).rows;
     const oldLedger = (
       await owner.query('SELECT version,checksum FROM schema_migrations ORDER BY version')
     ).rows;
     const oldRows = (await owner.query('SELECT * FROM core.field_attendance ORDER BY id')).rows;
     const oldVenues = (await owner.query('SELECT * FROM core.practice_fields ORDER BY id')).rows;
     const result = await runMigrations(owner, resolve('../../migrations'));
-    expect(result.applied).toEqual(['0056_venue_cks_distance_debug.sql']);
-    expect(result.currentVersion).toBe('0056_venue_cks_distance_debug.sql');
+    expect(result.applied).toEqual(['0057_venue_test_scope.sql']);
+    expect(result.currentVersion).toBe('0057_venue_test_scope.sql');
     expect(
       (
         await owner.query(
-          "SELECT version,checksum FROM schema_migrations WHERE version<'0056_' ORDER BY version"
+          "SELECT version,checksum FROM schema_migrations WHERE version<'0057_' ORDER BY version"
         )
       ).rows
     ).toEqual(oldLedger);
@@ -116,7 +120,12 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 55→56 chain', () =>
     expect((await owner.query('SELECT * FROM core.practice_fields ORDER BY id')).rows).toEqual(
       oldVenues
     );
+    expect((await owner.query('SELECT * FROM audit.events ORDER BY id')).rows).toEqual(oldAudit);
     runtime = new Pool({ ...options, user: 'venue_qr_test_login', max: 12 });
+    await expect(checkin(false, 'tw-location-test', 25)).rejects.toMatchObject({
+      code: '42501',
+      message: 'venue_test_code_required'
+    });
     const legacyHistory = (
       await call("SELECT platform.venue_debug_history('line',$1) AS data", [subject])
     ).rows[0]?.data;
@@ -166,7 +175,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 55→56 chain', () =>
       await owner?.end();
     }
   });
-  it('migration keeps configuration operator-only and constrains finite CKS authority', async () => {
+  it('migration keeps configuration operator-only and constrains finite single-venue authority', async () => {
     for (const sql of [
       'SELECT * FROM platform.venue_debug_config',
       'UPDATE platform.venue_debug_config SET enabled=TRUE',
@@ -174,7 +183,8 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 55→56 chain', () =>
     ])
       await expect(call(sql)).rejects.toMatchObject({ code: '42501' });
     for (const patch of [
-      "venue_code='tw-location-test'",
+      "venue_code='tw-location-test,tw-taipei-cks'",
+      "venue_code='*'",
       "venue_code=''",
       "venue_code='tw-test-two'",
       "expires_at=configured_at+interval '61 minutes'",

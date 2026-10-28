@@ -55,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0056_venue_cks_distance_debug.sql'
+      '0057_venue_test_scope.sql'
     );
 
     expect(first.applied).toEqual([
@@ -114,13 +114,14 @@ describeWithDatabase('repository migrations', () => {
       '0053_venue_management.sql',
       '0054_venue_people_read.sql',
       '0055_venue_distance_debug.sql',
-      '0056_venue_cks_distance_debug.sql'
+      '0056_venue_cks_distance_debug.sql',
+      '0057_venue_test_scope.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0056_venue_cks_distance_debug.sql',
+      currentVersion: '0057_venue_test_scope.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0056_venue_cks_distance_debug.sql',
+      maximumVersion: '0057_venue_test_scope.sql',
       ready: true
     });
   });
