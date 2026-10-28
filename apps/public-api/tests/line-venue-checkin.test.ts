@@ -605,6 +605,7 @@ describe('check-in language preference integration (real renderer, synthetic SDK
     await ui.get('preview-language').onchange?.();
     expect(ui.get('preview-debug-token').value).toBe('');
     expect(ui.get('preview-debug-enabled').checked).toBe(false);
+    expect(ui.get('preview-notice').textContent).toBe('正式出席簽到：送出後由後端驗證並記錄');
     expect(ui.get('preview-language').value).toBe('zh_TW');
     expect(ui.document.cookie).toBe('');
     expect(ui.location.replace).not.toHaveBeenCalled();
@@ -746,6 +747,40 @@ describe('mobile result feedback (real inline controller)', () => {
     expect(ui.get('preview-history').hidden).toBe(true);
     expect(ui.scroll).toHaveBeenCalledOnce();
   });
+  it('a language-save failure does not reinterpret a previously completed test result as formal attendance', async () => {
+    const ui = liveBrowser(base + '?venue=tw-taipei-cks&lang=zh_TW', {
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            isTest: true,
+            verificationMode: 'distance_debug',
+            venue: { name: 'Synthetic venue', timezone: 'Asia/Taipei' },
+            checkedInAt: '2026-10-27T00:00:00Z'
+          })
+        ),
+      preferences: async () => new Response('{}', { status: 503 })
+    });
+    await finishInit();
+    ui.get('preview-debug-enabled').checked = true;
+    await ui.get('preview-debug-enabled').onchange?.();
+    ui.get('preview-debug-token').value = 'synthetic-manual-memory-only-debug-token';
+    ui.get('preview-test').onclick?.();
+    await ui.geo.mock.calls[0]![0]({ coords: { latitude: 25, longitude: 121 } });
+    expect(ui.get('preview-test').textContent).toBe('測試已完成');
+    expect(ui.get('preview-notice').textContent).toBe('僅供測試，不計正式出席');
+    ui.scroll.mockClear();
+    ui.get('preview-language').value = 'en';
+    await ui.get('preview-language').onchange?.();
+    expect(ui.get('preview-debug-enabled').checked).toBe(false);
+    expect(ui.get('preview-debug-token').value).toBe('');
+    expect(ui.get('preview-notice').textContent).toBe('僅供測試，不計正式出席');
+    expect(ui.get('preview-test').textContent).toBe('測試已完成');
+    expect(ui.get('preview-test').disabled).toBe(true);
+    expect(ui.get('preview-test').attributes['aria-busy']).toBe('false');
+    expect(ui.scroll).not.toHaveBeenCalled();
+    expect(ui.focus).not.toHaveBeenCalled();
+  });
   it('a server failure leaves retryable feedback; retry alone can produce a success label', async () => {
     const ui = liveBrowser(valid + '&lang=zh_TW', {
       fetch: async () => new Response('{}', { status: 503 })
@@ -794,6 +829,8 @@ describe('mobile result feedback (real inline controller)', () => {
     );
     const markup = html.split('<script')[0]!;
     expect(markup.match(/role="status"/g)).toHaveLength(1);
+    expect(markup).toContain('h1,p,label,a,summary{overflow-wrap:anywhere}');
+    expect(markup).not.toMatch(/overflow(?:-x)?:(?:hidden|clip)|user-scalable|maximum-scale/);
     expect(markup).toMatch(
       /<\/details>\s*<button id="preview-test"[^>]*aria-describedby="preview-status"[^>]*>[\s\S]*?<\/button>\s*<p id="preview-status" role="status" aria-live="polite" aria-atomic="true">/
     );
