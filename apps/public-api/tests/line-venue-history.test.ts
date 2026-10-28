@@ -1151,6 +1151,10 @@ describe('stamp card truthful display (real renderer and controller)', () => {
       expect(html).not.toMatch(/id="history-settings"[^>]* open|<img|<svg|@import|url\(/);
       expect(html.indexOf('id="history-card"')).toBeLessThan(html.indexOf('id="history-settings"'));
       expect(html).toContain('grid-template-columns:repeat(4,minmax(0,1fr))');
+      // Keep the same sticker width on sparse pages, but reduce columns as fonts grow.
+      expect(html).toContain(
+        'repeat(auto-fill,minmax(min(100%,max(3.25em,calc(25% - .3rem))),1fr))'
+      );
       const summary = ui.get('entries').children[0]?.children[0]?.children[0];
       expect(summary?.attributes['aria-label']).toContain(
         lang === 'en' ? 'Attendance sticker' : lang === 'zh_CN' ? '出席贴纸' : '出席貼紙'
