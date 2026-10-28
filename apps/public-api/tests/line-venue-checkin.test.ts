@@ -78,6 +78,11 @@ interface NodeStub {
   onchange?: () => void | Promise<void>;
   checked: boolean;
   hidden: boolean;
+  attributes: Record<string, string>;
+  setAttribute: (name: string, value: string) => void;
+  getBoundingClientRect?: () => { top: number; bottom: number };
+  scrollIntoView?: (options: ScrollIntoViewOptions) => void;
+  focus: () => void;
 }
 type BrowserRequest = Omit<RequestInit, 'body'> & { body: string };
 type GeoRequest = (
@@ -95,21 +100,43 @@ const browser = (
     init?: () => Promise<void>;
     geolocation?: boolean;
     cookie?: string;
+    resultVisible?: boolean;
+    reducedMotion?: boolean;
+    scrollApis?: boolean;
+    matchMedia?: boolean;
+    scrollThrows?: boolean;
     preferences?: (url: string, options: BrowserRequest) => Promise<Response>;
     fetch?: (url: string, options: BrowserRequest) => Promise<Response>;
   } = {}
 ) => {
   const nodes = new Map<string, NodeStub>();
+  const focus = vi.fn();
+  const scroll = vi.fn(() => {
+    if (options.scrollThrows) throw new Error('Synthetic presentation failure');
+  });
+  const matchMedia = vi.fn(() => ({ matches: options.reducedMotion ?? false }));
   const get = (id: string) => {
     let node = nodes.get(id);
     if (!node) {
       node = {
-        textContent: '',
+        textContent: new RegExp('id="' + id + '"[^>]*>([^<]*)<').exec(html)?.[1] ?? '',
         disabled: id === 'preview-test' || id === 'preview-language',
         value:
           id === 'preview-language' ? (/value="([^"]*)"[^>]* selected/.exec(html)?.[1] ?? '') : '',
         checked: false,
-        hidden: true
+        hidden: true,
+        attributes: {},
+        setAttribute(name, value) {
+          this.attributes[name] = value;
+        },
+        ...(options.scrollApis === false
+          ? {}
+          : {
+              getBoundingClientRect: () =>
+                options.resultVisible ? { top: 100, bottom: 200 } : { top: 800, bottom: 950 },
+              scrollIntoView: scroll
+            }),
+        focus
       };
       nodes.set(id, node);
     }
@@ -168,9 +195,25 @@ const browser = (
     localStorage: storage,
     sessionStorage: storage,
     console: { log, error: log, warn: log },
-    window: {}
+    window: {},
+    innerHeight: 700,
+    ...(options.matchMedia === false ? {} : { matchMedia })
   });
-  return { get, location, history, liff, geo, storage, log, document, preferences, fetch };
+  return {
+    get,
+    location,
+    history,
+    liff,
+    geo,
+    storage,
+    log,
+    document,
+    preferences,
+    fetch,
+    scroll,
+    focus,
+    matchMedia
+  };
 };
 const routeBrowser = async (route = valid, options: Parameters<typeof browser>[2] = {}) =>
   browser(
@@ -562,6 +605,7 @@ describe('check-in language preference integration (real renderer, synthetic SDK
     await ui.get('preview-language').onchange?.();
     expect(ui.get('preview-debug-token').value).toBe('');
     expect(ui.get('preview-debug-enabled').checked).toBe(false);
+    expect(ui.get('preview-notice').textContent).toBe('正式出席簽到：送出後由後端驗證並記錄');
     expect(ui.get('preview-language').value).toBe('zh_TW');
     expect(ui.document.cookie).toBe('');
     expect(ui.location.replace).not.toHaveBeenCalled();
@@ -592,6 +636,208 @@ describe('check-in language preference integration (real renderer, synthetic SDK
       expect(ui.get('preview-history').hidden).toBe(true);
     }
   );
+});
+
+describe('mobile result feedback (real inline controller)', () => {
+  it.each([
+    ['zh_TW', '確認位置並簽到', '定位中…', '送出中…', '已簽到'],
+    ['zh_CN', '确认位置并签到', '定位中…', '提交中…', '已签到'],
+    ['en', 'Confirm location and check in', 'Locating…', 'Submitting…', 'Checked in']
+  ])(
+    'keeps %s progress truthful and announces success only after validation',
+    async (lang, idle, locating, sending, completed) => {
+      let resolve: ((response: Response) => void) | undefined;
+      const pending = new Promise<Response>((done) => {
+        resolve = done;
+      });
+      const ui = liveBrowser(valid + '&lang=' + lang, { fetch: async () => pending });
+      await finishInit();
+      const button = ui.get('preview-test');
+      expect(button.textContent).toBe(idle);
+      expect(button.attributes['aria-busy']).toBe('false');
+      expect(ui.scroll).not.toHaveBeenCalled();
+      expect(ui.focus).not.toHaveBeenCalled();
+      button.onclick?.();
+      expect(button.textContent).toBe(locating);
+      expect(button.attributes['aria-busy']).toBe('true');
+      expect(ui.get('preview-status').textContent).not.toContain('Attendance recorded');
+      const submit = ui.geo.mock.calls[0]![0]({ coords: { latitude: 25, longitude: 121 } });
+      expect(button.textContent).toBe(sending);
+      expect(ui.get('preview-history').hidden).toBe(true);
+      expect(ui.scroll).not.toHaveBeenCalled();
+      button.disabled = false;
+      button.onclick?.();
+      expect(ui.geo).toHaveBeenCalledOnce();
+      resolve?.(attendanceResponse());
+      await submit;
+      expect(button.textContent).toBe(completed);
+      expect(button.disabled).toBe(true);
+      expect(button.attributes['aria-busy']).toBe('false');
+      expect(ui.get('preview-history').hidden).toBe(false);
+      expect(ui.scroll).toHaveBeenCalledExactlyOnceWith({ block: 'nearest', behavior: 'smooth' });
+      expect(ui.focus).not.toHaveBeenCalled();
+    }
+  );
+  it.each([
+    { resultVisible: true, count: 0, behavior: 'smooth' },
+    { reducedMotion: true, count: 1, behavior: 'auto' },
+    { scrollApis: false, count: 0, behavior: 'smooth' },
+    { matchMedia: false, count: 1, behavior: 'smooth' },
+    { scrollThrows: true, count: 1, behavior: 'smooth' }
+  ])(
+    'only reveals an offscreen submitted result, with graceful browser fallback: %j',
+    async ({ count, behavior, ...options }) => {
+      const ui = liveBrowser(valid + '&lang=zh_TW', {
+        ...options,
+        fetch: async () => attendanceResponse()
+      });
+      await finishInit();
+      expect(ui.scroll).not.toHaveBeenCalled();
+      ui.get('preview-test').onclick?.();
+      await ui.geo.mock.calls[0]![0]({ coords: { latitude: 25, longitude: 121 } });
+      expect(ui.get('preview-status').textContent).toContain('出席已記錄');
+      expect(ui.get('preview-test').textContent).toBe('已簽到');
+      expect(ui.get('preview-test').disabled).toBe(true);
+      expect(ui.scroll).toHaveBeenCalledTimes(count);
+      if (count) expect(ui.scroll).toHaveBeenCalledWith({ block: 'nearest', behavior });
+      expect(ui.focus).not.toHaveBeenCalled();
+    }
+  );
+  it.each([1, 2, 3])(
+    'GPS failure %s clears busy, reveals the error and allows deliberate retry',
+    async (code) => {
+      const ui = liveBrowser(valid + '&lang=zh_TW');
+      await finishInit();
+      ui.get('preview-test').onclick?.();
+      ui.geo.mock.calls[0]![1]({ code });
+      expect(ui.get('preview-status').textContent).toContain(
+        code === 1 ? '未允許' : code === 3 ? '逾時' : '無法取得'
+      );
+      expect(ui.get('preview-test').textContent).toBe('確認位置並簽到');
+      expect(ui.get('preview-test').attributes['aria-busy']).toBe('false');
+      expect(ui.get('preview-test').disabled).toBe(false);
+      expect(ui.get('preview-history').hidden).toBe(true);
+      expect(ui.scroll).toHaveBeenCalledOnce();
+      ui.get('preview-test').onclick?.();
+      expect(ui.geo).toHaveBeenCalledTimes(2);
+      expect(ui.fetch).not.toHaveBeenCalled();
+    }
+  );
+  it.each([
+    null,
+    { ok: true },
+    { ok: true, venue: { name: 'Synthetic', timezone: 'Asia/Taipei' }, checkedInAt: 'invalid' },
+    {
+      ok: true,
+      venue: { name: 'Synthetic', timezone: 'unknown/zone' },
+      checkedInAt: '2026-10-27T00:00:00Z'
+    },
+    { ok: true, isTest: true, verificationMode: 'distance_debug' }
+  ])('HTTP 200 malformed or wrong-mode result is not success: %#', async (data) => {
+    const ui = liveBrowser(valid + '&lang=zh_TW', {
+      fetch: async () => new Response(JSON.stringify(data))
+    });
+    await finishInit();
+    ui.get('preview-test').onclick?.();
+    await ui.geo.mock.calls[0]![0]({ coords: { latitude: 25, longitude: 121 } });
+    expect(ui.get('preview-test').textContent).toBe('確認位置並簽到');
+    expect(ui.get('preview-test').disabled).toBe(false);
+    expect(ui.get('preview-test').attributes['aria-busy']).toBe('false');
+    expect(ui.get('preview-status').textContent).toContain('無法確認結果');
+    expect(ui.get('preview-history').hidden).toBe(true);
+    expect(ui.scroll).toHaveBeenCalledOnce();
+  });
+  it('a language-save failure does not reinterpret a previously completed test result as formal attendance', async () => {
+    const ui = liveBrowser(base + '?venue=tw-taipei-cks&lang=zh_TW', {
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            isTest: true,
+            verificationMode: 'distance_debug',
+            venue: { name: 'Synthetic venue', timezone: 'Asia/Taipei' },
+            checkedInAt: '2026-10-27T00:00:00Z'
+          })
+        ),
+      preferences: async () => new Response('{}', { status: 503 })
+    });
+    await finishInit();
+    ui.get('preview-debug-enabled').checked = true;
+    await ui.get('preview-debug-enabled').onchange?.();
+    ui.get('preview-debug-token').value = 'synthetic-manual-memory-only-debug-token';
+    ui.get('preview-test').onclick?.();
+    await ui.geo.mock.calls[0]![0]({ coords: { latitude: 25, longitude: 121 } });
+    expect(ui.get('preview-test').textContent).toBe('測試已完成');
+    expect(ui.get('preview-notice').textContent).toBe('僅供測試，不計正式出席');
+    ui.scroll.mockClear();
+    ui.get('preview-language').value = 'en';
+    await ui.get('preview-language').onchange?.();
+    expect(ui.get('preview-debug-enabled').checked).toBe(false);
+    expect(ui.get('preview-debug-token').value).toBe('');
+    expect(ui.get('preview-notice').textContent).toBe('僅供測試，不計正式出席');
+    expect(ui.get('preview-test').textContent).toBe('測試已完成');
+    expect(ui.get('preview-test').disabled).toBe(true);
+    expect(ui.get('preview-test').attributes['aria-busy']).toBe('false');
+    expect(ui.scroll).not.toHaveBeenCalled();
+    expect(ui.focus).not.toHaveBeenCalled();
+  });
+  it('a server failure leaves retryable feedback; retry alone can produce a success label', async () => {
+    const ui = liveBrowser(valid + '&lang=zh_TW', {
+      fetch: async () => new Response('{}', { status: 503 })
+    });
+    await finishInit();
+    ui.get('preview-test').onclick?.();
+    await ui.geo.mock.calls[0]![0]({ coords: { latitude: 25, longitude: 121 } });
+    expect(ui.get('preview-test').disabled).toBe(false);
+    expect(ui.get('preview-test').attributes['aria-busy']).toBe('false');
+    expect(ui.get('preview-test').textContent).toBe('確認位置並簽到');
+    expect(ui.get('preview-history').hidden).toBe(true);
+    ui.fetch.mockResolvedValueOnce(attendanceResponse());
+    ui.get('preview-test').onclick?.();
+    await ui.geo.mock.calls[1]![0]({ coords: { latitude: 25, longitude: 121 } });
+    expect(ui.get('preview-test').textContent).toBe('已簽到');
+    expect(ui.fetch).toHaveBeenCalledTimes(2);
+  });
+  it('preview completion is a location test, not an attendance success', async () => {
+    const ui = await routeBrowser(valid + '&lang=zh_TW');
+    await finishInit();
+    ui.get('preview-test').onclick?.();
+    await ui.geo.mock.calls[0]![0]({ coords: { latitude: 25, longitude: 121 } });
+    expect(ui.get('preview-test').textContent).toBe('定位測試完成');
+    expect(ui.get('preview-status').textContent).toContain('尚未記錄出席');
+    expect(ui.fetch).not.toHaveBeenCalled();
+    expect(ui.scroll).toHaveBeenCalledOnce();
+  });
+  it.each([valid, primary(), valid + '&lang=en'])(
+    'does not scroll or focus during SDK, primary or preference navigation: %s',
+    async (route) => {
+      const ui = liveBrowser(route, {
+        preferences: async () => new Response(JSON.stringify({ locale: 'en' }))
+      });
+      await finishInit();
+      expect(ui.scroll).not.toHaveBeenCalled();
+      expect(ui.focus).not.toHaveBeenCalled();
+    }
+  );
+  it('keeps a single live status immediately after the button and before history, after manual-code details', () => {
+    const html = renderVenuePreview(
+      'mock-liff',
+      { venue: 'tw-location-test', lang: 'zh_TW' },
+      'checkin',
+      true,
+      'tw-location-test'
+    );
+    const markup = html.split('<script')[0]!;
+    expect(markup.match(/role="status"/g)).toHaveLength(1);
+    expect(markup).toContain('h1,p,label,a,summary{overflow-wrap:anywhere}');
+    expect(markup).not.toMatch(/overflow(?:-x)?:(?:hidden|clip)|user-scalable|maximum-scale/);
+    expect(markup).toMatch(
+      /<\/details>\s*<button id="preview-test"[^>]*aria-describedby="preview-status"[^>]*>[\s\S]*?<\/button>\s*<p id="preview-status" role="status" aria-live="polite" aria-atomic="true">/
+    );
+    expect(markup.indexOf('id="preview-status"')).toBeLessThan(
+      markup.indexOf('id="preview-history"')
+    );
+  });
 });
 
 describe('real buildApp venue preview routing', () => {

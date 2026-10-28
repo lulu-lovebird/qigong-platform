@@ -685,6 +685,92 @@ describe('history request discriminator and safe renderer', () => {
   });
 });
 
+// CSS contracts are not evidence of iOS/WKWebView native-picker layout.
+// Real browser bounds and outstanding device checks are recorded in the handoff.
+describe('native month sizing and unchanged filter semantics', () => {
+  it.each(['zh_TW', 'zh_CN', 'en'])(
+    'keeps %s native month input shrinkable, readable and zoomable',
+    (lang) => {
+      const html = htmlFor(base + '?lang=' + lang);
+      const css = /<style>([\s\S]*?)<\/style>/.exec(html)?.[1] ?? '';
+      const rule = (selector: string) =>
+        css
+          .trim()
+          .split('}')
+          .find((block) => block.startsWith(selector + '{'))
+          ?.slice(selector.length + 1);
+      expect(rule('main')).toContain('min-inline-size:0');
+      expect(rule('main')).toContain('inline-size:100%');
+      expect(rule('main')).toContain('max-inline-size:36rem');
+      for (const selector of ['form', 'input,select']) {
+        expect(rule(selector)).toContain('min-inline-size:0');
+        expect(rule(selector)).toContain('inline-size:100%');
+        expect(rule(selector)).toContain('max-inline-size:100%');
+      }
+      expect(rule('input,select')).toContain('min-width:0');
+      expect(rule('input,select')).toContain('padding:.6rem');
+      expect(rule('input[type=month]::-webkit-date-and-time-value')).toContain('min-inline-size:0');
+      expect(rule('input[type=month]::-webkit-datetime-edit')).toContain('min-inline-size:0');
+      expect(rule('h1,p,li,dt,dd,label,button,a,footer')).toContain('overflow-wrap:anywhere');
+      expect(css).toContain('font:20px/1.65');
+      expect(css).toContain('min-height:48px');
+      expect(css).toContain(':focus-visible{outline:3px solid');
+      expect(html).toMatch(/id="history-month" type="month" min="0001-01" max="9999-12"/);
+      expect(html).toContain('name="viewport" content="width=device-width, initial-scale=1"');
+      expect(css).not.toMatch(
+        /overflow(?:-x|-y)?\s*:\s*(?:hidden|clip)|appearance\s*:|zoom\s*:|transform\s*:\s*scale/
+      );
+      expect(html).not.toMatch(/user-scalable|maximum-scale|type="(?:date|number)"/);
+    }
+  );
+  it.each(['0001-01', '9999-12'])(
+    'preserves native boundary month %s in API, canonical URL and language navigation',
+    async (month) => {
+      const route = base + '?month=' + month + '&lang=zh_TW';
+      expect(venueHistoryRequest(route)).toMatchObject({ kind: 'history', entry: { month } });
+      expect(htmlFor(route)).toContain('max="9999-12" value="' + month + '"');
+      const ui = browser(route);
+      await settle();
+      expect(JSON.parse(ui.fetch.mock.calls[0]![1].body)).toEqual({
+        idToken: 'mock-token-memory-only',
+        page: 1,
+        month
+      });
+      ui.get('month').value = month;
+      ui.get('venue').value = 'tw-' + 'x'.repeat(61);
+      await ui.submit();
+      expect(JSON.parse(ui.fetch.mock.calls[1]![1].body)).toEqual({
+        idToken: 'mock-token-memory-only',
+        page: 1,
+        month,
+        venue: 'tw-' + 'x'.repeat(61)
+      });
+      ui.get('language').value = 'en';
+      ui.get('language').onchange?.();
+      await settle();
+      expect(ui.location.replace).toHaveBeenCalledWith(
+        base + '?month=' + month + '&venue=tw-' + 'x'.repeat(61) + '&lang=en'
+      );
+      expect(ui.forbidden).not.toHaveBeenCalled();
+    }
+  );
+  it.each(['0000-01', '10000-01', '2026-00', '2026-13', '2026-1', '2026-01-01'])(
+    'rejects invalid month %s both at routing and programmatic form submission',
+    async (month) => {
+      expect(venueHistoryRequest(base + '?month=' + month)).toEqual({ kind: 'invalid' });
+      const ui = browser(base + '?lang=en');
+      await settle();
+      ui.get('month').value = month;
+      await ui.submit();
+      expect(ui.fetch).toHaveBeenCalledOnce();
+      expect(ui.get('status').textContent).toContain('Invalid query');
+      expect(ui.get('totals').hidden).toBe(true);
+      expect(ui.get('entries').children).toEqual([]);
+      expect(ui.location.replace).not.toHaveBeenCalled();
+    }
+  );
+});
+
 describe('actual inline controller in VM with mocked SDK and fetch', () => {
   it('shows loading, blocks actions, then renders authenticated lifetime totals and local date/timezone', async () => {
     let complete: ((result: MockResponse) => void) | undefined;

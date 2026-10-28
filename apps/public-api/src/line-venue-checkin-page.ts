@@ -103,6 +103,9 @@ const texts = {
     privacy:
       '只有按下按鈕才會請求定位。原始位置僅當次處理，不儲存、不傳送。靜態 NFC／QR／連結可轉傳，來源標記僅供分析，並非防偽或出席證明。',
     button: '確認位置並測試',
+    locatingButton: '定位中…',
+    sendingButton: '送出中…',
+    completedButton: '定位測試完成',
     ready: 'LINE 初始化完成，可開始定位測試；這不是學員資格或場地驗證。',
     loading: '正在初始化 LINE，請稍候。',
     loginError:
@@ -127,6 +130,9 @@ const texts = {
     privacy:
       '只有按下按钮才会请求定位。原始位置仅当次处理，不储存、不传送。静态 NFC／QR／链接可转发，来源标记仅供分析，并非防伪或出席证明。',
     button: '确认位置并测试',
+    locatingButton: '定位中…',
+    sendingButton: '提交中…',
+    completedButton: '定位测试完成',
     ready: 'LINE 初始化完成，可开始定位测试；这不是学员资格或场地验证。',
     loading: '正在初始化 LINE，请稍候。',
     loginError:
@@ -152,6 +158,9 @@ const texts = {
     privacy:
       'Location is requested only when you press the button. Raw location is handled only for this attempt, never stored or sent. Static NFC/QR/links can be forwarded; source is an analytics label, not proof of authenticity or attendance.',
     button: 'Check location and test',
+    locatingButton: 'Locating…',
+    sendingButton: 'Submitting…',
+    completedButton: 'Location test complete',
     ready:
       'LINE initialization completed. You can test location; learner eligibility and venue are not verified.',
     loading: 'Initializing LINE. Please wait.',
@@ -185,6 +194,7 @@ const checkinTexts = {
     privacy:
       '按下按鈕才取得並傳送本次位置供後端驗證；不保存原始 GPS、不寫入網址或紀錄。QR 可轉傳，GPS 不是防偽證明。',
     button: '確認位置並簽到',
+    completedButton: '已簽到',
     ready: 'LINE 初始化完成；後端仍會驗證身份、同意、場地與位置。',
     sending: '正在驗證並記錄出席，請稍候。',
     success: '出席已記錄',
@@ -201,6 +211,7 @@ const checkinTexts = {
     privacy:
       '按下按钮才获取并传送本次位置供后端验证；不保存原始 GPS、不写入网址或日志。QR 可转发，GPS 不是防伪证明。',
     button: '确认位置并签到',
+    completedButton: '已签到',
     ready: 'LINE 初始化完成；后端仍会验证身份、同意、场地与位置。',
     sending: '正在验证并记录出席，请稍候。',
     success: '出席已记录',
@@ -217,6 +228,7 @@ const checkinTexts = {
     privacy:
       'Pressing the button sends this attempt’s location for server validation. Raw GPS is not stored, logged or put in URLs. QR links can be forwarded; GPS is not proof against impersonation.',
     button: 'Confirm location and check in',
+    completedButton: 'Checked in',
     ready: 'LINE initialized. The server still checks identity, consent, venue and location.',
     sending: 'Verifying and recording attendance. Please wait.',
     success: 'Attendance recorded',
@@ -233,6 +245,8 @@ const debugTexts = {
   zh_TW: {
     label: '異地測試，未計入正式出席',
     testOnly: '僅供測試，不計正式出席',
+    completedButton: '測試已完成',
+    unavailableButton: '測試未開放',
     unavailable: '測試簽到尚未開放；此場地必須使用短效測試碼，不能進行普通簽到。',
     help: '僅豁免距離；仍需真實 GPS、身份、同意與開放時段。測試碼限人工輸入，僅當次記憶體使用，不放入網址或儲存。',
     optIn: '使用異地測試',
@@ -242,6 +256,8 @@ const debugTexts = {
   zh_CN: {
     label: '异地测试，未计入正式出席',
     testOnly: '仅供测试，不计正式出席',
+    completedButton: '测试已完成',
+    unavailableButton: '测试未开放',
     unavailable: '测试签到尚未开放；此场地必须使用短效测试码，不能进行普通签到。',
     help: '仅豁免距离；仍需真实 GPS、身份、同意与开放时段。测试码限人工输入，仅当次内存使用，不放入网址或存储。',
     optIn: '使用异地测试',
@@ -251,6 +267,8 @@ const debugTexts = {
   en: {
     label: 'Distance test, excluded from formal attendance',
     testOnly: 'Testing only; excluded from formal attendance',
+    completedButton: 'Test complete',
+    unavailableButton: 'Testing unavailable',
     unavailable:
       'Test check-in is not open. This venue requires a short-lived test code; standard check-in is unavailable.',
     help: 'Only distance is waived. Real GPS, identity, consent and opening hours are still required. Enter the code manually; it stays in request memory only, never in URLs or storage.',
@@ -270,7 +288,7 @@ export const renderVenuePreview = (
   const lang = entry?.lang ?? 'zh_TW';
   const live = mode === 'checkin';
   const debugAvailable = live && debugVenue !== undefined && entry?.venue === debugVenue;
-  const testOnly = entry?.venue === 'tw-location-test';
+  const testOnly = live && entry?.venue === 'tw-location-test';
   const testUnavailable = testOnly && !debugAvailable;
   const d = debugTexts[lang];
   const t = { ...(live ? { ...texts[lang], ...checkinTexts[lang] } : texts[lang]), debug: d };
@@ -282,12 +300,12 @@ export const renderVenuePreview = (
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">
 <title>${t.title}</title><style>
-:root{font:125%/1.65 system-ui,sans-serif;color:#172b24;background:#f3f7f3}*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;padding:1rem}main{max-width:36rem;margin:auto}h1{font-size:1.6rem}p{overflow-wrap:anywhere}.notice{border:3px solid #725000;background:#fff5d6;padding:1rem;font-weight:700}button,a,select{font:inherit;min-height:48px}button,a{display:block;padding:.75rem;margin:1rem 0}button{width:100%;color:white;background:#195941;border:2px solid #195941;border-radius:.5rem}button:disabled{color:#404040;background:#ddd;border-color:#777}a{color:#164b83}select{max-width:100%}:focus-visible{outline:3px solid #ad5100;outline-offset:3px}footer{font-size:.8rem;overflow-wrap:anywhere;margin-top:2rem}
-</style></head><body><main><h1>${t.title}</h1><p class="notice">${t.notice}</p>
-${entry ? `<p>${t.venue}：<strong>${escapeHtml(entry.venue)}</strong></p><p>${t.unknown}</p><p>${t.privacy}</p><label for="preview-language">${t.language}</label><select id="preview-language" disabled>${languageOptions(lang)}</select><button id="preview-test" type="button" disabled>${t.button}</button>` : ''}
-${testOnly ? `<p class="notice">${d.testOnly}</p>${testUnavailable ? `<p>${d.unavailable}</p>` : ''}` : ''}
-${debugAvailable ? `<details${testOnly ? ' open' : ''}><summary>${testOnly ? d.testOnly : d.label}</summary><p>${d.help}</p>${testOnly ? '<input id="preview-debug-enabled" type="checkbox" checked disabled hidden>' : `<label><input id="preview-debug-enabled" type="checkbox">${d.optIn}</label>`}<label for="preview-debug-token">${d.token}</label><input id="preview-debug-token" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="256"></details>` : ''}
-<p id="preview-status" role="status" aria-live="polite" aria-atomic="true">${entry ? t.loading : t.invalid}</p>
+:root{font:125%/1.65 system-ui,sans-serif;color:#172b24;background:#f3f7f3}*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;padding:1rem}main{max-width:36rem;margin:auto}h1{font-size:1.6rem}h1,p,label,a,summary{overflow-wrap:anywhere}.notice{border:3px solid #725000;background:#fff5d6;padding:1rem;font-weight:700}button,a,select{font:inherit;min-height:48px}button,a{display:block;padding:.75rem;margin:1rem 0}button{width:100%;overflow-wrap:anywhere;color:white;background:#195941;border:2px solid #195941;border-radius:.5rem}button:disabled{color:#404040;background:#ddd;border-color:#777}a{color:#164b83}select,input{font:inherit;min-height:48px;min-inline-size:0;max-inline-size:100%}#preview-debug-token{display:block;width:100%}summary{min-height:48px}#preview-status{padding:.75rem;border:2px solid #567365}:focus-visible{outline:3px solid #ad5100;outline-offset:3px}footer{font-size:.8rem;overflow-wrap:anywhere;margin-top:2rem}
+</style></head><body><main><h1>${t.title}</h1><p id="preview-notice" class="notice">${!entry ? t.invalid : testOnly ? d.testOnly : t.notice}</p>
+${entry ? `<p>${t.venue}：<strong>${escapeHtml(entry.venue)}</strong></p><p>${t.unknown}</p><p>${t.privacy}</p><label for="preview-language">${t.language}</label><select id="preview-language" disabled>${languageOptions(lang)}</select>` : ''}
+${debugAvailable ? `<details${testOnly ? ' open' : ''}><summary>${d.token}</summary><p>${d.help}</p>${testOnly ? '<input id="preview-debug-enabled" type="checkbox" checked disabled hidden>' : `<label><input id="preview-debug-enabled" type="checkbox">${d.optIn}</label>`}<label for="preview-debug-token">${d.token}</label><input id="preview-debug-token" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="256"></details>` : ''}
+${entry ? `<button id="preview-test" type="button" aria-busy="false" aria-describedby="preview-status" disabled>${testUnavailable ? d.unavailableButton : t.button}</button>` : ''}
+<p id="preview-status" role="status" aria-live="polite" aria-atomic="true">${entry ? (testUnavailable ? d.unavailable : t.loading) : t.invalid}</p>
 ${live && entry && historyEnabled ? `<a id="preview-history" href="${escapeHtml(historyHref)}" referrerpolicy="no-referrer" hidden>${t.history}</a>` : ''}
 <a href="/line/checkin?lang=${lang}" referrerpolicy="no-referrer">${t.daily}</a>
 <footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer></main>
@@ -297,22 +315,38 @@ ${
 ${lineLoginScript(liffId, lang, canonical, { explicitLocale: entry.explicitLang === false ? null : lang })}
 const previewText=${scriptJson(t)},previewCanonical=${scriptJson(canonical)},previewInitial=${scriptJson(entry)};
 const status=document.getElementById('preview-status'),button=document.getElementById('preview-test'),language=document.getElementById('preview-language');
-let previewReady=false,previewBusy=false,previewCompleted=false;
+let previewReady=false,previewBusy=false,previewCompleted=false,previewLocated=false,previewPhase='',noticeTesting=${testOnly};
+// Only a user-requested result may scroll. Missing/throwing browser APIs must
+// never turn an already validated server success into an error.
+const revealResult=()=>{try{
+  if(typeof status.getBoundingClientRect!=='function'||typeof status.scrollIntoView!=='function')return;
+  const height=globalThis.visualViewport?.height||globalThis.innerHeight;
+  if(!height)return;
+  const rect=status.getBoundingClientRect();
+  if(rect.top>=0&&rect.bottom<=height)return;
+  const reduced=typeof globalThis.matchMedia==='function'&&globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  status.scrollIntoView({block:'nearest',behavior:reduced?'auto':'smooth'});
+}catch{/* Presentation failure must not replace the result. */}};
 ${
   debugAvailable
     ? `const debugToggle=document.getElementById('preview-debug-enabled'),debugInput=document.getElementById('preview-debug-token');
 let debugToken='';
 const clearDebug=(reset=false)=>{debugToken='';debugInput.value='';if(reset)debugToggle.checked=${testOnly ? 'true' : 'false'};};
+debugToggle.onchange=()=>{if(previewBusy||previewCompleted)return;noticeTesting=${testOnly ? 'true' : 'debugToggle.checked'};clearDebug();controls();};
 globalThis.addEventListener?.('pagehide',()=>clearDebug(true));`
     : 'const clearDebug=()=>{};'
 }
-const controls=()=>{button.disabled=${testUnavailable}||previewBusy||!previewReady||previewCompleted;language.disabled=previewBusy||!previewReady;${debugAvailable ? `debugInput.disabled=previewBusy||!previewReady||previewCompleted;debugToggle.disabled=${testOnly}||debugInput.disabled;` : ''}};
+const controls=()=>{button.disabled=${testUnavailable}||previewBusy||!previewReady||previewCompleted;language.disabled=previewBusy||!previewReady;
+button.setAttribute?.('aria-busy',String(previewBusy));
+button.textContent=previewPhase==='locating'?previewText.locatingButton:previewPhase==='sending'?previewText.sendingButton:previewCompleted?(noticeTesting?previewText.debug.completedButton:previewText.completedButton):${testUnavailable}?previewText.debug.unavailableButton:previewLocated?previewText.completedButton:previewText.button;
+document.getElementById('preview-notice').textContent=noticeTesting?previewText.debug.testOnly:previewText.notice;
+${debugAvailable ? `debugInput.disabled=previewBusy||!previewReady||previewCompleted;debugToggle.disabled=${testOnly}||debugInput.disabled;` : ''}};
 const invalidate=()=>{previewReady=false;idToken='';clearDebug(true);status.textContent=previewText.loginError;};
 const currentCredential=()=>{try{const currentToken=liff.getIDToken()||'';if(liff.isLoggedIn()&&currentToken)return currentToken;}catch{/* SDK failure never authorizes a request. */}invalidate();return '';};
 language.onchange=async()=>{
   const next=language.value;
   if(!previewReady||previewBusy||!['zh_TW','zh_CN','en'].includes(next)||next===previewInitial.lang){language.value=previewInitial.lang;return;}
-  previewBusy=true;clearDebug(true);controls();
+  previewBusy=true;clearDebug(true);if(!previewCompleted)noticeTesting=${testOnly};controls();
   let navigating=false;
   try{
     const currentToken=currentCredential();if(!currentToken){language.value=previewInitial.lang;return;}
@@ -329,21 +363,22 @@ lineReady.then(()=>{previewReady=true;controls();status.textContent=${testUnavai
 controls();
 button.onclick=()=>{
   if(${testUnavailable}||!previewReady||previewBusy||previewCompleted||button.disabled)return;
-  if(!currentCredential()){controls();return;}
-  if(!navigator.geolocation){status.textContent=previewText.unsupported;return;}
+  if(!currentCredential()){controls();revealResult();return;}
+  if(!navigator.geolocation){status.textContent=previewText.unsupported;revealResult();return;}
   ${
     debugAvailable
       ? `const testing=${testOnly ? 'true' : 'debugToggle.checked'};debugToken=testing?debugInput.value:'';debugInput.value='';
-  if(testing&&(debugToken.length<32||debugToken.length>256)){clearDebug();status.textContent=previewText.debug.denied;return;}`
+  noticeTesting=testing;
+  if(testing&&(debugToken.length<32||debugToken.length>256)){clearDebug();status.textContent=previewText.debug.denied;controls();revealResult();return;}`
       : 'const testing=false;'
   }
-  previewBusy=true;controls();status.textContent=previewText.locating;
-  const finish=message=>{status.textContent=message;previewBusy=false;clearDebug();controls();};
+  noticeTesting=testing;previewLocated=false;previewBusy=true;previewPhase='locating';controls();status.textContent=previewText.locating;
+  const finish=(message,located=false)=>{status.textContent=message;previewLocated=located;previewBusy=false;previewPhase='';clearDebug();controls();revealResult();};
   try{navigator.geolocation.getCurrentPosition(
     ${
       live
         ? `async position=>{
-      status.textContent=previewText.sending;
+      previewPhase='sending';controls();status.textContent=previewText.sending;
       try {
         const currentToken=currentCredential();if(!currentToken){finish(previewText.loginError);return;}
         const response=await fetch('/api/line/venue-checkin',{
@@ -361,10 +396,10 @@ button.onclick=()=>{
         const time=new Intl.DateTimeFormat(${scriptJson(htmlLocale(lang))},{timeZone:data.venue.timezone,dateStyle:'medium',timeStyle:'short'}).format(new Date(data.checkedInAt));
         status.textContent=(data.isTest===true?previewText.debug.label:previewText.success)+' — '+data.venue.name+' / '+time+' ('+data.venue.timezone+'). '+previewText.daily;
         ${historyEnabled ? "document.getElementById('preview-history').hidden=false;" : ''}
-        clearDebug();previewCompleted=true;previewBusy=false;controls();
+        clearDebug();previewCompleted=true;previewBusy=false;previewPhase='';controls();revealResult();
       }catch{finish(previewText.retry);}
     }`
-        : '()=>finish(previewText.located)'
+        : '()=>finish(previewText.located,true)'
     },
     error=>finish(error.code===1?previewText.denied:error.code===3?previewText.timeout:previewText.unavailable),
     {enableHighAccuracy:false,timeout:10000,maximumAge:0}
