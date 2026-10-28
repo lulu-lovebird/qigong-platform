@@ -95,7 +95,7 @@ describe('server-selected presentation mode and mobile feedback', () => {
       completed: '測試已完成',
       unavailable: '測試未開放',
       code: '短效測試碼',
-      gps: '真實 GPS、身份、同意與開放時段'
+      gps: '真實 GPS、身份、同意與可打卡時段'
     },
     zh_CN: {
       formal: '正式出席签到：提交后由后端验证并记录',
@@ -104,7 +104,7 @@ describe('server-selected presentation mode and mobile feedback', () => {
       completed: '测试已完成',
       unavailable: '测试未开放',
       code: '短效测试码',
-      gps: '真实 GPS、身份、同意与开放时段'
+      gps: '真实 GPS、身份、同意与可打卡时段'
     },
     en: {
       formal: 'Live check-in: the server verifies and records attendance',
@@ -113,7 +113,7 @@ describe('server-selected presentation mode and mobile feedback', () => {
       completed: 'Test complete',
       unavailable: 'Testing unavailable',
       code: 'Short-lived test code',
-      gps: 'Real GPS, identity, consent and opening hours'
+      gps: 'Real GPS, identity, consent and the check-in window'
     }
   };
   const notice = (html: string) => /<p id="preview-notice"[^>]*>([^<]*)<\/p>/.exec(html)?.[1];

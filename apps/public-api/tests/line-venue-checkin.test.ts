@@ -12,6 +12,48 @@ import {
   venuePreviewUrl
 } from '../src/line-venue-checkin-page.js';
 
+describe('live schedule language without public venue metadata', () => {
+  it.each([
+    [
+      'zh_TW',
+      '團練開始前30分鐘開放打卡，結束即停止',
+      '場地時區',
+      '前一天',
+      '實際打卡當下',
+      '目前不在可打卡時段'
+    ],
+    [
+      'zh_CN',
+      '团练开始前30分钟开放打卡，结束即停止',
+      '场地时区',
+      '前一天',
+      '实际打卡当下',
+      '目前不在可打卡时段'
+    ],
+    [
+      'en',
+      'Check-in opens 30 minutes before group practice starts and stops when it ends',
+      'venue’s timezone',
+      'previous day',
+      'actual local check-in date',
+      'Outside the check-in window'
+    ]
+  ] as const)(
+    'renders %s rules separately from any unprovided concrete schedule',
+    (lang, rule, zone, previous, actual, error) => {
+      const html = renderVenuePreview(
+        'mock-liff',
+        { venue: 'tw-taipei-cks', source: 'qr', lang },
+        'checkin'
+      );
+      const markup = html.split('<script')[0]!;
+      for (const text of [rule, zone, previous, actual]) expect(markup).toContain(text);
+      expect(html).toContain(error);
+      expect(markup).not.toMatch(/09:00|08:30|Asia\/Taipei/);
+      expect(html).not.toMatch(/checkin_start|passedTime|session_start/);
+    }
+  );
+});
 const base = '/line/venue-checkin';
 const valid = base + '?venue=tw-tpe-daan&source=qr';
 const primary = (suffix = '/venue-checkin?venue=tw-tpe-daan&source=qr') =>
