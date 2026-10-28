@@ -196,7 +196,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 57→58 chain', () =>
       UPDATE platform.learner_privacy_acceptances SET revoked_at=NULL;
       UPDATE identity.platform_identities SET revoked_at=NULL;
       UPDATE identity.person_interaction_channels SET valid_to=NULL;
-      UPDATE core.practice_fields SET is_active=TRUE,active_time_rules='{"day_of_week":[0,1,2,3,4,5,6],"start_time":"00:00","end_time":"24:00"}';`);
+      UPDATE core.practice_fields SET timezone='Asia/Taipei',is_active=TRUE,active_time_rules='{"day_of_week":[0,1,2,3,4,5,6],"start_time":"00:00","end_time":"24:00"}';`);
     expiresAt = new Date(Date.now() + 3500000).toISOString();
     await owner.query(
       "INSERT INTO platform.venue_debug_config(enabled,expires_at,token_hash,venue_code) VALUES(TRUE,$1,$2,'tw-taipei-cks')",
@@ -287,7 +287,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 57→58 chain', () =>
   it('removes helper default-ACL residue and grants execution only to the two writers', async () => {
     const result =
       await owner.query(`SELECT p.prosecdef,p.proconfig,pg_get_userbyid(p.proowner) AS owner,
-      ARRAY(SELECT r.rolname FROM aclexplode(p.proacl) a JOIN pg_roles r ON r.oid=a.grantee WHERE a.grantee<>p.proowner ORDER BY r.rolname) AS grantees,
+      ARRAY(SELECT r.rolname::text FROM aclexplode(p.proacl) a JOIN pg_roles r ON r.oid=a.grantee WHERE a.grantee<>p.proowner ORDER BY r.rolname) AS grantees,
       EXISTS(SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee=0) AS public
       FROM pg_proc p WHERE p.oid='platform.venue_checkin_window(jsonb,text,timestamptz)'::regprocedure`);
     expect(result.rows[0]).toMatchObject({
@@ -319,6 +319,30 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 57→58 chain', () =>
         message: 'venue_outside_window'
       });
     await schedule(30);
+    await expect(checkin(true, 'tw-taipei-cks', 25, -60)).rejects.toMatchObject({
+      message: 'venue_debug_denied'
+    });
+    await expect(
+      call('SELECT platform.venue_qr_checkin($1,$2,NULL,121)', [subject, 'tw-taipei-cks'])
+    ).rejects.toMatchObject({ message: 'venue_invalid' });
+    await owner.query(
+      'UPDATE platform.learner_privacy_acceptances SET revoked_at=clock_timestamp()'
+    );
+    for (const debug of [false, true])
+      await expect(checkin(debug, 'tw-taipei-cks', 25)).rejects.toMatchObject({
+        code: '42501',
+        message: 'privacy acceptance required'
+      });
+    await owner.query(
+      "UPDATE platform.learner_privacy_acceptances SET revoked_at=NULL; UPDATE identity.person_interaction_channels SET valid_to=clock_timestamp(); UPDATE identity.people SET status='suspended'"
+    );
+    for (const debug of [false, true])
+      await expect(checkin(debug, 'tw-taipei-cks', 25)).rejects.toMatchObject({
+        message: 'venue_identity_denied'
+      });
+    await owner.query(
+      "UPDATE identity.people SET status='active'; UPDATE identity.person_interaction_channels SET valid_to=NULL"
+    );
     for (const debug of [false, true]) {
       expect((await checkin(debug, 'tw-taipei-cks', 25)).rows[0]?.data).toMatchObject({
         replayed: false
@@ -339,7 +363,24 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 57→58 chain', () =>
       await expect(checkin(debug, 'tw-taipei-cks', 25)).rejects.toMatchObject({
         message: 'venue_outside_window'
       });
-    await owner.query("UPDATE core.practice_fields SET timezone='Asia/Taipei'");
+    await owner.query(
+      "TRUNCATE core.field_attendance; UPDATE core.practice_fields SET timezone='Asia/Taipei'"
+    );
+  });
+  it('keeps actual previous-day dates and existing per-person/venue/date/test uniqueness in a synthetic midnight fixture', async () => {
+    const insert = `INSERT INTO core.field_attendance(person_id,field_id,checkin_method,distance_meters,checkin_at,attendance_date,attendance_timezone,is_test,verification_mode)
+      SELECT '20000000-0000-4000-8000-000000000001',id,'qr_gps',0,$1::timestamptz,($1::timestamptz AT TIME ZONE timezone)::date,timezone,$2,CASE WHEN $2 THEN 'distance_debug' ELSE 'standard' END
+      FROM core.practice_fields WHERE code='tw-taipei-cks' AND platform.venue_checkin_window('{"day_of_week":[6],"start_time":"00:15","end_time":"01:00"}',timezone,$1)
+      ON CONFLICT(person_id,field_id,attendance_date,is_test) DO NOTHING RETURNING attendance_date::text`;
+    for (const debug of [false, true]) {
+      expect((await owner.query(insert, ['2026-10-30T15:45:00Z', debug])).rows).toEqual([
+        { attendance_date: '2026-10-30' }
+      ]);
+      expect((await owner.query(insert, ['2026-10-30T15:50:00Z', debug])).rowCount).toBe(0);
+      expect((await owner.query(insert, ['2026-10-30T16:15:00Z', debug])).rows).toEqual([
+        { attendance_date: '2026-10-31' }
+      ]);
+    }
   });
   it('migration keeps configuration operator-only and constrains finite single-venue authority', async () => {
     for (const sql of [
