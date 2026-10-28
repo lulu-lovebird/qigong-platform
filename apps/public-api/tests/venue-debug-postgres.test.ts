@@ -585,6 +585,14 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 56→57 chain', () =>
           }
         });
       try {
+        const page = await app.inject('/line/venue-checkin?venue=' + venueCode + '&lang=zh_TW');
+        expect(page.body).toContain('id="preview-debug-token"');
+        if (venueCode === 'tw-location-test') expect(page.body).toContain('僅供測試，不計正式出席');
+        const otherPage = await app.inject(
+          '/line/venue-checkin?venue=' + venues.find((code) => code !== venueCode)!
+        );
+        expect(otherPage.body).not.toContain('id="preview-debug-token"');
+        for (const value of [fixtureToken, hash, expiresAt]) expect(page.body).not.toContain(value);
         expect(
           await checkStartupReadiness(
             runtime,
@@ -673,6 +681,9 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 56→57 chain', () =>
         try {
           expect((await send()).json()).toMatchObject({ error: 'venue_debug_denied' });
           expect(verified).toHaveBeenCalledTimes(identityCalls);
+          const expiredPage = await app.inject('/line/venue-checkin?venue=' + venueCode);
+          expect(expiredPage.body).not.toContain('id="preview-debug-token"');
+          if (venueCode === 'tw-location-test') expect(expiredPage.body).toContain('尚未開放');
         } finally {
           expiredApiClock.mockRestore();
         }

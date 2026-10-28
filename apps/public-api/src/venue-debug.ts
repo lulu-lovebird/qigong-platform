@@ -5,7 +5,6 @@ export const venueDebugMigrationVersion = '0057_venue_test_scope.sql';
 export type VenueDebugVenueCode = 'tw-location-test' | 'tw-taipei-cks';
 const isDebugVenue = (code: unknown): code is VenueDebugVenueCode =>
   code === 'tw-location-test' || code === 'tw-taipei-cks';
-export const venueDebugVenueCode = 'tw-taipei-cks' as const;
 export const venueDebugLabel = '異地測試，未計入正式出席';
 /** Server-owned, never serialized to pages. DB enablement is separately owner-provisioned. */
 export interface VenueDebugConfig {
