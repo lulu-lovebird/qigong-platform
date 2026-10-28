@@ -88,8 +88,16 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 56→57 chain', () =>
       INSERT INTO core.field_attendance(person_id,field_id,checkin_method,distance_meters,checkin_at,attendance_date,attendance_timezone,is_test,verification_mode)
       SELECT '20000000-0000-4000-8000-000000000001',id,'qr_gps',100000,clock_timestamp(),(clock_timestamp() AT TIME ZONE timezone)::date,timezone,TRUE,'distance_debug' FROM core.practice_fields WHERE code='tw-location-test';`);
     // Existing formal attendance at the test site is preserved, never replayed by normal entry.
-    await owner.query(`INSERT INTO core.field_attendance(person_id,field_id,checkin_method,distance_meters,checkin_at,attendance_date,attendance_timezone)
-      SELECT '20000000-0000-4000-8000-000000000001',id,'qr_gps',0,clock_timestamp(),(clock_timestamp() AT TIME ZONE timezone)::date,timezone FROM core.practice_fields WHERE code='tw-location-test'`);
+    await withRequestContext(
+      owner,
+      'qigong_api_runtime',
+      { requestId: crypto.randomUUID() },
+      (client) =>
+        client.query('SELECT platform.venue_qr_checkin($1,$2,25,121)', [
+          subject,
+          'tw-location-test'
+        ])
+    );
     const functionMetadata = () =>
       owner.query(`SELECT p.oid,p.proowner,p.proacl,p.prosecdef,p.proconfig
       FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -106,6 +114,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 56→57 chain', () =>
     const oldBodies = (await functionBodies()).rows;
     const oldPolicies = (await policies()).rows;
     const oldAudit = (await owner.query('SELECT * FROM audit.events ORDER BY id')).rows;
+    expect(oldAudit.length).toBeGreaterThan(0);
     const oldLedger = (
       await owner.query('SELECT version,checksum FROM schema_migrations ORDER BY version')
     ).rows;
