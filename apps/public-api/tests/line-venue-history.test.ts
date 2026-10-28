@@ -43,6 +43,7 @@ const response = (data: unknown = success(), status = 200) => ({
 type MockResponse = ReturnType<typeof response>;
 type HistoryRequestInit = Omit<RequestInit, 'body'> & { body: string };
 interface NodeStub {
+  readonly tagName: string;
   textContent: string;
   disabled: boolean;
   hidden: boolean;
@@ -52,6 +53,7 @@ interface NodeStub {
   onclick?: () => void;
   onchange?: () => void;
   onsubmit?: (event: { preventDefault: () => void }) => void;
+  appendChild: (child: NodeStub) => NodeStub;
   replaceChildren: (...children: NodeStub[]) => void;
   setAttribute: (key: string, value: string) => void;
 }
@@ -74,15 +76,28 @@ const browser = (
   const forbidden = vi.fn(() => {
     throw new Error('Forbidden storage / logging / GPS / HTML sink');
   });
-  const createNode = (): NodeStub => {
+  const createNode = (tagName = 'div'): NodeStub => {
+    let ownText = '';
     const node: NodeStub = {
-      textContent: '',
+      tagName: tagName.toUpperCase(),
+      get textContent() {
+        return ownText + node.children.map((child) => child.textContent).join('');
+      },
+      set textContent(value: string) {
+        ownText = value;
+        node.children = [];
+      },
       disabled: false,
       hidden: false,
       value: '',
       children: [],
       attributes: {},
+      appendChild: (child) => {
+        node.children.push(child);
+        return child;
+      },
       replaceChildren: (...children) => {
+        ownText = '';
         node.children = children;
       },
       setAttribute: (key, value) => {
@@ -96,12 +111,19 @@ const browser = (
     const key = 'history-' + id;
     const existing = nodes.get(key);
     if (existing) return existing;
-    const node = createNode();
     const tag = new RegExp('<[a-z]+\\b[^>]*\\bid="' + key + '"[^>]*>').exec(html)?.[0] ?? '';
+    if (!tag) throw new Error('Missing real DOM element: ' + key);
+    const node = createNode(/^<([a-z]+)/.exec(tag)?.[1]);
     node.disabled = /\sdisabled(?:\s|>)/.test(tag);
     node.hidden = /\shidden(?:\s|>)/.test(tag);
     node.value = /\bvalue="([^"]*)"/.exec(tag)?.[1] ?? '';
-    if (id === 'language') node.value = /value="([^"]*)"[^>]* selected/.exec(html)?.[1] ?? '';
+    if (node.tagName === 'SELECT') {
+      const options = html.slice(html.indexOf(tag) + tag.length).split('</select>')[0] ?? '';
+      node.value =
+        /value="([^"]*)"[^>]* selected/.exec(options)?.[1] ??
+        /value="([^"]*)"/.exec(options)?.[1] ??
+        '';
+    }
     if (id === 'status')
       node.textContent = /id="history-status"[^>]*>([^<]*)/.exec(html)?.[1] ?? '';
     nodes.set(key, node);
@@ -767,6 +789,388 @@ describe('native month sizing and unchanged filter semantics', () => {
       expect(ui.get('totals').hidden).toBe(true);
       expect(ui.get('entries').children).toEqual([]);
       expect(ui.location.replace).not.toHaveBeenCalled();
+    }
+  );
+});
+
+describe('stamp card truthful display (real renderer and controller)', () => {
+  const manyRows = (n: number) =>
+    Array.from({ length: n }, (_, index) => ({
+      ...row,
+      id: 'synthetic-' + index,
+      checkedInAt: new Date(Date.UTC(2026, 9, 26, 0, index)).toISOString()
+    }));
+  const descendants = (node: NodeStub): NodeStub[] =>
+    node.children.flatMap((child) => [child, ...descendants(child)]);
+  const assertCleared = (ui: ReturnType<typeof browser>) => {
+    expect(ui.get('card').hidden).toBe(true);
+    expect(ui.get('totals').hidden).toBe(true);
+    expect(ui.get('test-label').hidden).toBe(true);
+    expect(ui.get('count').textContent).toBe('');
+    expect(ui.get('days').textContent).toBe('');
+    expect(ui.get('month-count').textContent).toBe('');
+    expect(ui.get('scope').textContent).toBe('');
+    expect(ui.get('sheet').textContent).toBe('');
+    expect(ui.get('entries').children).toEqual([]);
+    expect(ui.get('status').hidden).toBe(false);
+  };
+  it.each([0, 1, 12, 13, 20, 21, 31, 123456789, Number.MAX_SAFE_INTEGER])(
+    'keeps lifetime %s independent of at most 20 actual stickers',
+    async (n) => {
+      const count = Math.min(20, n);
+      const ui = browser(base, {
+        fetch: async () =>
+          response(
+            success({
+              totals: { attendanceCount: n, attendanceDays: n ? 1 : 0, monthCount: count },
+              entries: manyRows(count),
+              hasMore: n > 20
+            })
+          )
+      });
+      assertCleared(ui);
+      await settle();
+      expect(ui.get('card').hidden).toBe(false);
+      expect(ui.get('count').textContent).toBe(String(n));
+      expect(ui.get('days').textContent).toBe(n ? '1' : '0');
+      expect(ui.get('entries').children).toHaveLength(count);
+      expect(ui.get('sheet').textContent).toBe('最近 ' + count + ' 筆 / 貼紙第 1 頁');
+      expect(ui.get('next').disabled).toBe(n <= 20);
+      expect(ui.get('empty').hidden).toBe(count !== 0);
+      for (const item of ui.get('entries').children) {
+        expect(item.tagName).toBe('LI');
+        expect(item.attributes['data-entry-id']).toMatch(/^synthetic-/);
+        expect(item.children[0]?.tagName).toBe('DETAILS');
+        expect(item.children[0]?.children[0]?.tagName).toBe('SUMMARY');
+        expect(item.children[0]?.children[0]?.attributes['aria-label']).toContain('2026-10-26');
+        expect(item.children[0]?.children[0]?.attributes['aria-label']).toContain(
+          'Synthetic venue [tw-test-one]'
+        );
+        expect(item.children[0]?.children[0]?.children[0]?.attributes['aria-hidden']).toBe('true');
+        expect(descendants(item).some((node) => node.tagName === 'IMG')).toBe(false);
+      }
+      expect(ui.fetch).toHaveBeenCalledOnce();
+      expect(ui.forbidden).not.toHaveBeenCalled();
+    }
+  );
+  it('counts two same-date venues as two stickers, but only one attendance day', async () => {
+    const ui = browser(base, {
+      fetch: async () =>
+        response(
+          success({
+            totals: { attendanceCount: 2, attendanceDays: 1, monthCount: 2 },
+            entries: [
+              row,
+              {
+                ...row,
+                id: 'other-venue',
+                venueCode: 'tw-test-two',
+                venueName: 'Other synthetic venue',
+                checkedInAt: '2026-10-26T02:00:00Z'
+              }
+            ]
+          })
+        )
+    });
+    await settle();
+    expect(ui.get('count').textContent).toBe('2');
+    expect(ui.get('days').textContent).toBe('1');
+    expect(ui.get('entries').children).toHaveLength(2);
+    expect(ui.get('entries').children[0]?.attributes['data-entry-id']).toBe('other-venue');
+    expect(ui.get('entries').children[0]?.textContent).toContain(
+      'Other synthetic venue [tw-test-two]'
+    );
+  });
+  it.each([0, 7])(
+    'keeps global 31 for filtered %s without inferring remaining records',
+    async (count) => {
+      const ui = browser(base + '?month=2026-10&venue=tw-test-one', {
+        fetch: async () => response(success({ entries: manyRows(count), hasMore: true }))
+      });
+      await settle();
+      expect(ui.get('count').textContent).toBe('31');
+      expect(ui.get('sheet').textContent).toBe('此篩選已載入 ' + count + ' 筆 / 貼紙第 1 頁');
+      expect(ui.get('scope').textContent).toBe('正式出席 · 2026-10 · tw-test-one');
+      expect(ui.get('month-period').textContent).toBe('2026-10');
+      expect(ui.get('entries').children).toHaveLength(count);
+      expect(ui.get('next').disabled).toBe(false);
+      expect(ui.get('empty').hidden).toBe(count !== 0);
+      if (!count) expect(ui.get('status').textContent).toContain('此篩選與頁次沒有');
+      ui.get('month').value = '2025-01';
+      ui.get('venue').value = 'tw-unsent';
+      expect(ui.get('scope').textContent).toBe('正式出席 · 2026-10 · tw-test-one');
+      expect(ui.get('sheet').textContent).not.toMatch(/24|13|剩|獎勵|缺席/);
+    }
+  );
+  it.each([1, 11])(
+    'paginates 20 to a partial page of %s without synthesizing stamps',
+    async (n) => {
+      const ui = browser(base, {
+        fetch: async (_url, init) => {
+          const page = (JSON.parse(init.body) as { page: number }).page;
+          return response(
+            success({ page, entries: manyRows(page === 1 ? 20 : n), hasMore: page === 1 })
+          );
+        }
+      });
+      await settle();
+      ui.get('next').onclick?.();
+      assertCleared(ui);
+      await settle();
+      expect(ui.get('entries').children).toHaveLength(n);
+      expect(ui.get('count').textContent).toBe('31');
+      expect(ui.get('sheet').textContent).toBe('本頁 ' + n + ' 筆 / 貼紙第 2 頁');
+      expect(ui.get('next').disabled).toBe(true);
+      expect(ui.get('previous').disabled).toBe(false);
+      ui.get('previous').onclick?.();
+      await settle();
+      expect(ui.get('entries').children).toHaveLength(20);
+      expect(ui.fetch).toHaveBeenCalledTimes(3);
+    }
+  );
+  it.each(['test', 'formal', 'month', 'venue', 'next', 'previous'])(
+    'immediately clears all old indicators while %s request is pending',
+    async (action) => {
+      const ui = browser(action === 'previous' ? base + '?page=2' : base, {
+        fetch: async (_url, init) =>
+          response(
+            success({ page: (JSON.parse(init.body) as { page: number }).page, hasMore: true })
+          )
+      });
+      await settle();
+      if (action === 'formal') {
+        ui.fetch.mockResolvedValueOnce(
+          response(
+            success({
+              totals: { attendanceCount: 0, attendanceDays: 0, monthCount: 0 },
+              entries: [{ ...row, isTest: true, verificationMode: 'distance_debug' }]
+            })
+          )
+        );
+        ui.get('view').value = 'test';
+        ui.get('view').onchange?.();
+        await settle();
+        expect(ui.get('card').attributes['data-view']).toBe('test');
+        expect(ui.get('count').textContent).toBe('');
+        expect(ui.get('sheet').textContent).toBe('本頁 1 筆測試，不計正式 / 貼紙第 1 頁');
+      }
+      let complete: ((value: MockResponse) => void) | undefined;
+      ui.fetch.mockImplementationOnce(
+        async () =>
+          new Promise<MockResponse>((resolve) => {
+            complete = resolve;
+          })
+      );
+      if (action === 'test' || action === 'formal') {
+        ui.get('view').value = action;
+        ui.get('view').onchange?.();
+      } else if (action === 'next' || action === 'previous') ui.get(action).onclick?.();
+      else {
+        ui.get(action).value = action === 'month' ? '2026-10' : 'tw-test-one';
+        void ui.submit();
+      }
+      assertCleared(ui);
+      expect(ui.get('main').attributes['aria-busy']).toBe('true');
+      for (const id of ['apply', 'view', 'language', 'month', 'venue', 'next', 'previous'])
+        expect(ui.get(id).disabled).toBe(true);
+      await settle();
+      complete?.(response({}, 503));
+      await settle();
+      assertCleared(ui);
+      expect(ui.get('retry').hidden).toBe(false);
+    }
+  );
+  it.each([401, 403, 503, 'network', 'malformed'])(
+    'clears a previously successful card after %s failure, never displaying fake zero',
+    async (failure) => {
+      const ui = browser();
+      await settle();
+      if (failure === 'network')
+        ui.fetch.mockRejectedValueOnce(new Error('synthetic-network-error'));
+      else
+        ui.fetch.mockResolvedValueOnce(
+          response(
+            failure === 'malformed' ? {} : { error: 'synthetic-denial' },
+            typeof failure === 'number' ? failure : 200
+          )
+        );
+      await ui.submit();
+      assertCleared(ui);
+      expect(ui.get('retry').hidden).toBe(false);
+      expect(ui.get('status').textContent).not.toContain('synthetic-');
+    }
+  );
+  it.each([
+    { hasMore: 1 },
+    { hasMore: 'false' },
+    { entries: [row, row] },
+    { totals: { attendanceCount: 0, attendanceDays: 0, monthCount: 0 } },
+    { totals: { attendanceCount: 1, attendanceDays: 2, monthCount: 1 } },
+    { totals: { attendanceCount: 1, attendanceDays: 1, monthCount: 2 } },
+    { totals: { attendanceCount: Number.MAX_SAFE_INTEGER + 1, attendanceDays: 1, monthCount: 1 } },
+    { entries: [{ ...row, isTest: true, verificationMode: 'distance_debug' }] }
+  ])('rejects forged formal data %#', async (overrides) => {
+    const ui = browser(base, { fetch: async () => response(success(overrides)) });
+    await settle();
+    assertCleared(ui);
+  });
+  it.each([
+    {
+      totals: { attendanceCount: 1, attendanceDays: 0, monthCount: 0 },
+      entries: [{ ...row, isTest: true, verificationMode: 'distance_debug' }]
+    },
+    { entries: [row] },
+    { entries: [{ ...row, isTest: true, verificationMode: 'gps' }] },
+    { entries: [{ ...row, isTest: false, verificationMode: 'distance_debug' }] }
+  ])('rejects forged test data %#', async (overrides) => {
+    const ui = browser();
+    await settle();
+    ui.fetch.mockResolvedValueOnce(
+      response(
+        success({ totals: { attendanceCount: 0, attendanceDays: 0, monthCount: 0 }, ...overrides })
+      )
+    );
+    ui.get('view').value = 'test';
+    ui.get('view').onchange?.();
+    await settle();
+    assertCleared(ui);
+  });
+  it('exposes language save failures even when the success status was hidden and settings are closed', async () => {
+    const ui = browser(base, { preferences: async () => response({}, 503) });
+    await settle();
+    expect(ui.get('status').hidden).toBe(true);
+    ui.get('language').value = 'en';
+    ui.get('language').onchange?.();
+    await settle();
+    expect(ui.get('status').hidden).toBe(false);
+    expect(ui.get('status').textContent).toBe('語言設定失敗，請稍後再試。');
+    expect(ui.get('language').disabled).toBe(false);
+    expect(ui.location.replace).not.toHaveBeenCalled();
+  });
+  it.each([base, base + '?month=2026-10', base + '?venue=tw-test-one', base + '?page=2'])(
+    'only welcomes successful zero lifetime with unfiltered first page: %s',
+    async (route) => {
+      const ui = browser(route, {
+        fetch: async (_url, init) =>
+          response(
+            success({
+              page: (JSON.parse(init.body) as { page: number }).page,
+              totals: { attendanceCount: 0, attendanceDays: 0, monthCount: 0 },
+              entries: []
+            })
+          )
+      });
+      await settle();
+      expect(ui.get('card').hidden).toBe(false);
+      expect(ui.get('count').textContent).toBe('0');
+      expect(ui.get('empty').textContent).toContain(
+        route === base ? '歡迎到場團練' : '此篩選與頁次沒有'
+      );
+    }
+  );
+  it('keeps every shared DOM ID unique and status outside the collapsed settings', () => {
+    const html = htmlFor();
+    for (const id of [
+      'count',
+      'days',
+      'month-count',
+      'month-period',
+      'totals',
+      'entries',
+      'previous',
+      'next',
+      'status',
+      'page',
+      'retry',
+      'language',
+      'view',
+      'month',
+      'venue',
+      'filters',
+      'apply'
+    ]) {
+      expect(html.split('id="history-' + id + '"')).toHaveLength(2);
+    }
+    expect(html.indexOf('id="history-status"')).toBeLessThan(html.indexOf('id="history-settings"'));
+    expect(html).toContain('終身正式出席（所有場地）');
+    expect(htmlFor(base + '?lang=en')).toContain('Lifetime formal attendance (all venues)');
+    expect(htmlFor(base + '?lang=zh_CN')).toContain('终身正式出席（所有场地）');
+  });
+  it('shows true test venue-local date, time and timezone, never a formal zero badge', async () => {
+    const ui = browser();
+    await settle();
+    ui.fetch.mockResolvedValueOnce(
+      response(
+        success({
+          totals: { attendanceCount: 0, attendanceDays: 0, monthCount: 0 },
+          entries: [
+            {
+              ...row,
+              venueLocalDate: '2026-10-25',
+              venueTimezone: 'Pacific/Honolulu',
+              isTest: true,
+              verificationMode: 'distance_debug'
+            }
+          ]
+        })
+      )
+    );
+    ui.get('view').value = 'test';
+    ui.get('view').onchange?.();
+    await settle();
+    expect(ui.get('count').textContent).toBe('');
+    expect(ui.get('entries').children[0]?.textContent).toContain(
+      '2026-10-25 13:30:00 (Pacific/Honolulu)'
+    );
+    expect(
+      ui.get('entries').children[0]?.children[0]?.children[0]?.attributes['aria-label']
+    ).toContain('Synthetic venue [tw-test-one]');
+  });
+  it('rejects a programmatically forged view without silently loading formal data', async () => {
+    const ui = browser();
+    await settle();
+    ui.get('view').value = 'attacker';
+    ui.get('view').onchange?.();
+    assertCleared(ui);
+    expect(ui.fetch).toHaveBeenCalledOnce();
+  });
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'localizes %s card and settings without adding external assets',
+    async (lang) => {
+      const html = htmlFor(base + '?lang=' + lang);
+      const ui = browser(base + '?lang=' + lang);
+      await settle();
+      expect(html).toMatch(/<details class="filters-panel" id="history-settings"><summary>/);
+      expect(html).not.toMatch(/id="history-settings"[^>]* open|<img|<svg|@import|url\(/);
+      expect(html.indexOf('id="history-card"')).toBeLessThan(html.indexOf('id="history-settings"'));
+      expect(html).toContain('grid-template-columns:repeat(4,minmax(0,1fr))');
+      const summary = ui.get('entries').children[0]?.children[0]?.children[0];
+      expect(summary?.attributes['aria-label']).toContain(
+        lang === 'en' ? 'Attendance sticker' : lang === 'zh_CN' ? '出席贴纸' : '出席貼紙'
+      );
+      expect(ui.get('scope').textContent).toContain(
+        lang === 'en' ? 'All months' : lang === 'zh_CN' ? '所有月份' : '所有月份'
+      );
+      ui.fetch.mockResolvedValueOnce(
+        response(
+          success({
+            totals: { attendanceCount: 0, attendanceDays: 0, monthCount: 0 },
+            entries: [{ ...row, isTest: true, verificationMode: 'distance_debug' }]
+          })
+        )
+      );
+      ui.get('view').value = 'test';
+      ui.get('view').onchange?.();
+      await settle();
+      expect(ui.get('card').hidden).toBe(false);
+      expect(ui.get('totals').hidden).toBe(true);
+      expect(ui.get('count').textContent).toBe('');
+      expect(ui.get('sheet').textContent).toContain(
+        lang === 'en' ? 'not formal attendance' : lang === 'zh_CN' ? '不计正式' : '不計正式'
+      );
+      expect(
+        ui.get('entries').children[0]?.children[0]?.children[0]?.attributes['aria-label']
+      ).toContain(lang === 'en' ? 'Test sticker' : lang === 'zh_CN' ? '测试贴纸' : '測試貼紙');
     }
   );
 });
