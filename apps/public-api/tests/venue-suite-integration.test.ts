@@ -118,7 +118,11 @@ const fixture = (version = venueDebugMigrationVersion, capable = true) => {
       return { rows: [{ data: managed.value }] };
     }
     if (sql.includes(' AS ready')) {
-      const functions = values?.[0];
+      const functions =
+        values?.[0] ??
+        (sql.includes('platform.venue_checkin_window(jsonb,text,timestamptz)')
+          ? ['platform.venue_checkin_window(jsonb,text,timestamptz)']
+          : undefined);
       return {
         rows: [
           {
@@ -356,11 +360,12 @@ describe('venue suite through buildApp', () => {
       );
     }
   );
-  it('probes all four independent capabilities on exact 58 without inferring readiness from version', async () => {
+  it('probes all five independent capabilities on exact 58 without inferring readiness from version', async () => {
     const suite = { history: enabled, management: enabled, people: enabled };
     const f = fixture();
     expect(await checkStartupReadiness(f.pool, true, suite, true)).toMatchObject({ ready: true });
     const contracts = [
+      ['window', 'platform.venue_checkin_window(jsonb,text,timestamptz)'],
       ['history', 'platform.venue_personal_history(text,text,text,text,bigint)'],
       ['management', 'admin.venue_management(text,text,uuid,uuid,integer,jsonb,text)'],
       [

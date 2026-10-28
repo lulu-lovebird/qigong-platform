@@ -309,6 +309,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 57→58 chain', () =>
     await expect(
       call("SELECT platform.venue_checkin_window(NULL,'UTC',clock_timestamp())")
     ).rejects.toMatchObject({ code: '42501' });
+    expect(await checkStartupReadiness(runtime, true)).toMatchObject({ ready: true });
     expect(
       await checkStartupReadiness(
         runtime,
@@ -321,6 +322,11 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 57→58 chain', () =>
       'GRANT EXECUTE ON FUNCTION platform.venue_checkin_window(jsonb,text,timestamptz) TO qigong_api_runtime'
     );
     try {
+      expect(await checkStartupReadiness(runtime, true)).toMatchObject({
+        ready: false,
+        reason: 'venue_feature_not_ready',
+        capability: { feature: 'window', ready: false }
+      });
       expect(
         await checkStartupReadiness(
           runtime,

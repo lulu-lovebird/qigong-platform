@@ -43,6 +43,7 @@ import { venueDebugMigrationVersion } from './venue-debug.js';
 import { registerVenueHistoryRoutes } from './venue-history.js';
 import {
   checkVenueFeatureReadiness,
+  checkVenueWindowReadiness,
   validateVenueSuiteConfig,
   venueSuiteMigrationVersion,
   type VenueSuiteConfig,
@@ -276,6 +277,11 @@ export const checkStartupReadiness = async (
   const runtime = await checkApiRuntimePreflight(pool);
   if (!runtime.ready)
     return { ready: false as const, reason: 'runtime_role_misconfigured', runtime };
+  if (venueQrEnabled && status.currentVersion === venueDebugMigrationVersion) {
+    const capability = await checkVenueWindowReadiness(pool);
+    if (!capability.ready)
+      return { ready: false as const, reason: 'venue_feature_not_ready', capability };
+  }
   const capabilities: (VenueSuiteFeature | 'debug')[] = [
     ...enabledFeatures,
     ...(venueDebugEnabled ? ['debug' as const] : [])

@@ -24,7 +24,7 @@ helper `platform.venue_checkin_window(jsonb,text,timestamptz)` 先用場地 time
 
 - 僅 forward 新增 `0058_venue_early_checkin_window.sql`；0001–0057 bytes 不變。registry 沿 filesystem 自動列舉。
 - helper 為 STABLE、SECURITY INVOKER、固定 `search_path=pg_catalog`、純 JSON／zone／instant 計算，無查表、SECURITY DEFINER、新 role 或 read grant。移除 PUBLIC 及 migration owner default ACL 帶入的額外 grantees，僅授 EXECUTE 給 `qigong_venue_qr_writer`／`qigong_venue_debug`（owner 固有權利除外）。只定向修改新 helper ACL，不修改 global default ACL。
-- readiness 以 runtime 查 catalog，驗 helper 的 invoker／search_path、owner 等於既有 platform schema owner、兩 writer execute、無 runtime／worker／其他 grantee／grant option。不給 runtime helper EXECUTE；實際 PG tamper 測試授給 runtime 後 readiness 拒絕，再撤銷。
+- readiness 以 runtime 查 catalog，驗 helper 的 invoker／search_path、owner 等於既有 platform schema owner、兩 writer execute、無 runtime／worker／其他 grantee／grant option。不給 runtime helper EXECUTE；schema58 正常 QR 單獨啟用（無 suite／Debug）亦檢查同一 predicate。實際 PG tamper 測試授給 runtime 後正常與 Debug readiness 皆拒絕，再撤銷；schema57及更早不新增此要求。
 - 兩個入口以固定靜態 CREATE OR REPLACE DDL 重列。source-comparison test 精確比對 schema57 完整尾段，允許的唯一變化就是兩個時段 gate 換 helper；owner、ACL、metadata、proof、context、其他函式 body 一致，沒有 `pg_get_functiondef` 模糊字串重寫。
 - migration **刪除舊 `platform.venue_debug_config` singleton row**，包含非空 enabled 舊配置。原 token fail closed、無 scope 搬移，不建立 secret／enabled rows，不自動延長 expiry。新配置、正式 flags、正式 activation 一律另行核准；本輪沒有 provisioning。
 - test-site normal API／SQL 仍早拒，不因在半徑內或重播而回正式成功。每 token 仍只 scope 單一 test-site 或 CKS；hash、HMAC nonce／issued、canonical ms expiry≤60min、GPS、身份／同意／approval、原 hierarchy guard、原半徑及 contexts 隔離保持。正常入口既有 hierarchy 行為不順手擴 scope。
