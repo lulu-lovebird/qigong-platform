@@ -27,6 +27,9 @@ export const runNotificationWorker = async (
       deliverReviewNotifications,
       createReviewNotificationSender
     } = await import('./review-notifications.js');
+    const { deliverTelegramLearnerReviews } =
+      await import('./telegram-learner-review-notifications.js');
+    const { createTelegramReviewTransport } = await import('./telegram-learner-review.js');
     const {
       createTelegramReminderSender,
       deliverTelegramReminders,
@@ -127,12 +130,34 @@ export const runNotificationWorker = async (
             {
               lane: 'review',
               event: 'review_notifications_processed',
-              run: () =>
-                deliverReviewNotifications(
+              run: async () => {
+                const countOnly = await deliverReviewNotifications(
                   activePool,
                   createReviewNotificationSender(token),
                   deliveryFailure('review')
-                )
+                );
+                // A schema58-compatible feature-off artifact keeps the original
+                // count-only lane without invoking functions not yet migrated.
+                const direct = await withRequestContext(
+                  activePool,
+                  'qigong_worker_runtime',
+                  { requestId: randomUUID() },
+                  (client) =>
+                    client.query<{ ready: boolean }>(
+                      "SELECT to_regprocedure('ops.claim_telegram_learner_reviews(integer)') IS NOT NULL AS ready"
+                    )
+                );
+                return (
+                  countOnly +
+                  (direct.rows[0]?.ready === true
+                    ? await deliverTelegramLearnerReviews(
+                        activePool,
+                        createTelegramReviewTransport(token),
+                        deliveryFailure('review')
+                      )
+                    : 0)
+                );
+              }
             }
           ]
         : []),
