@@ -118,8 +118,9 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE t ops.
  SELECT * INTO t FROM ops.telegram_learner_reviews WHERE id=input_id FOR UPDATE;
  IF NOT FOUND OR t.delivery_state<>'sending' OR t.lease_id IS DISTINCT FROM input_lease OR t.leased_until<=clock_timestamp() OR NOT ops.telegram_learner_review_eligible(t.id) THEN RETURN jsonb_build_object('allowed',FALSE);END IF;
  -- Re-read application and binding immediately before producing any personal data.
+ -- display_name is overwritten by the self-reported form name (0008/0013), not a provider nickname.
  SELECT jsonb_build_object('allowed',TRUE,'recipient',p.telegram_subject,'locale',p.locale,'name',left(a.learner_name,150),
- 'nickname',left(a.display_name,255),'platform',a.platform,'sourceId',a.external_subject_id,
+ 'platform',a.platform,'sourceId',a.external_subject_id,
  'phone',left(a.phone_e164,32),'email',left(a.website_email,254),'region',left(CASE p.locale WHEN 'en' THEN r.name_en ELSE r.name_zh_tw END,150)) INTO result
  FROM identity.onboarding_applications a JOIN core.regions r ON r.id=a.requested_region_id
  JOIN admin.review_notification_preferences p ON p.principal_id=t.principal_id

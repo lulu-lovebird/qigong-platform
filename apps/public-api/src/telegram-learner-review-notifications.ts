@@ -14,7 +14,6 @@ const payloadSchema = z
     recipient: z.string().regex(/^[1-9][0-9]{0,19}$/),
     locale: localeSchema,
     name: z.string().min(1).max(150),
-    nickname: z.string().max(255).nullable(),
     platform: z.enum(['line', 'telegram', 'whatsapp']),
     sourceId: z.string().min(1).max(128),
     phone: z.string().min(1).max(32),
@@ -42,15 +41,15 @@ export const buildTelegramLearnerReviewNotification = (
       ),
       text('Name (self-reported): ', '姓名（自行填寫）：') + field(data.name),
       text(
-        'Source platform nickname (not proof of legal name): ',
-        '來源平台暱稱（非真實姓名證明）：'
-      ) + field(data.nickname ?? ''),
+        'Source platform nickname: not captured / unavailable',
+        '來源平台暱稱：未擷取／無法提供'
+      ),
       data.platform.toUpperCase() +
         text(' verified source system ID: ', ' 已驗證來源系統 ID：') +
         data.sourceId,
       text(
-        'This is the source system identifier, NOT a chosen LINE handle. No other-platform identity has been inferred.',
-        '這是來源系統識別碼，不是自選 LINE 帳號；未推斷其他平台身分。'
+        'Verification identifies the source channel, not a verified person or legal name. This is the source system identifier, NOT a chosen LINE handle. No other-platform identity has been inferred.',
+        '驗證僅識別來源管道，不代表已驗證本人或法定姓名。這是來源系統識別碼，不是自選 LINE 帳號；未推斷其他平台身分。'
       ),
       text('Phone (self-reported): ', '電話（自行填寫）：') + field(data.phone),
       text('Email (self-reported): ', '電子信箱（自行填寫）：') + field(data.email),

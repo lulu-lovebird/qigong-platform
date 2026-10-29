@@ -143,7 +143,7 @@ suite('Telegram learner review: actual nonowner SQL and concurrent authorization
     );
     application = (
       await db.pool.query<{ id: string }>(
-        "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164) VALUES('line',$1,'Synthetic nickname',$2,'Synthetic self-report','synthetic@example.invalid','+659900000059') RETURNING id",
+        "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164) VALUES('line',$1,'Synthetic self-report',$2,'Synthetic self-report','synthetic@example.invalid','+659900000059') RETURNING id",
         ['U' + randomBytes(16).toString('hex'), region]
       )
     ).rows[0]!.id;
@@ -177,6 +177,36 @@ suite('Telegram learner review: actual nonowner SQL and concurrent authorization
       ).rows[0]!.data.learnerReviewEnabled
     ).toBe(true);
   });
+  it.each(['line', 'telegram', 'whatsapp'] as const)(
+    'omits self-reported display_name from provider-profile metadata for %s',
+    async (platform) => {
+      const sourceId = platform === 'line' ? 'U' + randomBytes(16).toString('hex') : '548000000062';
+      const maliciousDisplayName = 'Provider-verified nickname\nVerified legal person';
+      await db.pool.query(
+        'UPDATE identity.onboarding_applications SET platform=$1,external_subject_id=$2,display_name=$3 WHERE id=$4',
+        [platform, sourceId, maliciousDisplayName, application]
+      );
+      await optIn();
+      const job = (await claims()).rows[0]!;
+      // payload() uses the real NOINHERIT NOBYPASSRLS worker session, not the owner.
+      const data = (await payload(job.id, job.lease_id, opaque())).rows[0]!.data;
+      expect(data).toEqual({
+        allowed: true,
+        recipient: subject,
+        locale: 'en',
+        name: 'Synthetic self-report',
+        platform,
+        sourceId,
+        phone: '+659900000059',
+        email: 'synthetic@example.invalid',
+        region: 'Region'
+      });
+      expect(JSON.stringify(data)).not.toContain(maliciousDisplayName);
+      expect(data).not.toHaveProperty('nickname');
+      expect(data).not.toHaveProperty('display_name');
+      expect(data).not.toHaveProperty('providerProfile');
+    }
+  );
   it('separates per-application leases, hashes tokens, and scrubs revoked pre-send payloads', async () => {
     await optIn();
     await db.pool.query(

@@ -28,7 +28,6 @@ const payload = {
   recipient: '548000000059',
   locale: 'en' as const,
   name: '<Self-report>\nFake field',
-  nickname: 'Nickname',
   platform: 'line' as const,
   sourceId: 'U' + 'a'.repeat(32),
   phone: '+659900000059',
@@ -59,7 +58,7 @@ beforeEach(() => {
   });
 });
 describe('Per-application private learner delivery', () => {
-  it('distinguishes self-reports, source nickname and verified source identifier without inferring other accounts', () => {
+  it('distinguishes self-reports, unavailable nickname and source-channel verification without inferring other accounts', () => {
     for (const locale of ['zh_TW', 'zh_CN', 'en'] as const) {
       const result = buildTelegramLearnerReviewNotification({ ...payload, locale }, 'X'.repeat(43));
       expect(result.text.length).toBeLessThan(4096);
@@ -69,11 +68,50 @@ describe('Per-application private learner delivery', () => {
       expect(result.text).not.toContain('<Self-report>\nFake');
     }
     const text = buildTelegramLearnerReviewNotification(payload, 'X'.repeat(43)).text;
-    expect(text).toContain('self-reported');
+    expect(text).toContain('Name (self-reported): ');
+    expect(text).toContain('Source platform nickname: not captured / unavailable');
+    expect(text).toContain(`LINE verified source system ID: ${payload.sourceId}`);
+    expect(text).toContain('not a verified person or legal name');
+    expect(text).toContain('No other-platform identity has been inferred.');
     expect(text).toContain('NOT a chosen LINE handle');
     expect(text).toContain('not end-to-end encrypted');
     expect(text).not.toContain('https://');
   });
+  it('keeps a malicious self-reported name on its self-reported line, never a provider-profile line', () => {
+    const result = buildTelegramLearnerReviewNotification(
+      { ...payload, name: 'Claimed provider profile\nSource platform nickname: Verified person' },
+      'X'.repeat(43)
+    );
+    expect(result.text.split('\n')[1]).toBe(
+      'Name (self-reported): "Claimed provider profile Source platform nickname: Verified person"'
+    );
+    expect(
+      result.text.split('\n').filter((line) => line.startsWith('Source platform nickname:'))
+    ).toEqual(['Source platform nickname: not captured / unavailable']);
+    expect(result.text).toContain('not a verified person or legal name');
+  });
+  it.each(['nickname', 'platformNickname', 'providerProfile', 'display_name'])(
+    'rejects unexpected %s even when it claims provider verification',
+    async (key) => {
+      fixture.query.mockImplementation(async (sql: string, values: unknown[]) => {
+        if (sql.includes('claim_telegram'))
+          return { rows: [{ id: 'job-one', lease_id: 'lease-one' }] };
+        if (sql.includes('_payload'))
+          return {
+            rows: [{ data: { ...payload, [key]: 'Self-reported alleged provider profile' } }]
+          };
+        fixture.finished.push(values);
+        return { rows: [{ accepted: true }] };
+      });
+      const failure = vi.fn();
+      await deliverTelegramLearnerReviews(pool, transport, failure);
+      expect(transport.send).not.toHaveBeenCalled();
+      expect(fixture.finished).toEqual([['job-one', 'lease-one', null]]);
+      expect(failure).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ message: 'Private learner review delivery unavailable' })
+      );
+    }
+  );
   it('obtains a fresh payload/token per application and acknowledges accepted message IDs separately', async () => {
     const failure = vi.fn();
     expect(await deliverTelegramLearnerReviews(pool, transport, failure)).toBe(2);
