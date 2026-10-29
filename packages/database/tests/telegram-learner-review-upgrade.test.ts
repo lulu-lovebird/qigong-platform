@@ -45,10 +45,15 @@ suite('Schema58→59 preservation and tested same-schema count-only fallback', (
       const business = async () =>
         (
           await db.pool.query(
-            "SELECT p.oid::regprocedure::text signature,md5(pg_get_functiondef(p.oid)) definition,p.proowner,p.proacl::text FROM pg_proc p WHERE p.oid IN('identity.decide_application(uuid,text,text)'::regprocedure,'ops.capture_review_notification_event()'::regprocedure) ORDER BY 1"
+            "SELECT p.oid::regprocedure::text signature,md5(pg_get_functiondef(p.oid)) definition,p.proowner,p.proacl::text FROM pg_proc p WHERE p.oid IN('identity.decide_application(uuid,text,text)'::regprocedure,'ops.capture_review_notification_event()'::regprocedure,'platform.submit_line_application(text,text,text,text,text,text)'::regprocedure,'platform.submit_telegram_application(text,text,text,text,text)'::regprocedure,'platform.submit_whatsapp_application(text,text,text,text,text,text,boolean)'::regprocedure) ORDER BY 1"
           )
         ).rows;
       const before = await business();
+      const policies = (await db.pool.query('SELECT * FROM platform.learner_privacy_policies'))
+        .rows;
+      const events = (
+        await db.pool.query('SELECT * FROM ops.review_notification_events ORDER BY id')
+      ).rows;
       const grants = (await db.pool.query('SELECT * FROM admin.role_grants')).rows;
       await db.pool.query(`CREATE ROLE ${aclRole} NOLOGIN NOINHERIT NOBYPASSRLS`);
       aclCreated = true;
@@ -60,10 +65,26 @@ suite('Schema58→59 preservation and tested same-schema count-only fallback', (
       ]);
       expect((await runMigrations(db.pool, directory, 'tgapply-repeat')).applied).toEqual([]);
       expect(await business()).toEqual(before);
+      expect((await db.pool.query('SELECT * FROM platform.learner_privacy_policies')).rows).toEqual(
+        policies
+      );
+      expect(
+        (await db.pool.query('SELECT * FROM platform.learner_privacy_acceptances')).rows
+      ).toEqual([]);
+      expect(
+        (await db.pool.query('SELECT * FROM ops.review_notification_events ORDER BY id')).rows
+      ).toEqual(events);
       expect(
         (
           await db.pool.query(
-            "SELECT p.oid FROM pg_proc p WHERE p.proname LIKE '%telegram_learner_review%' AND has_function_privilege($1,p.oid,'EXECUTE')",
+            'SELECT telegram_review_notice_version FROM identity.onboarding_applications'
+          )
+        ).rows
+      ).toEqual([{ telegram_review_notice_version: null }]);
+      expect(
+        (
+          await db.pool.query(
+            "SELECT p.oid FROM pg_proc p WHERE (p.proname LIKE '%telegram_learner_review%' OR p.proname IN('submit_line_application_v2','submit_telegram_application_v2','submit_whatsapp_application_v2')) AND has_function_privilege($1,p.oid,'EXECUTE')",
             [aclRole]
           )
         ).rows
@@ -121,6 +142,14 @@ suite('Schema58→59 preservation and tested same-schema count-only fallback', (
       await api(
         "SELECT admin.save_telegram_learner_review_preferences(1,true,true,'en',false,true,'telegram-learner-review-v1')"
       );
+      // Opting a reviewer into PII never upgrades the pre-migration application.
+      expect(
+        (await db.pool.query('SELECT * FROM ops.claim_telegram_learner_reviews(5)')).rows
+      ).toEqual([]);
+      await db.pool.query(
+        "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164,telegram_review_notice_version) VALUES('line',$1,'Synthetic new form',$2,'Synthetic new form','new@example.invalid','+659900000060','telegram-learner-review-v1')",
+        ['U' + randomBytes(16).toString('hex'), region]
+      );
       const job = (
         await db.pool.query<{ id: string; lease_id: string }>(
           'SELECT * FROM ops.claim_telegram_learner_reviews(5)'
@@ -165,7 +194,7 @@ suite('Schema58→59 preservation and tested same-schema count-only fallback', (
           [count.id, count.lease_id]
         )
       ).rows[0]!.data;
-      expect(data).toMatchObject({ kind: 'learner', count: 1, allowed: true });
+      expect(data).toMatchObject({ kind: 'learner', count: 2, allowed: true });
       expect(data).not.toHaveProperty('name');
       expect(JSON.stringify(data)).not.toContain('synthetic@example.invalid');
     } finally {

@@ -1,5 +1,49 @@
 -- Learner-only private review. Existing subscriptions remain count-only.
 -- Owners intentionally follow 0032/0014 (migration owner); no runtime table grants.
+-- A protocol ACK from the current verified form submission, NOT proof of reading
+-- or legal consent. Historical applications remain NULL; there is no backfill.
+ALTER TABLE identity.onboarding_applications ADD COLUMN telegram_review_notice_version TEXT
+ CHECK(telegram_review_notice_version IS NULL OR telegram_review_notice_version='telegram-learner-review-v1');
+
+-- Delegate all existing privacy/invitation/token/ownership checks unchanged.
+-- No application ID or principal is accepted; only the successfully submitted
+-- pending application belonging to the verified source receives the receipt.
+CREATE FUNCTION platform.submit_line_application_v2(input_user TEXT,input_token TEXT,input_name TEXT,input_email TEXT,input_phone TEXT,input_region TEXT,input_notice_version TEXT) RETURNS TEXT
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE result TEXT;BEGIN
+ IF input_notice_version IS DISTINCT FROM 'telegram-learner-review-v1' THEN RAISE EXCEPTION 'invalid application notice version';END IF;
+ result:=platform.submit_line_application(input_user,input_token,input_name,input_email,input_phone,input_region);
+ UPDATE identity.onboarding_applications SET telegram_review_notice_version=input_notice_version
+ WHERE result='pending' AND platform='line' AND external_subject_id=input_user AND status='pending'
+ AND learner_name IS NOT NULL AND website_email IS NOT NULL AND phone_e164 IS NOT NULL;
+ IF NOT FOUND THEN RAISE EXCEPTION 'application receipt unavailable';END IF;
+ RETURN result;
+END$$;
+CREATE FUNCTION platform.submit_telegram_application_v2(input_token TEXT,input_name TEXT,input_email TEXT,input_phone TEXT,input_region TEXT,input_notice_version TEXT) RETURNS TEXT
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE result TEXT;target TEXT;BEGIN
+ IF input_notice_version IS DISTINCT FROM 'telegram-learner-review-v1' THEN RAISE EXCEPTION 'invalid application notice version';END IF;
+ result:=platform.submit_telegram_application(input_token,input_name,input_email,input_phone,input_region);
+ -- The delegated function consumed and locked this exact link in this transaction.
+ SELECT telegram_user_id INTO target FROM platform.telegram_application_links
+ WHERE token_hash=public.digest(input_token,'sha256') AND used_at IS NOT NULL;
+ UPDATE identity.onboarding_applications SET telegram_review_notice_version=input_notice_version
+ WHERE result='pending' AND platform='telegram' AND external_subject_id=target AND status='pending'
+ AND learner_name IS NOT NULL AND website_email IS NOT NULL AND phone_e164 IS NOT NULL;
+ IF NOT FOUND THEN RAISE EXCEPTION 'application receipt unavailable';END IF;
+ RETURN result;
+END$$;
+CREATE FUNCTION platform.submit_whatsapp_application_v2(input_token TEXT,input_name TEXT,input_email TEXT,input_phone TEXT,input_region TEXT,input_locale TEXT,input_consent BOOLEAN,input_notice_version TEXT) RETURNS TEXT
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE result TEXT;target TEXT;BEGIN
+ IF input_notice_version IS DISTINCT FROM 'telegram-learner-review-v1' THEN RAISE EXCEPTION 'invalid application notice version';END IF;
+ result:=platform.submit_whatsapp_application(input_token,input_name,input_email,input_phone,input_region,input_locale,input_consent);
+ SELECT subject INTO target FROM platform.whatsapp_links
+ WHERE token_hash=public.digest(input_token,'sha256') AND purpose='apply' AND used_at IS NOT NULL;
+ UPDATE identity.onboarding_applications SET telegram_review_notice_version=input_notice_version
+ WHERE result='pending' AND platform='whatsapp' AND external_subject_id=target AND status='pending'
+ AND learner_name IS NOT NULL AND website_email IS NOT NULL AND phone_e164 IS NOT NULL;
+ IF NOT FOUND THEN RAISE EXCEPTION 'application receipt unavailable';END IF;
+ RETURN result;
+END$$;
+
 ALTER TABLE admin.review_notification_preferences
  ADD COLUMN learner_review_enabled BOOLEAN NOT NULL DEFAULT FALSE,
  ADD COLUMN learner_review_disclosure TEXT;
@@ -44,7 +88,12 @@ LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
  SELECT ops.review_delivery_eligible_58(input_id) AND NOT EXISTS(
  SELECT 1 FROM ops.review_notification_deliveries d JOIN ops.review_notification_events e ON e.id=d.event_id
  JOIN admin.review_notification_preferences p ON p.principal_id=d.principal_id
- WHERE d.id=input_id AND e.kind='learner' AND p.learner_review_enabled)
+ JOIN identity.onboarding_applications a ON a.id=e.target_id
+ WHERE d.id=input_id AND e.kind='learner' AND p.learner_review_enabled
+ AND p.learner_review_disclosure='telegram-learner-review-v1'
+ AND a.telegram_review_notice_version='telegram-learner-review-v1'
+ AND a.status='pending' AND a.requested_region_id=e.region_id
+ AND a.learner_name IS NOT NULL AND a.website_email IS NOT NULL AND a.phone_e164 IS NOT NULL)
 $$;
 
 CREATE TABLE ops.telegram_learner_reviews (
@@ -84,6 +133,7 @@ LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
  JOIN identity.onboarding_applications a ON a.id=t.application_id WHERE t.id=input_id
  AND p.telegram_subject IS NOT NULL AND p.revision=t.preferences_revision AND p.learner_enabled AND p.learner_review_enabled
  AND p.learner_review_disclosure='telegram-learner-review-v1'
+ AND a.telegram_review_notice_version='telegram-learner-review-v1'
  AND a.status='pending' AND a.requested_region_id=t.region_id AND public.digest(to_jsonb(a)::text,'sha256')=t.snapshot
  AND ops.telegram_learner_review_allowed(t.principal_id,a.requested_region_id))
 $$;
@@ -96,7 +146,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$BEGIN
  INSERT INTO ops.telegram_learner_reviews(event_id,principal_id,preferences_revision,application_id,region_id,snapshot)
  SELECT e.id,p.principal_id,p.revision,a.id,a.requested_region_id,public.digest(to_jsonb(a)::text,'sha256')
  FROM ops.review_notification_events e JOIN identity.onboarding_applications a ON a.id=e.target_id CROSS JOIN admin.review_notification_preferences p
- WHERE e.kind='learner' AND a.status='pending' AND a.requested_region_id=e.region_id AND p.telegram_subject IS NOT NULL
+ WHERE e.kind='learner' AND a.telegram_review_notice_version='telegram-learner-review-v1' AND a.status='pending' AND a.requested_region_id=e.region_id AND p.telegram_subject IS NOT NULL
  AND p.learner_enabled AND p.learner_review_enabled AND p.learner_review_disclosure='telegram-learner-review-v1'
  AND a.learner_name IS NOT NULL AND a.website_email IS NOT NULL AND a.phone_e164 IS NOT NULL
  AND ops.telegram_learner_review_allowed(p.principal_id,a.requested_region_id)
@@ -124,7 +174,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE t ops.
  'phone',left(a.phone_e164,32),'email',left(a.website_email,254),'region',left(CASE p.locale WHEN 'en' THEN r.name_en ELSE r.name_zh_tw END,150)) INTO result
  FROM identity.onboarding_applications a JOIN core.regions r ON r.id=a.requested_region_id
  JOIN admin.review_notification_preferences p ON p.principal_id=t.principal_id
- WHERE a.id=t.application_id AND public.digest(to_jsonb(a)::text,'sha256')=t.snapshot AND p.revision=t.preferences_revision;
+ WHERE a.id=t.application_id AND a.telegram_review_notice_version='telegram-learner-review-v1' AND public.digest(to_jsonb(a)::text,'sha256')=t.snapshot AND p.revision=t.preferences_revision;
  IF result IS NULL THEN RETURN jsonb_build_object('allowed',FALSE);END IF;
  UPDATE ops.telegram_learner_reviews SET token_hash=public.digest(input_token,'sha256'),expires_at=clock_timestamp()+INTERVAL '24 hours' WHERE id=t.id;
  RETURN result;
@@ -158,7 +208,7 @@ DECLARE t ops.telegram_learner_reviews;p admin.review_notification_preferences;a
  IF NOT FOUND OR t.delivery_state<>'sent' OR t.message_id IS DISTINCT FROM input_message OR t.expires_at<=clock_timestamp()
  OR t.preferences_revision<>p.revision OR NOT p.learner_enabled OR NOT p.learner_review_enabled OR p.learner_review_disclosure IS DISTINCT FROM 'telegram-learner-review-v1' THEN RETURN jsonb_build_object('state','unavailable');END IF;
  SELECT * INTO a FROM identity.onboarding_applications WHERE id=t.application_id FOR UPDATE;
- IF NOT FOUND OR t.expires_at<=clock_timestamp() OR a.requested_region_id IS DISTINCT FROM t.region_id OR NOT ops.telegram_learner_review_allowed(p.principal_id,a.requested_region_id) THEN RETURN jsonb_build_object('state','unavailable');END IF;
+ IF NOT FOUND OR a.telegram_review_notice_version IS DISTINCT FROM 'telegram-learner-review-v1' OR t.expires_at<=clock_timestamp() OR a.requested_region_id IS DISTINCT FROM t.region_id OR NOT ops.telegram_learner_review_allowed(p.principal_id,a.requested_region_id) THEN RETURN jsonb_build_object('state','unavailable');END IF;
  IF a.status<>'pending' OR public.digest(to_jsonb(a)::text,'sha256')<>t.snapshot THEN
   UPDATE ops.telegram_learner_reviews SET stage='closed',token_hash=NULL,prompt_message_id=NULL,reason=NULL WHERE id=t.id;
   RETURN jsonb_build_object('state','stale','locale',p.locale);
@@ -217,12 +267,15 @@ DO $$DECLARE r RECORD;g RECORD;BEGIN
  FOR r IN SELECT p.oid::regprocedure signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
  WHERE (n.nspname='ops' AND p.proname IN('lock_telegram_learner_review_permissions','telegram_learner_review_allowed','telegram_learner_review_eligible','claim_telegram_learner_reviews','telegram_learner_review_payload','finish_telegram_learner_review','review_delivery_eligible'))
  OR (n.nspname='admin' AND p.proname IN('reset_telegram_learner_review_consent','save_telegram_learner_review_preferences','review_notification_state','review_notification_state_58'))
- OR (n.nspname='platform' AND p.proname IN('telegram_learner_review_action','telegram_learner_review_prompt','telegram_learner_review_reason'))
+ OR (n.nspname='platform' AND p.proname IN('telegram_learner_review_action','telegram_learner_review_prompt','telegram_learner_review_reason','submit_line_application_v2','submit_telegram_application_v2','submit_whatsapp_application_v2'))
  LOOP
   FOR g IN SELECT DISTINCT a.grantee FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid=r.signature::oid AND a.grantee<>p.proowner
   LOOP EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %s',r.signature,CASE WHEN g.grantee=0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(g.grantee)) END);END LOOP;
  END LOOP;
 END$$;
+GRANT EXECUTE ON FUNCTION platform.submit_line_application_v2(TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT),
+ platform.submit_telegram_application_v2(TEXT,TEXT,TEXT,TEXT,TEXT,TEXT),
+ platform.submit_whatsapp_application_v2(TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,BOOLEAN,TEXT) TO qigong_api_runtime;
 GRANT EXECUTE ON FUNCTION admin.review_notification_state(),admin.save_telegram_learner_review_preferences(INTEGER,BOOLEAN,BOOLEAN,TEXT,BOOLEAN,BOOLEAN,TEXT),
  platform.telegram_learner_review_action(TEXT,BIGINT,TEXT,TEXT,TEXT),platform.telegram_learner_review_prompt(TEXT,BIGINT,TEXT,BIGINT),platform.telegram_learner_review_reason(TEXT,BIGINT,TEXT,TEXT) TO qigong_api_runtime;
 GRANT EXECUTE ON FUNCTION ops.claim_telegram_learner_reviews(INTEGER),ops.telegram_learner_review_payload(UUID,UUID,TEXT),ops.finish_telegram_learner_review(UUID,UUID,BIGINT) TO qigong_worker_runtime;

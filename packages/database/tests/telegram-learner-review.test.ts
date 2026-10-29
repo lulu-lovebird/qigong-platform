@@ -143,7 +143,7 @@ suite('Telegram learner review: actual nonowner SQL and concurrent authorization
     );
     application = (
       await db.pool.query<{ id: string }>(
-        "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164) VALUES('line',$1,'Synthetic self-report',$2,'Synthetic self-report','synthetic@example.invalid','+659900000059') RETURNING id",
+        "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164,telegram_review_notice_version) VALUES('line',$1,'Synthetic self-report',$2,'Synthetic self-report','synthetic@example.invalid','+659900000059','telegram-learner-review-v1') RETURNING id",
         ['U' + randomBytes(16).toString('hex'), region]
       )
     ).rows[0]!.id;
@@ -207,10 +207,114 @@ suite('Telegram learner review: actual nonowner SQL and concurrent authorization
       expect(data).not.toHaveProperty('providerProfile');
     }
   );
+  it('keeps undisclosed pending applications count-only after reviewer opt-in and retries without double-counting direct applications', async () => {
+    const old = (
+      await db.pool.query<{ id: string }>(
+        'INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164) SELECT platform,$1,display_name,requested_region_id,learner_name,website_email,phone_e164 FROM identity.onboarding_applications WHERE id=$2 RETURNING id',
+        ['U' + randomBytes(16).toString('hex'), application]
+      )
+    ).rows[0]!.id;
+    await optIn();
+    const direct = (await claims()).rows;
+    expect(direct).toHaveLength(1);
+    await query('SELECT ops.queue_review_notifications(200)', [], null, true);
+    const eligible = (
+      await db.pool.query<{ target_id: string; eligible: boolean }>(
+        'SELECT e.target_id,ops.review_delivery_eligible(d.id) eligible FROM ops.review_notification_deliveries d JOIN ops.review_notification_events e ON e.id=d.event_id'
+      )
+    ).rows;
+    expect(eligible).toEqual(
+      expect.arrayContaining([
+        { target_id: old, eligible: true },
+        { target_id: application, eligible: false }
+      ])
+    );
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await db.pool.query(
+        'UPDATE ops.review_notification_deliveries SET available_at=clock_timestamp()'
+      );
+      const jobs = (
+        await query<{ id: string; lease_id: string }>(
+          'SELECT * FROM ops.claim_review_notifications(5)',
+          [],
+          null,
+          true
+        )
+      ).rows;
+      expect(jobs).toHaveLength(1);
+      const job = jobs[0]!;
+      const data = (
+        await query<{ data: Record<string, unknown> }>(
+          'SELECT ops.review_notification_payload($1,$2) data',
+          [job.id, job.lease_id],
+          null,
+          true
+        )
+      ).rows[0]!.data;
+      expect(data).toMatchObject({ allowed: true, kind: 'learner', count: 1 });
+      expect(Object.keys(data).sort()).toEqual([
+        'allowed',
+        'count',
+        'kind',
+        'locale',
+        'recipient',
+        'region'
+      ]);
+      expect(JSON.stringify(data)).not.toContain('synthetic@example.invalid');
+      await query(
+        'SELECT ops.finish_review_notification($1,$2,false)',
+        [job.id, job.lease_id],
+        null,
+        true
+      );
+      expect((await claims()).rows).toEqual([]);
+    }
+    expect(
+      (await db.pool.query('SELECT application_id FROM ops.telegram_learner_reviews')).rows
+    ).toEqual([{ application_id: application }]);
+    // WebAdmin remains authorized for the old pending application.
+    expect(
+      (
+        await query<{ allowed: boolean }>(
+          'SELECT admin.can_review_application($1) allowed',
+          [region],
+          principal
+        )
+      ).rows[0]!.allowed
+    ).toBe(true);
+  });
+  it('requires the receipt afresh before payloads and callbacks, including a forged matching snapshot', async () => {
+    await optIn();
+    const job = await deliver();
+    await db.pool.query(
+      'UPDATE identity.onboarding_applications SET telegram_review_notice_version=NULL WHERE id=$1',
+      [application]
+    );
+    // Adversarial owner fixture: matching a new hash cannot substitute for a receipt.
+    await db.pool.query(
+      "UPDATE ops.telegram_learner_reviews t SET snapshot=public.digest(to_jsonb(a)::text,'sha256') FROM identity.onboarding_applications a WHERE t.application_id=a.id"
+    );
+    expect((await action(job.token, 'approve')).state).toBe('unavailable');
+    await db.pool.query(
+      "UPDATE ops.telegram_learner_reviews SET delivery_state='sending',lease_id=$1,leased_until=clock_timestamp()+INTERVAL '1 minute' WHERE id=$2",
+      [job.lease_id, job.id]
+    );
+    expect((await payload(job.id, job.lease_id, opaque())).rows[0]!.data).toEqual({
+      allowed: false
+    });
+    expect((await claims()).rows).toEqual([]);
+    expect(
+      (
+        await db.pool.query('SELECT status FROM identity.onboarding_applications WHERE id=$1', [
+          application
+        ])
+      ).rows[0]
+    ).toEqual({ status: 'pending' });
+  });
   it('separates per-application leases, hashes tokens, and scrubs revoked pre-send payloads', async () => {
     await optIn();
     await db.pool.query(
-      'INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164) SELECT platform,$1,display_name,requested_region_id,learner_name,website_email,phone_e164 FROM identity.onboarding_applications WHERE id=$2',
+      'INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164,telegram_review_notice_version) SELECT platform,$1,display_name,requested_region_id,learner_name,website_email,phone_e164,telegram_review_notice_version FROM identity.onboarding_applications WHERE id=$2',
       ['U' + randomBytes(16).toString('hex'), application]
     );
     const jobs = (await claims()).rows;
