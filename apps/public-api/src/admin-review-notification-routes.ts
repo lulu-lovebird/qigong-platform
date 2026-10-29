@@ -140,6 +140,8 @@ export const registerReviewNotificationRoutes = (
             version,
             adminEnabled: z.boolean(),
             learnerEnabled: z.boolean(),
+            learnerReviewEnabled: z.boolean().default(false),
+            learnerReviewDisclosure: z.literal('telegram-learner-review-v1').optional(),
             locale: localeSchema,
             disconnect: z.boolean().default(false)
           })
@@ -147,6 +149,29 @@ export const registerReviewNotificationRoutes = (
           .safeParse(request.body);
         if (!body.success) return reply.code(400).send({ error: 'invalid_notification_request' });
         const v = body.data;
+        if (v.learnerReviewEnabled) {
+          if (
+            !v.learnerEnabled ||
+            v.disconnect ||
+            v.learnerReviewDisclosure !== 'telegram-learner-review-v1'
+          )
+            return reply.code(400).send({ error: 'invalid_notification_request' });
+          return await query(
+            principal,
+            request.id,
+            'SELECT admin.save_telegram_learner_review_preferences($1,$2,$3,$4,$5,$6,$7) data',
+            [
+              v.version,
+              v.adminEnabled,
+              v.learnerEnabled,
+              v.locale,
+              v.disconnect,
+              true,
+              v.learnerReviewDisclosure
+            ]
+          );
+        }
+        // The original signature stays a safe count-only opt-out, including schema58.
         return await query(
           principal,
           request.id,

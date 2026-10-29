@@ -16,6 +16,8 @@ import {
   type ReviewNotification
 } from '../src/review-notifications.js';
 import { renderReviewNotificationPage } from '../src/admin-review-notification-page.js';
+import { deliverTelegramLearnerReviews } from '../src/telegram-learner-review-notifications.js';
+import type { TelegramReviewTransport } from '../src/telegram-learner-review.js';
 const base = process.env.TEST_DATABASE_URL,
   suite = base ? describe : describe.skip,
   directory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../migrations'),
@@ -97,6 +99,11 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
   const subject = '548000000032',
     secret = 'synthetic-review-secret-not-real',
     replies: string[] = [];
+  const reviewTransport: TelegramReviewTransport = {
+    send: vi.fn(async () => 590),
+    edit: vi.fn(async () => {}),
+    answer: vi.fn(async () => {})
+  };
   const post = (path: string, body: Record<string, unknown>, valid = true) =>
     app.inject({
       method: 'POST',
@@ -110,6 +117,7 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
       bound: boolean;
       adminEnabled: boolean;
       learnerEnabled: boolean;
+      learnerReviewEnabled: boolean;
       recipientHint: string;
       pendingCount: number;
     }>();
@@ -145,6 +153,7 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
   };
   beforeEach(async () => {
     replies.length = 0;
+    vi.clearAllMocks();
     cleaners = [];
     db = await createIsolatedTestDatabase(base!);
     const database = db;
@@ -194,6 +203,7 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
         botToken: '123456:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         webhookSecret: secret,
         regionCode: 'tw-general',
+        reviewTransport,
         sendMessage: async (chat, text) => {
           expect(chat).toBe(Number(subject));
           replies.push(text);
@@ -285,6 +295,83 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
       expect(await deliverReviewNotifications(runtime, sender, () => {})).toBe(0);
     }
   );
+  it('requires separate current disclosure consent and performs one real bound callback decision despite an edit failure', async () => {
+    await bind('en');
+    expect((await state()).learnerReviewEnabled).toBe(false);
+    const preferences = {
+      version: (await state()).revision,
+      adminEnabled: true,
+      learnerEnabled: true,
+      locale: 'en',
+      learnerReviewEnabled: true
+    };
+    expect((await post('preferences', preferences)).statusCode).toBe(400);
+    expect(
+      (
+        await post('preferences', {
+          ...preferences,
+          learnerReviewDisclosure: 'telegram-learner-review-v1'
+        })
+      ).statusCode
+    ).toBe(200);
+    expect((await state()).learnerReviewEnabled).toBe(true);
+    await db.pool.query(
+      "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164) VALUES('line',$1,'Synthetic nickname',$2,'Synthetic self-report','synthetic@example.invalid','+659900000059')",
+      ['U' + randomBytes(16).toString('hex'), region]
+    );
+    expect(await deliverTelegramLearnerReviews(runtime, reviewTransport, () => {})).toBe(1);
+    const sent = vi.mocked(reviewTransport.send).mock.calls[0]!;
+    const approve = sent[2]![0]![0]!.callback_data;
+    const press = (data: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/telegram/onboarding/webhook',
+        headers: { 'x-telegram-bot-api-secret-token': secret },
+        payload: {
+          update_id: 590,
+          callback_query: {
+            id: 'synthetic-callback',
+            from: { id: Number(subject), is_bot: false },
+            message: {
+              message_id: 590,
+              date: Math.floor(Date.now() / 1000),
+              from: { id: 123456, is_bot: true },
+              chat: { id: Number(subject), type: 'private' }
+            },
+            data
+          }
+        }
+      });
+    expect((await press(approve)).statusCode).toBe(200);
+    expect((await db.pool.query('SELECT * FROM identity.people')).rowCount).toBe(0);
+    const confirm = vi.mocked(reviewTransport.edit).mock.calls[0]![3][0]![0]!.callback_data;
+    vi.mocked(reviewTransport.edit).mockRejectedValueOnce(Error('Synthetic edit timeout'));
+    expect((await press(confirm)).statusCode).toBe(200);
+    expect((await press(confirm)).statusCode).toBe(200);
+    expect((await db.pool.query('SELECT * FROM identity.people')).rowCount).toBe(1);
+    expect(
+      (await db.pool.query("SELECT * FROM audit.events WHERE action='onboarding.approved'"))
+        .rowCount
+    ).toBe(1);
+    expect((await db.pool.query('SELECT * FROM ops.onboarding_notifications')).rowCount).toBe(1);
+    // Old clients/feature-off save path safely turn direct review off on schema59.
+    expect(
+      (
+        await post('preferences', {
+          version: (await state()).revision,
+          adminEnabled: true,
+          learnerEnabled: true,
+          locale: 'en'
+        })
+      ).statusCode
+    ).toBe(200);
+    expect((await state()).learnerReviewEnabled).toBe(false);
+    expect(await deliverTelegramLearnerReviews(runtime, reviewTransport, () => {})).toBe(0);
+    const page = await app.inject({ url: '/admin/notifications?lang=en', headers: { cookie } });
+    expect(page.headers['content-security-policy']).toContain("default-src 'none'");
+    expect(page.headers['cache-control']).toBe('no-store');
+    expect(page.body).toContain('not end-to-end encrypted');
+  });
   it('disconnects pending alerts and rate-limits tests without changing roles or sessions', async () => {
     const grants = (await db.pool.query('SELECT * FROM admin.role_grants')).rows;
     await bind();

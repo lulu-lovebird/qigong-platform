@@ -51,8 +51,13 @@ const fixture = (locale: AdminLocale, options: { bound?: boolean; failSave?: boo
     };
   const admin = element(),
     learner = element(),
+    direct = element(),
     code = element();
-  get('notify-preferences').elements = { adminEnabled: admin, learnerEnabled: learner };
+  get('notify-preferences').elements = {
+    adminEnabled: admin,
+    learnerEnabled: learner,
+    learnerReviewEnabled: direct
+  };
   get('notify-confirm').elements = { code };
   const buttons = [
     'notify-begin',
@@ -68,6 +73,8 @@ const fixture = (locale: AdminLocale, options: { bound?: boolean; failSave?: boo
     recipientHint: '••••0032',
     adminEnabled: false,
     learnerEnabled: false,
+    learnerReviewEnabled: false,
+    learnerReviewDisclosure: 'telegram-learner-review-v1',
     locale,
     pendingCount: 2,
     unroutedCount: 0,
@@ -91,7 +98,8 @@ const fixture = (locale: AdminLocale, options: { bound?: boolean; failSave?: boo
         revision: current.revision + 1,
         bound: body.disconnect ? false : current.bound,
         adminEnabled: body.adminEnabled === true,
-        learnerEnabled: body.learnerEnabled === true
+        learnerEnabled: body.learnerEnabled === true,
+        learnerReviewEnabled: body.learnerReviewEnabled === true
       };
       return Response.json({ saved: true, revision: current.revision });
     }
@@ -128,7 +136,7 @@ const fixture = (locale: AdminLocale, options: { bound?: boolean; failSave?: boo
     form.onsubmit?.({ target: form, preventDefault: () => {} });
     await tick();
   };
-  return { get, admin, learner, code, fetch, submit, context, html };
+  return { get, admin, learner, direct, code, fetch, submit, context, html };
 };
 const body = (request: RequestInit | undefined): Record<string, unknown> => {
   if (typeof request?.body !== 'string') throw Error('JSON required');
@@ -187,6 +195,26 @@ describe('Reviewer notification page runtime and checkbox layout', () => {
       });
       expect(f.get('notify-test').disabled).toBe(true);
       expect(f.context.locale).toBeUndefined();
+    }
+  );
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'defaults detailed %s consent off and sends the disclosure revision only on explicit selection',
+    async (locale) => {
+      const f = fixture(locale);
+      await tick();
+      expect(f.direct.checked).toBe(false);
+      expect(f.html).not.toContain('name="learnerReviewEnabled" type="checkbox" checked');
+      f.learner.checked = true;
+      f.direct.checked = true;
+      await f.submit('notify-preferences');
+      const saved = f.fetch.mock.calls.find(
+        ([url]) => typeof url === 'string' && url.endsWith('/preferences')
+      );
+      expect(body(saved?.[1])).toMatchObject({
+        learnerReviewEnabled: true,
+        learnerReviewDisclosure: 'telegram-learner-review-v1'
+      });
+      expect(f.direct.checked).toBe(true);
     }
   );
   it('retains both selected choices and shows a failure when the API rejects the save', async () => {
