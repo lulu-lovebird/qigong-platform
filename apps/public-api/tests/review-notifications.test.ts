@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -349,7 +349,7 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
     ).toBe(200);
     expect((await state()).learnerReviewEnabled).toBe(true);
     await db.pool.query(
-      "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164) VALUES('line',$1,'Synthetic nickname',$2,'Synthetic self-report','synthetic@example.invalid','+659900000059')",
+      "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164,telegram_review_notice_version) VALUES('line',$1,'Synthetic nickname',$2,'Synthetic self-report','synthetic@example.invalid','+659900000059','telegram-learner-review-v1')",
       ['U' + randomBytes(16).toString('hex'), region]
     );
     expect(await deliverTelegramLearnerReviews(runtime, reviewTransport, () => {})).toBe(1);
@@ -427,3 +427,340 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
     expect((await app.inject({ url: '/admin/auth/me', headers: { cookie } })).statusCode).toBe(200);
   });
 });
+
+suite(
+  'Application notice receipt: three real HTTP submission paths and old-client compatibility',
+  () => {
+    let db: Awaited<ReturnType<typeof createIsolatedTestDatabase>>;
+    let runtime: Pool;
+    let role: string;
+    let app: FastifyInstance;
+    const noticeVersion = 'telegram-learner-review-v1';
+    const lineSubject = 'U' + 'd'.repeat(32);
+    const numberSubject = '548000000069';
+    const lineSecret = 'synthetic-disclosure-line-secret';
+    const telegramSecret = 'synthetic-disclosure-telegram-secret';
+    const whatsappSecret = 'synthetic-disclosure-whatsapp-secret';
+    const messages: string[] = [];
+    const logs: string[] = [];
+    const channels = ['line', 'telegram', 'whatsapp'] as const;
+    type Channel = (typeof channels)[number];
+    beforeEach(async () => {
+      logs.length = 0;
+      messages.length = 0;
+      db = await createIsolatedTestDatabase(base!);
+      await runMigrations(db.pool, directory, 'disclosure-http');
+      role = 'disclosure_http_' + randomUUID().replaceAll('-', '');
+      await db.pool.query(
+        `CREATE ROLE ${role} LOGIN NOINHERIT NOBYPASSRLS;GRANT qigong_api_runtime TO ${role}`
+      );
+      const url = new URL(db.databaseUrl);
+      url.username = role;
+      runtime = new pg.Pool({ connectionString: url.href });
+      await db.pool.query(
+        "WITH g AS(INSERT INTO core.regions(code,region_type,name_zh_tw,name_en) VALUES('disclosure-http-global','global','全球','Global') RETURNING id),c AS(INSERT INTO core.regions(parent_region_id,code,region_type,name_zh_tw,name_en) SELECT id,'disclosure-http-country','country','國家','Country' FROM g RETURNING id) INSERT INTO core.regions(parent_region_id,code,region_type,name_zh_tw,name_en) SELECT id,'tw-general','operational','台灣','Taiwan' FROM c"
+      );
+      app = buildApp({
+        pool: runtime,
+        logStream: {
+          write: (chunk: string) => {
+            logs.push(chunk);
+          }
+        },
+        line: {
+          channelSecret: lineSecret,
+          channelAccessToken: 'synthetic-line-access',
+          loginChannelId: '123456',
+          liffId: '123456-test',
+          verifyIdToken: async (token) => {
+            if (token === 'verified-disclosure-token') return lineSubject;
+            if (token === 'verified-other-token') return 'U' + 'e'.repeat(32);
+            throw Error('Synthetic invalid provider credential');
+          },
+          reply: async (_token, text) => {
+            messages.push(text);
+          }
+        },
+        telegramOnboarding: {
+          botToken: '123456:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          webhookSecret: telegramSecret,
+          regionCode: 'tw-general',
+          sendMessage: async (_recipient, text) => {
+            messages.push(text);
+          }
+        },
+        whatsapp: {
+          phoneNumberId: '12345',
+          businessAccountId: '67890',
+          appSecret: whatsappSecret,
+          verifyToken: 'synthetic-disclosure-verify',
+          accessToken: 'synthetic-disclosure-access',
+          graphVersion: 'v99.0',
+          sendText: async (_recipient, text) => {
+            messages.push(text);
+          }
+        }
+      });
+    });
+    afterEach(async () => {
+      await app?.close();
+      await runtime?.end();
+      if (role) await db.pool.query(`DROP OWNED BY ${role};DROP ROLE ${role}`);
+      await db?.dispose();
+    });
+    const getLink = async (channel: Channel) => {
+      if (channel === 'line') {
+        const raw = JSON.stringify({
+          events: [
+            {
+              type: 'message',
+              webhookEventId: randomUUID(),
+              replyToken: 'synthetic-reply',
+              source: { type: 'user', userId: lineSubject },
+              message: { type: 'text', text: '加入' }
+            }
+          ]
+        });
+        const response = await app.inject({
+          method: 'POST',
+          url: '/line/webhook',
+          headers: {
+            'content-type': 'application/json',
+            'x-line-signature': createHmac('sha256', lineSecret).update(raw).digest('base64')
+          },
+          payload: raw
+        });
+        expect(response.statusCode).toBe(200);
+      } else if (channel === 'telegram') {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/telegram/onboarding/webhook',
+          headers: { 'x-telegram-bot-api-secret-token': telegramSecret },
+          payload: {
+            update_id: 690,
+            message: {
+              chat: { id: Number(numberSubject), type: 'private' },
+              from: { id: Number(numberSubject), first_name: 'Synthetic source' },
+              text: '/start'
+            }
+          }
+        });
+        expect(response.statusCode).toBe(200);
+      } else {
+        const raw = JSON.stringify({
+          object: 'whatsapp_business_account',
+          entry: [
+            {
+              id: '67890',
+              changes: [
+                {
+                  field: 'messages',
+                  value: {
+                    messaging_product: 'whatsapp',
+                    metadata: { phone_number_id: '12345' },
+                    messages: [
+                      {
+                        id: randomUUID(),
+                        from: numberSubject,
+                        timestamp: String(Math.floor(Date.now() / 1000)),
+                        type: 'text',
+                        text: { body: 'join' }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        });
+        const response = await app.inject({
+          method: 'POST',
+          url: '/whatsapp/webhook',
+          headers: {
+            'content-type': 'application/json',
+            'x-hub-signature-256':
+              'sha256=' + createHmac('sha256', whatsappSecret).update(raw).digest('hex')
+          },
+          payload: raw
+        });
+        expect(response.statusCode).toBe(200);
+      }
+      const token = /\/apply(?:\?lang=(?:zh_TW|zh_CN|en))?#([A-Za-z0-9_-]{43})/.exec(
+        messages.at(-1) ?? ''
+      )?.[1];
+      if (!token) throw Error('Missing synthetic verified application link');
+      return token;
+    };
+    const post = (channel: Channel, payload: Record<string, unknown>, requestOrigin = origin) =>
+      app.inject({
+        method: 'POST',
+        url: `/${channel}/onboarding/apply`,
+        headers: { origin: requestOrigin },
+        payload
+      });
+    const details = (channel: Channel, token: string) => ({
+      token,
+      name: 'Synthetic disclosure learner',
+      email: 'receipt-http@example.invalid',
+      phone: '+659900000069',
+      region: 'tw-general',
+      ...(channel === 'line' ? { idToken: 'verified-disclosure-token' } : {}),
+      ...(channel === 'whatsapp' ? { locale: 'en', notificationConsent: true } : {})
+    });
+    const applications = () =>
+      db.pool.query<{
+        platform: string;
+        external_subject_id: string;
+        status: string;
+        telegram_review_notice_version: string | null;
+      }>(
+        'SELECT platform,external_subject_id,status,telegram_review_notice_version FROM identity.onboarding_applications ORDER BY external_subject_id'
+      );
+    for (const current of [false, true])
+      it.each(channels)(
+        `%s ${current ? 'current-form ACK' : 'old body'} preserves verified source ownership and only marks the submitted application`,
+        async (channel) => {
+          const token = await getLink(channel);
+          const body = {
+            ...details(channel, token),
+            ...(current ? { telegramReviewNoticeVersion: noticeVersion } : {})
+          };
+          for (const version of [
+            null,
+            false,
+            1,
+            'old',
+            'telegram-learner-review-v1 ',
+            'telegram-learner-review-v2'
+          ])
+            expect(
+              (await post(channel, { ...body, telegramReviewNoticeVersion: version })).statusCode
+            ).toBe(400);
+          expect((await post(channel, body, 'https://attacker.example.invalid')).statusCode).toBe(
+            403
+          );
+          expect(
+            (
+              await post(channel, {
+                ...body,
+                token: 'z'.repeat(43),
+                telegramReviewNoticeVersion: noticeVersion
+              })
+            ).statusCode
+          ).toBe(409);
+          if (channel === 'line') {
+            expect(
+              (
+                await post(channel, {
+                  ...body,
+                  idToken: 'unverified',
+                  telegramReviewNoticeVersion: noticeVersion
+                })
+              ).statusCode
+            ).toBe(401);
+            expect(
+              (
+                await post(channel, {
+                  ...body,
+                  idToken: 'verified-other-token',
+                  userId: lineSubject,
+                  telegramReviewNoticeVersion: noticeVersion
+                })
+              ).statusCode
+            ).toBe(409);
+          }
+          expect((await applications()).rows).toEqual([]);
+          // Body-supplied source/principal/application fields never choose the receipt target.
+          const victim = (
+            await db.pool.query<{ id: string }>(
+              "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id) SELECT 'telegram','548000000070','Synthetic other application',id FROM core.regions WHERE code='tw-general' RETURNING id"
+            )
+          ).rows[0]!.id;
+          const response = await post(channel, {
+            ...body,
+            applicationId: victim,
+            principalId: randomUUID(),
+            platform: 'telegram',
+            externalSubjectId: '548000000070',
+            userId: lineSubject
+          });
+          expect(response.statusCode).toBe(200);
+          expect(response.json<unknown>()).toEqual({ status: 'pending' });
+          expect((await post(channel, body)).statusCode).toBe(409);
+          expect((await applications()).rows).toEqual(
+            expect.arrayContaining([
+              {
+                platform: channel,
+                external_subject_id: channel === 'line' ? lineSubject : numberSubject,
+                status: 'pending',
+                telegram_review_notice_version: current ? noticeVersion : null
+              },
+              {
+                platform: 'telegram',
+                external_subject_id: '548000000070',
+                status: 'pending',
+                telegram_review_notice_version: null
+              }
+            ])
+          );
+          expect((await applications()).rowCount).toBe(2);
+          expect(
+            (await db.pool.query('SELECT * FROM platform.learner_privacy_acceptances')).rows
+          ).toEqual([]);
+          expect(
+            (
+              await withRequestContext(
+                runtime,
+                'qigong_api_runtime',
+                { requestId: randomUUID() },
+                (c) =>
+                  c.query<{ current_user: string; session_user: string; bypass: boolean }>(
+                    'SELECT current_user,session_user,(SELECT rolbypassrls FROM pg_roles WHERE rolname=session_user) bypass'
+                  )
+              )
+            ).rows
+          ).toEqual([{ current_user: 'qigong_api_runtime', session_user: role, bypass: false }]);
+          for (const sentinel of [
+            token,
+            body.name,
+            body.email,
+            body.phone,
+            lineSubject,
+            numberSubject,
+            telegramSecret,
+            lineSecret,
+            whatsappSecret
+          ])
+            expect(logs.join('')).not.toContain(sentinel);
+        }
+      );
+    it.each(channels)(
+      '%s commits no application/receipt on SQL failure and logs no private error data',
+      async (channel) => {
+        const token = await getLink(channel);
+        await db.pool.query(
+          "CREATE FUNCTION identity.disclosure_http_fail() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN IF NEW.telegram_review_notice_version IS NOT NULL THEN RAISE EXCEPTION 'Synthetic private receipt failure: % % %',NEW.website_email,NEW.learner_name,NEW.external_subject_id;END IF;RETURN NEW;END$$;CREATE TRIGGER disclosure_http_fail BEFORE UPDATE ON identity.onboarding_applications FOR EACH ROW EXECUTE FUNCTION identity.disclosure_http_fail()"
+        );
+        const body = { ...details(channel, token), telegramReviewNoticeVersion: noticeVersion };
+        expect((await post(channel, body)).statusCode).toBe(503);
+        expect((await applications()).rows).toEqual([]);
+        expect(logs.length).toBeGreaterThan(0);
+        for (const sentinel of [
+          token,
+          body.name,
+          body.email,
+          body.phone,
+          lineSubject,
+          numberSubject,
+          'Synthetic private receipt failure'
+        ])
+          expect(logs.join('')).not.toContain(sentinel);
+        await db.pool.query(
+          'DROP TRIGGER disclosure_http_fail ON identity.onboarding_applications'
+        );
+        expect((await post(channel, body)).statusCode).toBe(200);
+        expect((await applications()).rows[0]?.telegram_review_notice_version).toBe(noticeVersion);
+      }
+    );
+  }
+);

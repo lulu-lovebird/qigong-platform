@@ -54,6 +54,7 @@ const webhookEvent = z.object({
   message: z.object({ type: z.string(), text: z.string().optional() }).optional()
 });
 const details = z.object({
+  telegramReviewNoticeVersion: z.literal('telegram-learner-review-v1').optional(),
   idToken: z.string().min(1).max(4096),
   token,
   name: z.string().trim().min(1).max(150),
@@ -483,14 +484,19 @@ export const registerLineOnboarding = (
         { requestId: request.id },
         (client) =>
           client.query<{ status: string }>(
-            'SELECT platform.submit_line_application($1,$2,$3,$4,$5,$6) AS status',
+            parsed.data.telegramReviewNoticeVersion === undefined
+              ? 'SELECT platform.submit_line_application($1,$2,$3,$4,$5,$6) AS status'
+              : 'SELECT platform.submit_line_application_v2($1,$2,$3,$4,$5,$6,$7) AS status',
             [
               subject,
               parsed.data.token,
               parsed.data.name,
               parsed.data.email,
               parsed.data.phone,
-              parsed.data.region
+              parsed.data.region,
+              ...(parsed.data.telegramReviewNoticeVersion === undefined
+                ? []
+                : [parsed.data.telegramReviewNoticeVersion])
             ]
           )
       );

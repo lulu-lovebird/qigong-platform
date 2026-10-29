@@ -108,6 +108,7 @@ const credentials = z.object({
   locale: localeSchema.default('zh_TW')
 });
 const detailsSchema = credentials.extend({
+  telegramReviewNoticeVersion: z.literal('telegram-learner-review-v1').optional(),
   name: z.string().trim().min(1).max(150),
   email: z.email().max(254),
   phone: z.string().regex(/^\+[1-9][0-9]{6,14}$/),
@@ -439,15 +440,23 @@ export const registerWhatsAppOnboarding = (
     const data = parsed.data;
     try {
       await withRequestContext(pool, 'qigong_api_runtime', { requestId: request.id }, (client) =>
-        client.query('SELECT platform.submit_whatsapp_application($1,$2,$3,$4,$5,$6,$7)', [
-          data.token,
-          data.name,
-          data.email,
-          data.phone,
-          data.region,
-          data.locale,
-          data.notificationConsent
-        ])
+        client.query(
+          data.telegramReviewNoticeVersion === undefined
+            ? 'SELECT platform.submit_whatsapp_application($1,$2,$3,$4,$5,$6,$7)'
+            : 'SELECT platform.submit_whatsapp_application_v2($1,$2,$3,$4,$5,$6,$7,$8)',
+          [
+            data.token,
+            data.name,
+            data.email,
+            data.phone,
+            data.region,
+            data.locale,
+            data.notificationConsent,
+            ...(data.telegramReviewNoticeVersion === undefined
+              ? []
+              : [data.telegramReviewNoticeVersion])
+          ]
+        )
       );
       return { status: 'pending' };
     } catch (error) {

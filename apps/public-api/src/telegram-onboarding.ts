@@ -63,6 +63,7 @@ const telegramUpdate = z.object({
 });
 
 const applicationDetails = z.object({
+  telegramReviewNoticeVersion: z.literal('telegram-learner-review-v1').optional(),
   token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   name: z.string().trim().min(1).max(150),
   email: z.email().max(254),
@@ -499,13 +500,21 @@ export const registerTelegramOnboarding = (
     if (!details.success) return reply.code(400).send({ error: 'invalid_application_details' });
     try {
       await withRequestContext(pool, 'qigong_api_runtime', { requestId: request.id }, (client) =>
-        client.query(`SELECT platform.submit_telegram_application($1, $2, $3, $4, $5)`, [
-          details.data.token,
-          details.data.name,
-          details.data.email,
-          details.data.phone,
-          details.data.region
-        ])
+        client.query(
+          details.data.telegramReviewNoticeVersion === undefined
+            ? 'SELECT platform.submit_telegram_application($1,$2,$3,$4,$5)'
+            : 'SELECT platform.submit_telegram_application_v2($1,$2,$3,$4,$5,$6)',
+          [
+            details.data.token,
+            details.data.name,
+            details.data.email,
+            details.data.phone,
+            details.data.region,
+            ...(details.data.telegramReviewNoticeVersion === undefined
+              ? []
+              : [details.data.telegramReviewNoticeVersion])
+          ]
+        )
       );
       return { status: 'pending' };
     } catch (error) {
