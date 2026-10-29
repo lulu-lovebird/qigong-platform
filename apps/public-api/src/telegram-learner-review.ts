@@ -225,12 +225,26 @@ const reviewView = (state: z.infer<typeof stateSchema>, token: string) => {
   }
 };
 
+// Single-line plain text; do not let self-reported text impersonate field labels.
+export const learnerReviewPlainField = (value: string) =>
+  JSON.stringify(
+    Array.from(value, (character) => {
+      const point = character.codePointAt(0) ?? 0;
+      return point < 32 ||
+        (point >= 127 && point <= 159) ||
+        (point >= 0x202a && point <= 0x202e) ||
+        (point >= 0x2066 && point <= 0x2069)
+        ? ' '
+        : character;
+    }).join('')
+  );
+
 const applicantLabel = (state: z.infer<typeof stateSchema>) =>
   state.applicant
     ? (state.locale === 'en'
         ? 'Self-reported name: '
         : uiText(state.locale ?? 'zh_TW', '自行填寫姓名：')) +
-      state.applicant.name +
+      learnerReviewPlainField(state.applicant.name) +
       '\n' +
       state.applicant.platform.toUpperCase() +
       (state.locale === 'en'

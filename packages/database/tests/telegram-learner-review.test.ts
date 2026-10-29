@@ -318,37 +318,135 @@ suite('Telegram learner review: actual nonowner SQL and concurrent authorization
     expect(['unavailable', 'stale']).toContain((await action(confirm.token, 'confirm')).state);
     expect((await db.pool.query('SELECT * FROM identity.people')).rowCount).toBe(0);
   });
-  it('rechecks revoke and region changes committed while authorization is waiting, not its transaction start', async () => {
-    await optIn();
-    const j = await deliver();
-    const confirm = await action(j.token, 'approve');
-    const blocker = await db.pool.connect();
-    try {
-      await blocker.query('BEGIN');
-      await blocker.query(
-        "UPDATE admin.role_grants SET valid_to=clock_timestamp()-INTERVAL '1 second' WHERE principal_id=$1",
-        [principal]
-      );
-      const decision = action(confirm.token, 'confirm');
-      // Wait for the actual lock waiter, not a scheduling delay.
-      for (let attempt = 0; attempt < 100; attempt++) {
-        const waiting = await blocker.query<{ n: number }>(
-          "SELECT count(*)::integer n FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND pid<>pg_backend_pid()"
-        );
-        if (waiting.rows[0]!.n > 0) break;
-        if (attempt === 99) throw Error('No authorization lock waiter observed');
+  it.each(['grant', 'region', 'expiry'] as const)(
+    'rechecks %s after a real authorization lock wait, not its transaction start',
+    async (change) => {
+      await optIn();
+      const j = await deliver();
+      const confirm = await action(j.token, 'approve');
+      const blocker = await db.pool.connect();
+      try {
+        await blocker.query('BEGIN');
+        if (change === 'grant')
+          await blocker.query(
+            "UPDATE admin.role_grants SET valid_to=clock_timestamp()-INTERVAL '1 second' WHERE principal_id=$1",
+            [principal]
+          );
+        else if (change === 'region')
+          await blocker.query(
+            'UPDATE identity.onboarding_applications SET requested_region_id=$1 WHERE id=$2',
+            [otherRegion, application]
+          );
+        else {
+          await db.pool.query(
+            "UPDATE ops.telegram_learner_reviews SET expires_at=clock_timestamp()+INTERVAL '500 milliseconds'"
+          );
+          await blocker.query(
+            'SELECT id FROM identity.onboarding_applications WHERE id=$1 FOR UPDATE',
+            [application]
+          );
+        }
+        const decision = action(confirm.token, 'confirm');
+        // Wait for the actual lock waiter, not a scheduling delay.
+        for (let attempt = 0; attempt < 100; attempt++) {
+          const waiting = await blocker.query<{ n: number }>(
+            "SELECT count(*)::integer n FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND pid<>pg_backend_pid()"
+          );
+          if (waiting.rows[0]!.n > 0) break;
+          if (attempt === 99) throw Error('No authorization lock waiter observed');
+        }
+        if (change === 'expiry') await blocker.query('SELECT pg_sleep(0.6)');
+        await blocker.query('COMMIT');
+        expect((await decision).state).toBe('unavailable');
+      } finally {
+        await blocker.query('ROLLBACK');
+        blocker.release();
       }
-      await blocker.query(
-        'UPDATE identity.onboarding_applications SET requested_region_id=$1 WHERE id=$2',
-        [otherRegion, application]
-      );
-      await blocker.query('COMMIT');
-      expect((await decision).state).toBe('unavailable');
-    } finally {
-      await blocker.query('ROLLBACK');
-      blocker.release();
+      expect((await db.pool.query('SELECT * FROM identity.people')).rowCount).toBe(0);
     }
-    expect((await db.pool.query('SELECT * FROM identity.people')).rowCount).toBe(0);
+  );
+  it('preserves administrator/test batching while direct learner leases remain per application', async () => {
+    await optIn();
+    await db.pool.query(
+      "INSERT INTO admin.role_grants(principal_id,role_id,scope_type,valid_from,reason) SELECT $1,id,'global',clock_timestamp()-INTERVAL '1 day','Synthetic' FROM admin.roles WHERE code='super_admin'",
+      [principal]
+    );
+    await query(
+      "SELECT admin.save_telegram_learner_review_preferences(4,true,true,'en',false,true,'telegram-learner-review-v1')",
+      [],
+      principal
+    );
+    for (let n = 0; n < 2; n++) {
+      const target = (
+        await db.pool.query<{ id: string }>(
+          "INSERT INTO admin.principals(oidc_issuer,oidc_subject,display_name) VALUES('https://tgapply.example.invalid',$1,'Synthetic pending') RETURNING id",
+          ['pending-' + n]
+        )
+      ).rows[0]!.id;
+      await db.pool.query(
+        "INSERT INTO admin.access_applications(principal_id,status,version,requested_role,scope_description,applicant_reason) VALUES($1,'pending',2,'coach_admin','Synthetic scope','Synthetic reason')",
+        [target]
+      );
+      await db.pool.query(
+        "INSERT INTO ops.review_notification_events(kind,target_id,version) VALUES('test',$1,$2)",
+        [principal, 'test-' + n]
+      );
+    }
+    await query('SELECT ops.queue_review_notifications(200)', [], null, true);
+    await db.pool.query(
+      'UPDATE ops.review_notification_deliveries SET available_at=clock_timestamp()'
+    );
+    const jobs = await query<{ id: string; lease_id: string }>(
+      'SELECT * FROM ops.claim_review_notifications(5)',
+      [],
+      null,
+      true
+    );
+    const messages = [];
+    for (const j of jobs.rows)
+      messages.push(
+        (
+          await query<{ data: { kind: string; count: number } }>(
+            'SELECT ops.review_notification_payload($1,$2) data',
+            [j.id, j.lease_id],
+            null,
+            true
+          )
+        ).rows[0]!.data
+      );
+    expect(messages.map((m) => [m.kind, m.count]).sort()).toEqual([
+      ['admin', 2],
+      ['test', 2]
+    ]);
+    expect((await claims()).rows).toHaveLength(1);
+    expect(
+      (
+        await query<{ data: { unroutedCount: number } }>(
+          'SELECT admin.review_notification_state() data',
+          [],
+          principal
+        )
+      ).rows[0]!.data.unroutedCount
+    ).toBe(0);
+  });
+  it('rotates ambiguous-send tokens on lease recovery and never revives the old message', async () => {
+    await optIn();
+    const j = (await claims()).rows[0]!;
+    const old = opaque();
+    await payload(j.id, j.lease_id, old);
+    await query(
+      'SELECT ops.finish_telegram_learner_review($1,$2,NULL)',
+      [j.id, j.lease_id],
+      null,
+      true
+    );
+    await db.pool.query('UPDATE ops.telegram_learner_reviews SET available_at=clock_timestamp()');
+    const fresh = await deliver(591);
+    expect(fresh.lease_id).not.toBe(j.lease_id);
+    expect((await action(old, 'approve')).state).toBe('unavailable');
+    expect((await action(fresh.token, 'approve', opaque(), subject, 591)).state).toBe(
+      'confirm_approve'
+    );
   });
   it('serializes independent reviewers and lazily clears the other authorized stale message', async () => {
     await optIn();
@@ -417,6 +515,15 @@ suite('Telegram learner review: actual nonowner SQL and concurrent authorization
       query('SELECT ops.telegram_learner_review_allowed($1,$2)', [principal, region])
     ).rejects.toThrow();
     await expect(query('SELECT admin.review_notification_state_58()')).rejects.toThrow();
+    await expect(query('SELECT ops.claim_telegram_learner_reviews(5)')).rejects.toThrow();
+    await expect(
+      query(
+        'SELECT platform.telegram_learner_review_action($1,590,$2,$3,$4)',
+        [subject, opaque(), 'approve', opaque()],
+        null,
+        true
+      )
+    ).rejects.toThrow();
     const publicAcl = await db.pool.query(
       "SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.proname LIKE '%telegram_learner_review%' AND a.grantee=0"
     );

@@ -29,7 +29,12 @@ ALTER FUNCTION admin.review_notification_state() RENAME TO review_notification_s
 CREATE FUNCTION admin.review_notification_state() RETURNS JSONB
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE result JSONB;BEGIN
  result:=admin.review_notification_state_58();RETURN result||
- (SELECT jsonb_build_object('learnerReviewEnabled',learner_review_enabled,'learnerReviewDisclosure','telegram-learner-review-v1') FROM admin.review_notification_preferences WHERE principal_id=admin.review_notification_actor());
+ (SELECT jsonb_build_object('learnerReviewEnabled',p.learner_review_enabled,'learnerReviewDisclosure','telegram-learner-review-v1',
+ 'unroutedCount',(SELECT count(*) FROM ops.review_notification_events e WHERE e.kind<>'test' AND admin.review_notification_can_review(p.principal_id,e.id)
+ AND NOT EXISTS(SELECT 1 FROM ops.review_notification_deliveries d WHERE d.event_id=e.id AND d.status IN('pending','sending','sent') AND ops.review_delivery_eligible(d.id))
+ AND NOT EXISTS(SELECT 1 FROM ops.telegram_learner_reviews t WHERE t.event_id=e.id AND t.delivery_state IN('pending','sending','sent') AND ops.telegram_learner_review_eligible(t.id))),
+ 'failedCount',coalesce((result->>'failedCount')::integer,0)+(SELECT count(*) FROM ops.telegram_learner_reviews t WHERE t.principal_id=p.principal_id AND t.delivery_state='failed' AND ops.telegram_learner_review_eligible(t.id)))
+ FROM admin.review_notification_preferences p WHERE p.principal_id=admin.review_notification_actor());
 END$$;
 
 -- The legacy count lease remains unchanged for count-only learner/admin/test subscriptions.
@@ -152,7 +157,7 @@ DECLARE t ops.telegram_learner_reviews;p admin.review_notification_preferences;a
  IF NOT FOUND OR t.delivery_state<>'sent' OR t.message_id IS DISTINCT FROM input_message OR t.expires_at<=clock_timestamp()
  OR t.preferences_revision<>p.revision OR NOT p.learner_enabled OR NOT p.learner_review_enabled OR p.learner_review_disclosure IS DISTINCT FROM 'telegram-learner-review-v1' THEN RETURN jsonb_build_object('state','unavailable');END IF;
  SELECT * INTO a FROM identity.onboarding_applications WHERE id=t.application_id FOR UPDATE;
- IF NOT FOUND OR a.requested_region_id IS DISTINCT FROM t.region_id OR NOT ops.telegram_learner_review_allowed(p.principal_id,a.requested_region_id) THEN RETURN jsonb_build_object('state','unavailable');END IF;
+ IF NOT FOUND OR t.expires_at<=clock_timestamp() OR a.requested_region_id IS DISTINCT FROM t.region_id OR NOT ops.telegram_learner_review_allowed(p.principal_id,a.requested_region_id) THEN RETURN jsonb_build_object('state','unavailable');END IF;
  IF a.status<>'pending' OR public.digest(to_jsonb(a)::text,'sha256')<>t.snapshot THEN
   UPDATE ops.telegram_learner_reviews SET stage='closed',token_hash=NULL,prompt_message_id=NULL,reason=NULL WHERE id=t.id;
   RETURN jsonb_build_object('state','stale','locale',p.locale);
@@ -196,7 +201,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE t ops.
  SELECT * INTO t FROM ops.telegram_learner_reviews WHERE principal_id=p.principal_id AND prompt_message_id=input_prompt AND stage='input' FOR UPDATE;
  IF NOT FOUND OR t.expires_at<=clock_timestamp() THEN RETURN jsonb_build_object('state','unavailable');END IF;
  SELECT * INTO a FROM identity.onboarding_applications WHERE id=t.application_id FOR SHARE;
- IF NOT FOUND OR NOT ops.telegram_learner_review_eligible(t.id) THEN RETURN jsonb_build_object('state','unavailable');END IF;
+ IF NOT FOUND OR t.expires_at<=clock_timestamp() OR NOT ops.telegram_learner_review_eligible(t.id) THEN RETURN jsonb_build_object('state','unavailable');END IF;
  UPDATE ops.telegram_learner_reviews SET stage='confirm_deny',reason=btrim(input_reason),prompt_message_id=NULL,token_hash=public.digest(input_next_token,'sha256') WHERE id=t.id;
  RETURN jsonb_build_object('state','confirm_deny','locale',p.locale,'reason',btrim(input_reason),'messageId',t.message_id,'applicant',jsonb_build_object('name',left(a.learner_name,150),'platform',a.platform,'sourceId',left(a.external_subject_id,128)));
 END$$;

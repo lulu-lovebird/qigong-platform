@@ -2,7 +2,11 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
 import { localeSchema, uiText } from './ui-localization.js';
-import { learnerReviewCallback, type TelegramReviewTransport } from './telegram-learner-review.js';
+import {
+  learnerReviewCallback,
+  learnerReviewPlainField as field,
+  type TelegramReviewTransport
+} from './telegram-learner-review.js';
 
 const payloadSchema = z
   .object({
@@ -24,19 +28,6 @@ const payloadSchema = z
       : /^[1-9][0-9]{0,19}$/.test(value.sourceId)
   );
 export type TelegramLearnerReviewNotification = z.infer<typeof payloadSchema>;
-// Single-line plain text; do not let self-reported text impersonate field labels.
-const field = (value: string) =>
-  JSON.stringify(
-    Array.from(value, (character) => {
-      const point = character.codePointAt(0) ?? 0;
-      return point < 32 ||
-        (point >= 127 && point <= 159) ||
-        (point >= 0x202a && point <= 0x202e) ||
-        (point >= 0x2066 && point <= 0x2069)
-        ? ' '
-        : character;
-    }).join('')
-  );
 export const buildTelegramLearnerReviewNotification = (
   data: TelegramLearnerReviewNotification,
   token: string
