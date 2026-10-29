@@ -135,7 +135,8 @@ function venueManagementController(locale: AdminLocale) {
       throw new Error('連線中斷，結果未確認；請重新載入查核後再操作。');
     });
     if (!response.ok) {
-      clearQr();
+      // QR owns its sequence-scoped cleanup and status; stale failures must not reset a newer QR.
+      if (action !== 'qr') clearQr();
       if (action === 'update' && response.status === 409) requiresReload = true;
       if (response.status === 401) {
         sessionExpired = true;

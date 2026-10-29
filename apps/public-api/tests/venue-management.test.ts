@@ -503,9 +503,14 @@ describe('venue management browser controller (in-memory transport, not DB evide
     expect(b.get('vm-sign').textContent).toBe('');
     expect(b.get('vm-sign').hidden).toBe(true);
   });
-  it.each([401, 403, 404, 503])(
+  it.each([
+    [401, '登入失效'],
+    [403, '區域、管理權限或 CSRF 驗證失敗'],
+    [404, '場地／後端尚未提供'],
+    [503, '場地後端尚未設定或暫時無法使用']
+  ] as const)(
     'QR HTTP %s failure clears prior image and never permits stale print',
-    async (status) => {
+    async (status, message) => {
       const b = browser();
       await openSaved(b);
       await b.get('vm-qr').event('click');
@@ -520,9 +525,53 @@ describe('venue management browser controller (in-memory transport, not DB evide
       expect(b.get('vm-print').disabled).toBe(true);
       await b.get('vm-print').event('click');
       expect(b.print).not.toHaveBeenCalled();
+      expect(b.get('vm-qr-status').textContent).toContain('QR 未就緒');
+      expect(b.get('vm-qr-status').textContent).toContain(message);
       if (status === 401) expect(b.get('vm-qr').disabled).toBe(true);
     }
   );
+  it('ignores a stale scoped HTTP failure without resetting a newer loaded QR', async () => {
+    const second = {
+      ...row,
+      id: secondRegion.id,
+      code: 'tw-second-park',
+      name_zh_tw: 'Second synthetic park',
+      urls: venueManagementUrls('tw-second-park', origin)
+    };
+    const b = browser();
+    await b.ready;
+    b.transport.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ fields: [row, second] })
+    });
+    await b.get('vm-load').event('click');
+    const buttons = all(b.get('vm-list')).filter((e) => e.tag === 'button');
+    await buttons[0]!.event('click');
+    let respond: ((value: Awaited<ReturnType<typeof b.transport>>) => void) | undefined;
+    b.transport.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          respond = resolve;
+        })
+    );
+    await b.get('vm-qr').event('click');
+    await buttons[1]!.event('click');
+    b.transport.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => qrResponse(second)
+    });
+    await b.get('vm-qr').event('click');
+    expect(b.get('vm-print').disabled).toBe(false);
+    respond!({ ok: false, status: 403, json: async () => ({ error: 'forbidden' }) });
+    await b.get('vm-print').event('click');
+    expect(b.get('vm-sign').textContent).toContain(second.name_zh_tw);
+    expect(b.get('vm-sign').textContent).toContain(second.urls.qr);
+    expect(b.get('vm-print').disabled).toBe(false);
+    expect(b.get('vm-download').disabled).toBe(false);
+    expect(b.print).toHaveBeenCalledOnce();
+  });
   it('prints only saved metadata despite edited drafts, with early30, disabled notice, previous-day wrap and 24:00', async () => {
     const saved = {
       ...row,

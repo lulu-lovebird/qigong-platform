@@ -189,6 +189,28 @@ describe('QR route uses existing fresh authenticated read transaction (synthetic
       await f.app.close();
     }
   });
+  it('preserves existing list query compatibility without accepting query authority', async () => {
+    const f = fixture();
+    const encode = vi.spyOn(encoder, 'encodeVenueQr');
+    try {
+      const response = await f.app.inject({
+        method: 'POST',
+        url: '/admin/api/venue-management/list?regionId=' + other,
+        headers: { origin: adminOrigin },
+        payload: { regionId: id }
+      });
+      expect(response.statusCode).toBe(200);
+      expect(f.query.mock.calls.filter(([sql]) => sql.includes('venue_management('))).toEqual([
+        [
+          'SELECT admin.venue_management($1,$2,$3,$4,$5,$6,$7) data',
+          [f.state.session, 'list', id, null, null, null, null]
+        ]
+      ]);
+      expect(encode).not.toHaveBeenCalled();
+    } finally {
+      await f.app.close();
+    }
+  });
   it('sanitizes encoder failure instead of returning internals', async () => {
     const f = fixture();
     vi.spyOn(encoder, 'encodeVenueQr').mockRejectedValue(

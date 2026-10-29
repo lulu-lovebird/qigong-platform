@@ -109,7 +109,7 @@ export const registerVenueManagementRoutes = (
       // Strict input prevents client action/principal/version ambiguity.
       if (
         !action.success ||
-        !z.object({}).strict().safeParse(request.query).success ||
+        (action.data.action === 'qr' && !z.object({}).strict().safeParse(request.query).success) ||
         typeof request.body !== 'object' ||
         request.body === null ||
         Array.isArray(request.body) ||
