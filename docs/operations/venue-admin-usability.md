@@ -1,5 +1,7 @@
 # 團練場後台可用性補齊（本地交接）
 
+> 下文「非 QR 圖片」文字牌與開關狀態是來源分支的歷史交接，不是現行功能或部署狀態。現行後台 QR 預覽、PNG 下載及 A4 列印流程以 [場地設定操作文件](venue-management-settings.md) 為準；實際是否上線仍須查看發行驗證紀錄。
+
 此文件保留來源分支的歷史結果；本地整合版最新 SHA／55-chain／correlation 與驗證數字見 [venue-debug-admin-integration.md](venue-debug-admin-integration.md)。
 
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。

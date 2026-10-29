@@ -1,9 +1,30 @@
 # 團練場場地設定與 NFC／QR URL 管理（0053）
 
-> 本次地區選單變更基於 `origin/main@9cfe372054e53d9d33fdce22cf952ac128bb09bb`，只在本地開發／提交，**未部署、未 push、未建立遠端 PR**。下方「本次地區選單」為目前契約；再下方保留原 standalone 分支的歷史紀錄，舊 52／54-chain、「未接線」及舊失敗數字不是本次結果。
+> **目前 QR 圖片契約見下方「本次 QR 圖片」**；後續地區選單及 standalone 章節保留原交付歷史，舊「沒有 QR 圖片／未接線／失敗數字」不是本次結果。
+>
+> 原地區選單變更基於 `origin/main@9cfe372054e53d9d33fdce22cf952ac128bb09bb`，只在本地開發／提交，**未部署、未 push、未建立遠端 PR**。下方「本次地區選單」為目前契約；再下方保留原 standalone 分支的歷史紀錄，舊 52／54-chain、「未接線」及舊失敗數字不是本次結果。
 
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
+
+## 本次 QR 圖片（2026-10-29）
+
+- 精確基底 `40fc26fea98f252786c80e15f52a8fb010e3d304`（schema 58、提前 30 分鐘規則、歷史集點卡）。本次只新增本地 QR 圖片及 WebAdmin UI；沒有 SQL、migration、角色／權限、runtime check-in flag 或 LINE／LIFF 設定變更，沒有 push／merge／部署。
+- 已取得新增依賴批准：runtime `qrcode@1.5.4`、dev `@types/qrcode@1.5.6` 及 lockfile。純本地編碼，不呼叫第三方 QR 服務；沒有 SVG 或任意 URL 編碼 endpoint。
+- `POST /admin/api/venue-management/qr` 僅收 `{regionId,id}`，嚴格拒絕 query、額外 body 欄位、action、principal、URL／target。沿用唯一 session／CSRF cookies、header、exact trusted admin Origin、same-origin Fetch Metadata guards；每次先以原 `runVenueManagement` 的 `get` 重新驗證 session、讀取權限、scope 及場地，再編碼。具既有讀取權限的 regional viewer 可用，不授予 manage 權限。沿用原 get 的 `venue.management.read` audit（metadata operation=get），沒有新增 write action，也不修改場地或出席。
+- 成功回傳 `{field:row+urls,target,pngDataUrl,filename}`。`target` **完全等於**既有 `venueManagementUrls(savedCode, configuredPublicOrigin).qr`，即 `https://<trusted-origin>/venue-checkin?venue=<saved-code>&source=qr`；不從 Host／forwarded／caller URL 取值。PNG 為 768px、黑白、Q error correction、四個 module 白色 quiet zone；target／data URL 有長度上限，檔名固定 `venue-<saved-code>-qr.png`。list／capabilities 不產生圖片，編碼失敗回通用 503，不回傳內部錯誤。
+- 操作：選取**已儲存**場地 →「產生選取場地 QR」→ 實際圖片載入並解碼成功後，才啟用「下載 QR PNG」與「列印 A4 QR 場地牌」。預覽及牌面使用儲存快照，未儲存的名稱／時段／半徑不會混入。改選、篩選、重新載入、授權目錄重試、新增／更新均清除圖片；key 包含 region／id／version／code／target，sequence guard 丟棄過期 HTTP／image／decode 結果。
+- A4 瀏覽器列印使用實際 QR，顯示名稱、code、時區、團練、提前 30 分鐘打卡時段（含前一天／週日換週與 24:00）、半徑、啟停狀態、精確來源網址及 BBB 公司署名。停用場地可產生，但牌面明示「不能簽到」。只列印牌面，不列印表單、導覽或操作按鈕；QR 不含 logo。
+- 只為 `/admin/venue-management` 的既有 CSP 加入 `img-src data:`；其餘指令及其他 admin 頁面保持原狀。前端使用 createElement／textContent、限長 PNG base64 檢查及 exact target 比對，不插入 API innerHTML。
+- **掃描仍先進入既有公開 landing，再點 LINE 繼續登入／定位**。產生 QR 不代表出席成功、不會開啟簽到 flag，也不宣稱修復外部 Safari／真 iOS 登入。
+
+### 本次驗證邊界
+
+- Node 24；`pnpm verify`、全部 source＋tests strict TypeScript、receipt-health strict TypeScript 通過。聚焦 encoder／route／DOM：108 tests；包括 auth／CSRF／scope／revocation、先授權才編碼、無寫入 action、真 PNG metadata、readonly、load／decode pending／failure、選取競態、下載／列印與 XSS literal text。
+- 使用已安裝 Chrome／Playwright，真 HTTPS Fastify 路由配**合成 in-memory SQL transport**，不是 PostgreSQL 證據。實際 768px image load／decode、PNG 下載位元組、readonly UI、HTTP／decode 選取競態、壞 PNG、撤銷 session、1440px／390px 截圖均已檢查。非真 iOS。
+- macOS Vision 解碼兩張合成 PNG、下載 PNG、窄螢幕牌面截圖及兩份 A4 PDF 的 raster，均符合精確 expected URL；PDFKit 確認各 **一張 A4**，沒有表單／導覽／控制文字。證據與重現腳本保存在 `/tmp/venue-admin-qr-evidence/`、`/tmp/venue-admin-qr-browser.mjs`、`/tmp/venue-admin-qr-validate.swift`，屬本機暫存，不是產品或真使用者資料。
+- pure-mode `pnpm verify` 明確 unset DB URLs：2,776 passed／617 skipped；其中既有自含 history harness 會自行建立 disposable PG17（17 passed），不是所有 PG suites 都 skipped。另以既有 `scripts/test-venue-debug-local-pg.sh focused` 啟動全新 socket-only PG17：debug／schema58／early-window 25、management 16、people 11、QR 10，合計 62 passed；management 已補真 buildApp readonly QR、停用場地、scope／不存在／CSRF／注入／revocation、完整場地與出席快照不變及既有 get read-audit 的 assertions。沒有使用既有 DB／dotenv／外部 provider。
+- 本機沒有 PG16，**沒有宣稱全部 DB 測試或 CI PG16 通過**；既有 CI PostgreSQL 16 與父代理獨立 QR 解碼／review 仍需執行。完整 commit／數量／log／部署前條件見 `/tmp/venue-admin-qr-HANDOFF.md`。
 
 ## 本次地區選單（2026-10-27）
 
@@ -122,9 +143,9 @@ Routes：
 
 目前此公開頁接線**未完成**；SQL 寫入仍會拒絕 inactive。不能把 admin 預覽網址／source 當作驗證成功。
 
-## QR 依賴缺口
+## 歷史 QR 依賴缺口（已解決）
 
-目前 manifest／lock 沒有可信本地 QR 編碼器。**沒有 QR 圖片產生、下載或第三方 QR 呼叫**，也沒有自製未驗證編碼器。若要實際 QR 圖片／PNG／SVG 下載，須另取得新增套件及 lock 變更的人類批准，再審查固定版本、授權、純本地編碼與測試；例如可評估 `qrcode`，但本交付沒有安裝或預先批准它。
+原 standalone 交付沒有 QR 編碼器。上方「本次 QR 圖片」已在取得人類批准後加入 `qrcode`／型別及 lockfile，提供 PNG 預覽、下載與 A4 列印；不提供 SVG、任意 URL 編碼或第三方 QR 呼叫。
 
 ## 驗證
 

@@ -1,5 +1,7 @@
 # 多通路固定場地入口：第一批（僅 LINE 可用）
 
+> 本文件保留第一批歷史結果；下文「沒有 QR 圖片／下載」及舊 admin helper 的描述不是現行 QR 功能契約。現行後台 PNG／A4 流程見 [場地設定操作文件](venue-management-settings.md)：編碼可信公開 `/venue-checkin` 入口，掃描後點 LINE 繼續；實際上線狀態另以發行驗證紀錄為準。
+
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 

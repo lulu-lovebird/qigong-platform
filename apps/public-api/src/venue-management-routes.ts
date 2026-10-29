@@ -2,7 +2,8 @@
 import type { Pool } from '@qigong/database';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { adminContentSecurityPolicy } from './admin-branding.js';
+import { adminContentSecurityPolicy, adminLogoUrl } from './admin-branding.js';
+import { encodeVenueQr } from './venue-management-qr.js';
 import { resolveAdminLocale } from './admin-locale.js';
 import { localeSchema } from './ui-localization.js';
 import { readVenueManagementRegions } from './venue-admin-capabilities.js';
@@ -62,7 +63,13 @@ export const registerVenueManagementRoutes = (
     if (!(await options.principalFor(request).catch(() => null)))
       return reply.code(401).send({ error: 'unauthenticated' });
     return reply
-      .header('content-security-policy', adminContentSecurityPolicy)
+      .header(
+        'content-security-policy',
+        adminContentSecurityPolicy.replace(
+          `img-src ${adminLogoUrl}`,
+          `img-src ${adminLogoUrl} data:`
+        )
+      )
       .type('text/html; charset=utf-8')
       .send(renderVenueManagementPage(resolveAdminLocale(request.query, request.headers.cookie)));
   });
@@ -94,12 +101,15 @@ export const registerVenueManagementRoutes = (
       if (!session || !/^[A-Za-z0-9_-]{43}$/.test(session))
         return reply.code(401).send({ error: 'unauthenticated' });
       const action = z
-        .object({ action: z.enum(['regions', 'list', 'get', 'capabilities', 'create', 'update']) })
+        .object({
+          action: z.enum(['regions', 'list', 'get', 'qr', 'capabilities', 'create', 'update'])
+        })
         .strict()
         .safeParse(request.params);
       // Strict input prevents client action/principal/version ambiguity.
       if (
         !action.success ||
+        (action.data.action === 'qr' && !z.object({}).strict().safeParse(request.query).success) ||
         typeof request.body !== 'object' ||
         request.body === null ||
         Array.isArray(request.body) ||
@@ -124,7 +134,7 @@ export const registerVenueManagementRoutes = (
       }
       const parsed = venueManagementOperationSchema.safeParse({
         ...request.body,
-        action: action.data.action
+        action: action.data.action === 'qr' ? 'get' : action.data.action
       });
       if (!parsed.success) return reply.code(400).send({ error: 'invalid_request' });
       try {
@@ -133,6 +143,14 @@ export const registerVenueManagementRoutes = (
           ...row,
           urls: venueManagementUrls(row.code, origin)
         });
+        if (action.data.action === 'qr') {
+          if (!('field' in data)) throw new Error('venue_qr_unavailable');
+          // Fresh session + read scope + venue validation already ran through get.
+          const image = await encodeVenueQr(data.field.code, origin).catch(() => {
+            throw new Error('venue_qr_unavailable');
+          });
+          return reply.send({ field: linkRow(data.field), ...image });
+        }
         return reply
           .code(action.data.action === 'create' ? 201 : 200)
           .send(
