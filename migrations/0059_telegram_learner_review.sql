@@ -172,7 +172,7 @@ DECLARE t ops.telegram_learner_reviews;p admin.review_notification_preferences;a
   RETURN jsonb_build_object('state','decided','locale',p.locale);
  ELSE RETURN jsonb_build_object('state','unavailable');END IF;
  UPDATE ops.telegram_learner_reviews SET stage=next_stage,token_hash=public.digest(input_next_token,'sha256'),reason=chosen,prompt_message_id=NULL WHERE id=t.id;
- RETURN jsonb_build_object('state',next_stage,'locale',p.locale,'reason',chosen);
+ RETURN jsonb_build_object('state',next_stage,'locale',p.locale,'reason',chosen,'applicant',jsonb_build_object('name',left(a.learner_name,150),'platform',a.platform,'sourceId',left(a.external_subject_id,128)));
 EXCEPTION WHEN OTHERS THEN PERFORM set_config('qigong.principal_id',coalesce(saved,''),TRUE);RAISE;
 END$$;
 CREATE FUNCTION platform.telegram_learner_review_prompt(input_subject TEXT,input_message BIGINT,input_token TEXT,input_prompt BIGINT) RETURNS BOOLEAN
@@ -186,7 +186,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$BEGIN
  RETURN FOUND;
 END$$;
 CREATE FUNCTION platform.telegram_learner_review_reason(input_subject TEXT,input_prompt BIGINT,input_reason TEXT,input_next_token TEXT) RETURNS JSONB
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE t ops.telegram_learner_reviews;p admin.review_notification_preferences;BEGIN
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE t ops.telegram_learner_reviews;p admin.review_notification_preferences;a identity.onboarding_applications;BEGIN
  IF input_reason IS NULL OR length(btrim(input_reason)) NOT BETWEEN 1 AND 500 OR btrim(input_reason) LIKE '/%'
  OR input_next_token IS NULL OR input_next_token !~ '^[A-Za-z0-9_-]{43}$' THEN RETURN jsonb_build_object('state','unavailable');END IF;
  PERFORM ops.lock_telegram_learner_review_permissions();
@@ -194,9 +194,11 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE t ops.
  WHERE pref.telegram_subject=input_subject AND x.prompt_message_id=input_prompt AND x.stage='input' AND x.expires_at>clock_timestamp() FOR UPDATE OF pref;
  IF NOT FOUND THEN RETURN jsonb_build_object('state','unavailable');END IF;
  SELECT * INTO t FROM ops.telegram_learner_reviews WHERE principal_id=p.principal_id AND prompt_message_id=input_prompt AND stage='input' FOR UPDATE;
- IF NOT FOUND OR t.expires_at<=clock_timestamp() OR NOT ops.telegram_learner_review_eligible(t.id) THEN RETURN jsonb_build_object('state','unavailable');END IF;
+ IF NOT FOUND OR t.expires_at<=clock_timestamp() THEN RETURN jsonb_build_object('state','unavailable');END IF;
+ SELECT * INTO a FROM identity.onboarding_applications WHERE id=t.application_id FOR SHARE;
+ IF NOT FOUND OR NOT ops.telegram_learner_review_eligible(t.id) THEN RETURN jsonb_build_object('state','unavailable');END IF;
  UPDATE ops.telegram_learner_reviews SET stage='confirm_deny',reason=btrim(input_reason),prompt_message_id=NULL,token_hash=public.digest(input_next_token,'sha256') WHERE id=t.id;
- RETURN jsonb_build_object('state','confirm_deny','locale',p.locale,'reason',btrim(input_reason),'messageId',t.message_id);
+ RETURN jsonb_build_object('state','confirm_deny','locale',p.locale,'reason',btrim(input_reason),'messageId',t.message_id,'applicant',jsonb_build_object('name',left(a.learner_name,150),'platform',a.platform,'sourceId',left(a.external_subject_id,128)));
 END$$;
 
 DO $$DECLARE r RECORD;BEGIN
