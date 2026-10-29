@@ -3,6 +3,7 @@ import { renderAdminShell } from './admin-dashboard.js';
 import type { AdminLocale } from './admin-locale.js';
 import type { VenueManagementRegion } from './venue-admin-capabilities.js';
 import type { VenueManagementRow, VenueManagementField } from './venue-management.js';
+import type { VenueQrImage } from './venue-management-qr.js';
 type LinkedVenue = VenueManagementRow & { urls: Record<'nfc' | 'qr' | 'link', string> };
 
 // Compiled before serialization. Never insert API text with innerHTML.
@@ -33,6 +34,41 @@ function venueManagementController(locale: AdminLocale) {
   let loaded = false;
   let loadedRegion = '';
   let requiresReload = false;
+  let qrSequence = 0;
+  let qrBusy = false;
+  let qrReady: { key: string; image: HTMLImageElement; data: VenueQrImage } | null = null;
+  const qrKey = (venue: LinkedVenue) =>
+    JSON.stringify([venue.region_id, venue.id, venue.version, venue.code, venue.urls.qr]);
+  const canQr = () =>
+    !!selected &&
+    directoryReady &&
+    !directoryBusy &&
+    !sessionExpired &&
+    !requiresReload &&
+    !busy &&
+    !listBusy &&
+    regions.some((r) => r.id === selected?.region_id && r.canRead);
+  const matchingQr = () =>
+    canQr() &&
+    !!selected &&
+    !!qrReady &&
+    qrReady.key === qrKey(selected) &&
+    qrReady.image.complete &&
+    qrReady.image.naturalWidth > 0;
+  function qrControls() {
+    get<HTMLButtonElement>('vm-qr').disabled = !canQr() || qrBusy;
+    get<HTMLButtonElement>('vm-download').disabled = !matchingQr();
+    get<HTMLButtonElement>('vm-print').disabled = !matchingQr();
+  }
+  function clearQr() {
+    ++qrSequence;
+    qrBusy = false;
+    qrReady = null;
+    get('vm-sign').replaceChildren();
+    get('vm-sign').hidden = true;
+    get('vm-qr-status').textContent = '尚未產生並載入 QR 圖片。';
+    qrControls();
+  }
   function editorState() {
     const locked = busy || directoryBusy || requiresReload || sessionExpired || !directoryReady;
     editor.disabled = locked || !editorOpen;
@@ -60,6 +96,7 @@ function venueManagementController(locale: AdminLocale) {
     for (const key of ['active', ...Array.from({ length: 7 }, (_, day) => 'day-' + day)])
       get<HTMLInputElement>('vm-' + key).disabled = locked || !editable();
     get<HTMLButtonElement>('vm-save').disabled = locked || !writable();
+    qrControls();
   }
   const say = (message: string) => {
     status.textContent = message;
@@ -98,6 +135,7 @@ function venueManagementController(locale: AdminLocale) {
       throw new Error('連線中斷，結果未確認；請重新載入查核後再操作。');
     });
     if (!response.ok) {
+      clearQr();
       if (action === 'update' && response.status === 409) requiresReload = true;
       if (response.status === 401) {
         sessionExpired = true;
@@ -134,21 +172,12 @@ function venueManagementController(locale: AdminLocale) {
     );
   };
   function sign(venue: LinkedVenue | null) {
+    clearQr();
     links.replaceChildren();
-    const board = get('vm-sign');
-    board.replaceChildren();
-    get<HTMLButtonElement>('vm-print').disabled = !venue;
     if (!venue) return;
-    board.append(
-      node('h2', venue.name_zh_tw),
-      node('p', venue.code),
-      node('p', venue.is_active ? '場地已啟用' : '場地已停用：舊網址不能簽到'),
-      node('p', '網址文字牌（非 QR 圖片）'),
-      node('p', venue.urls.link)
-    );
     for (const [key, label] of [
       ['nfc', 'NFC 燒錄網址'],
-      ['qr', 'QR 目標網址（非圖片）'],
+      ['qr', 'QR 目標網址'],
       ['link', '一般網址']
     ] as const) {
       const container = node('label', label);
@@ -173,6 +202,117 @@ function venueManagementController(locale: AdminLocale) {
       });
       container.append(target, copy);
       links.append(container);
+    }
+  }
+  function board(venue: LinkedVenue, image: HTMLImageElement) {
+    const rules = venue.active_time_rules;
+    const weekday = (day: number) => '週' + '日一二三四五六'[day];
+    const minutes =
+      Number(rules.start_time.slice(0, 2)) * 60 + Number(rules.start_time.slice(3)) - 30;
+    const clock = (total: number) =>
+      String(Math.floor(total / 60)).padStart(2, '0') + ':' + String(total % 60).padStart(2, '0');
+    const checkin = rules.day_of_week
+      .map((day) =>
+        minutes < 0
+          ? '前一天' +
+            weekday((day + 6) % 7) +
+            ' ' +
+            clock(minutes + 1440) +
+            '–' +
+            weekday(day) +
+            ' ' +
+            rules.end_time
+          : weekday(day) + ' ' + clock(minutes) + '–' + rules.end_time
+      )
+      .join('、');
+    const signboard = get('vm-sign');
+    signboard.replaceChildren(
+      node('h2', locale === 'en' ? (venue.name_en ?? venue.name_zh_tw) : venue.name_zh_tw),
+      node('p', venue.code + '｜' + venue.timezone),
+      node(
+        'p',
+        venue.is_active ? '場地已啟用；仍須符合簽到條件' : '場地已停用：此 QR 網址不能簽到'
+      ),
+      node(
+        'p',
+        '團練：' +
+          rules.day_of_week.map(weekday).join('、') +
+          ' ' +
+          rules.start_time +
+          '–' +
+          rules.end_time
+      ),
+      node('p', '可打卡（提前 30 分鐘）：' + checkin),
+      node('p', '簽到半徑：' + venue.radius_meters + ' m'),
+      image,
+      node('p', venue.urls.qr),
+      node('p', '掃描後請點 LINE 繼續；仍須登入與現場定位驗證。source 可轉傳，不是出席證明。'),
+      node('p', 'Developed with ❤️ by Bean, Bird & Badminton Tech Consulting')
+    );
+    signboard.hidden = false;
+  }
+  async function generateQr() {
+    if (!canQr() || !selected || qrBusy) return;
+    const venue = selected;
+    clearQr();
+    const sequence = qrSequence;
+    const key = qrKey(venue);
+    const current = () =>
+      sequence === qrSequence && !!selected && qrKey(selected) === key && canQr();
+    qrBusy = true;
+    qrControls();
+    get('vm-qr-status').textContent = '重新驗證讀取權限並產生 QR 圖片中…';
+    try {
+      const data = (await api('qr', {
+        regionId: venue.region_id,
+        id: venue.id
+      })) as Partial<VenueQrImage> & { field?: unknown };
+      if (!current()) return;
+      if (
+        !row(data?.field) ||
+        qrKey(data.field) !== key ||
+        data.target !== venue.urls.qr ||
+        data.filename !== 'venue-' + venue.code + '-qr.png' ||
+        typeof data.pngDataUrl !== 'string' ||
+        data.pngDataUrl.length > 200000 ||
+        !/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(data.pngDataUrl)
+      )
+        throw new Error('QR 回應與已儲存場地不符，請重新載入。');
+      const imageData: VenueQrImage = {
+        target: data.target,
+        filename: data.filename,
+        pngDataUrl: data.pngDataUrl
+      };
+      const image = document.createElement('img');
+      image.alt = '場地簽到 QR：' + venue.code;
+      image.width = 768;
+      image.height = 768;
+      const loaded = new Promise<void>((resolve, reject) => {
+        image.addEventListener('load', () => resolve(), { once: true });
+        image.addEventListener('error', () => reject(new Error('QR 圖片載入失敗，請重試。')), {
+          once: true
+        });
+      });
+      image.src = imageData.pngDataUrl;
+      get('vm-qr-status').textContent = 'QR 圖片載入與解碼中；尚不可下載／列印。';
+      await loaded;
+      if (typeof image.decode === 'function') await image.decode();
+      if (!current()) return;
+      if (!image.complete || image.naturalWidth < 1) throw new Error('QR 圖片解碼失敗。');
+      qrReady = { key, image, data: imageData };
+      board(data.field, image);
+      get('vm-qr-status').textContent = 'QR 圖片已載入，可下載 PNG 或列印 A4 場地牌。';
+    } catch (error) {
+      if (sequence === qrSequence) {
+        clearQr();
+        get('vm-qr-status').textContent =
+          'QR 未就緒：' + (error instanceof Error ? error.message : '請重試。');
+      }
+    } finally {
+      if (sequence === qrSequence) {
+        qrBusy = false;
+        qrControls();
+      }
     }
   }
   function options(
@@ -326,6 +466,7 @@ function venueManagementController(locale: AdminLocale) {
     if (busy || directoryBusy) return;
     directoryBusy = true;
     directoryReady = false;
+    clearQr();
     ++listGeneration;
     listBusy = false;
     editorState();
@@ -379,6 +520,7 @@ function venueManagementController(locale: AdminLocale) {
   }
   async function load() {
     if (busy || directoryBusy || !directoryReady || sessionExpired) return;
+    clearQr();
     const regionId = value('vm-region');
     if (!regions.some((r) => r.id === regionId && r.canRead)) {
       ++listGeneration;
@@ -472,6 +614,7 @@ function venueManagementController(locale: AdminLocale) {
       is_active: get<HTMLInputElement>('vm-active').checked
     };
     busy = true;
+    clearQr();
     ++listGeneration;
     listBusy = false;
     editorState();
@@ -538,13 +681,32 @@ function venueManagementController(locale: AdminLocale) {
     get(id).addEventListener('input', previewSchedule);
     get(id).addEventListener('change', previewSchedule);
   }
-  get('vm-search').addEventListener('input', renderList);
-  get('vm-filter').addEventListener('change', renderList);
+  get('vm-search').addEventListener('input', () => {
+    clearQr();
+    renderList();
+  });
+  get('vm-filter').addEventListener('change', () => {
+    clearQr();
+    renderList();
+  });
   get('vm-form').addEventListener('submit', (event) => {
     void save(event);
   });
+  get('vm-qr').addEventListener('click', () => {
+    void generateQr();
+  });
+  get('vm-download').addEventListener('click', () => {
+    if (!matchingQr() || !qrReady) return;
+    const download = document.createElement('a');
+    download.href = qrReady.data.pngDataUrl;
+    download.download = qrReady.data.filename;
+    download.hidden = true;
+    links.append(download);
+    download.click();
+    download.remove();
+  });
   get('vm-print').addEventListener('click', () => {
-    if (selected && !busy) window.print();
+    if (matchingQr()) window.print();
   });
   void init();
 }
@@ -625,6 +787,8 @@ export const renderVenueManagementPage = (locale: AdminLocale = 'zh_TW'): string
 .vm-signboard{border:2px dashed var(--brand-secondary,#305888);border-radius:.5rem;padding:1.25rem;background:#fff;min-width:0;min-inline-size:0;overflow-wrap:anywhere}
 .vm-signboard h2{font-size:1.2rem;margin:0 0 .5rem;color:var(--brand-deep,#002048);overflow-wrap:anywhere}
 .vm-signboard p{margin:.35rem 0;font-size:.9rem;overflow-wrap:anywhere}
+.vm-signboard img{display:block;width:min(100%,384px);height:auto;margin:1rem auto;background:#fff}
+#vm-sign[hidden]{display:none!important}
 @media(max-width:1024px){.vm-workspace{grid-template-columns:1fr}}
 @media(max-width:768px){
 .vm-toolbar-row{grid-template-columns:1fr;grid-auto-rows:min-content;align-items:stretch;gap:.75rem}
@@ -641,11 +805,14 @@ export const renderVenueManagementPage = (locale: AdminLocale = 'zh_TW'): string
 #vm-root .vm-btn-save{width:100%}
 .vm-links-grid button{width:100%;min-height:48px}
 }
+@page{size:A4 portrait;margin:12mm}
 @media print{
-body *{visibility:hidden}
-#vm-sign,#vm-sign *{visibility:visible}
-#vm-sign{position:absolute;left:0;top:0;width:90%;font-size:24px;border:2px solid #000}
-#vm-sign::after{content:'Developed with ❤️ by Bean, Bird & Badminton Tech Consulting';display:block;font-size:12px;margin-top:1rem}
+body>*:not(.shell),.shell>*:not(.workspace),.workspace>*:not(#main),#main>*:not(#vm-root),#vm-root>*:not(.vm-links-panel),.vm-links-panel>*:not(#vm-sign){display:none!important}
+html,body,.shell,.workspace,#main,#vm-root,.vm-links-panel{display:block!important;position:static!important;width:auto!important;max-width:none!important;min-width:0!important;min-height:0!important;height:auto!important;margin:0!important;padding:0!important;border:0!important;box-shadow:none!important;background:#fff!important;color:#000!important}
+#vm-sign{break-inside:avoid;page-break-inside:avoid;width:100%;margin:0;padding:4mm;border:1px solid #000;border-radius:0;color:#000;background:#fff}
+#vm-sign h2{font-size:24pt;line-height:1.2;color:#000;margin:0 0 3mm}
+#vm-sign p{font-size:10pt;line-height:1.3;color:#000;margin:2mm 0;overflow-wrap:anywhere}
+#vm-sign img{width:100mm;height:100mm;margin:3mm auto;max-width:100%;object-fit:contain}
 }
 </style>
 <section id="vm-root">
@@ -856,12 +1023,15 @@ body *{visibility:hidden}
 
   <section class="vm-card vm-links-panel" aria-labelledby="vm-links-heading">
     <h2 id="vm-links-heading" class="vm-panel-title">NFC／QR URL 管理</h2>
-    <p class="vm-intro">QR 圖片待編碼套件核准：尚無已核准本地 QR 編碼器，因此沒有 QR 圖片／下載功能。僅提供 QR 目標網址及可列印場地牌，不外送第三方；source 可轉傳，不是出席證明。啟用場地管理時，停用場地的公開入口會拒絕簽到；功能尚未開啟不代表網址已可簽到。</p>
+    <p class="vm-intro">選取已儲存場地後，重新驗證讀取權限並在本機服務產生 QR；不外送第三方。圖片載入後才可下載 PNG／列印 A4。掃描後仍須點 LINE 繼續登入與現場定位；source 可轉傳，不是出席證明。停用場地的 QR 牌會清楚標示不能簽到；產生圖片不會開啟任何簽到功能。</p>
     <div class="vm-btn-group">
-      <button id="vm-print" type="button" class="vm-btn vm-btn-secondary" disabled>列印選取場地牌（網址，非 QR 圖）</button>
+      <button id="vm-qr" type="button" class="vm-btn vm-btn-secondary" disabled>產生選取場地 QR</button>
+      <button id="vm-download" type="button" class="vm-btn vm-btn-secondary" disabled>下載 QR PNG</button>
+      <button id="vm-print" type="button" class="vm-btn vm-btn-secondary" disabled>列印 A4 QR 場地牌</button>
     </div>
+    <p id="vm-qr-status" role="status" aria-live="polite">尚未產生並載入 QR 圖片。</p>
     <div id="vm-links" class="vm-links-grid"></div>
-    <section id="vm-sign" class="vm-signboard"></section>
+    <section id="vm-sign" class="vm-signboard" hidden></section>
   </section>
 </section>`,
     `(${venueManagementController.toString()})(${JSON.stringify(locale)});`,

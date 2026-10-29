@@ -47,7 +47,11 @@ describe('bounded canonical venue PNG encoder', () => {
   it.each(['data:image/svg+xml;base64,AAAA', 'data:image/png;base64,' + 'A'.repeat(200000)])(
     'refuses unexpected encoder output',
     async (output) => {
-      vi.spyOn(QRCode, 'toDataURL').mockImplementation(async () => output);
+      // Select the promise overload; qrcode also exposes callback overloads.
+      const pngEncoder: {
+        toDataURL(text: string, options?: QRCode.QRCodeToDataURLOptions): Promise<string>;
+      } = QRCode;
+      vi.spyOn(pngEncoder, 'toDataURL').mockResolvedValue(output);
       await expect(encodeVenueQr('tw-synthetic-park', origin)).rejects.toThrow(
         'venue_qr_unavailable'
       );

@@ -170,6 +170,30 @@ class Element {
   disabled = false;
   readOnly = false;
   type = '';
+  hidden = false;
+  complete = false;
+  naturalWidth = 0;
+  width = 0;
+  height = 0;
+  href = '';
+  download = '';
+  imageMode: 'auto' | 'manual' | 'error' = 'auto';
+  decode = vi.fn(async () => {});
+  click = vi.fn();
+  remove = vi.fn();
+  private source = '';
+  set src(value: string) {
+    this.source = value;
+    if (this.imageMode === 'manual') return;
+    setImmediate(() => {
+      this.complete = this.imageMode === 'auto';
+      this.naturalWidth = this.complete ? 768 : 0;
+      void this.event(this.complete ? 'load' : 'error');
+    });
+  }
+  get src() {
+    return this.source;
+  }
   listeners = new Map<string, Listener[]>();
   private text = '';
   constructor(readonly tag = 'div') {}
@@ -222,11 +246,21 @@ interface BrowserOptions {
   html?: string;
   regions?: (typeof region)[];
   listStatus?: number;
+  imageMode?: 'auto' | 'manual' | 'error';
+  imageDecode?: () => Promise<void>;
   http?: (
     path: string,
     init: RequestInit
   ) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 }
+const fakePng =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nKsAAAAASUVORK5CYII=';
+const qrResponse = (venue = row) => ({
+  field: venue,
+  target: venue.urls.qr,
+  pngDataUrl: fakePng,
+  filename: 'venue-' + venue.code + '-qr.png'
+});
 function browser(
   status = 200,
   manage = true,
@@ -242,6 +276,7 @@ function browser(
     e.disabled = /\bdisabled\b/.test(match[2]!);
     elements.set(match[3]!, e);
   }
+  const created: Element[] = [];
   const calls: { action: string; body: Record<string, unknown> }[] = [];
   const fetch = vi.fn(async (path: string, init: RequestInit) => {
     const action = path.split('/').at(-1)!;
@@ -264,7 +299,9 @@ function browser(
           ? { regions: options.regions ?? [{ ...region, canManage: manage }] }
           : action === 'list'
             ? { fields: [row] }
-            : { field: { ...row, version: 4 } }
+            : action === 'qr'
+              ? qrResponse()
+              : { field: { ...row, version: 4 } }
     };
   });
   const copy = vi.fn(async (value: string) => {
@@ -276,7 +313,13 @@ function browser(
   runInNewContext(script, {
     document: {
       getElementById: (id: string) => elements.get(id),
-      createElement: (tag: string) => new Element(tag),
+      createElement: (tag: string) => {
+        const element = new Element(tag);
+        element.imageMode = options.imageMode ?? 'auto';
+        if (options.imageDecode) element.decode = vi.fn(options.imageDecode);
+        created.push(element);
+        return element;
+      },
       cookie: '__Host-qigong-admin-csrf=' + 'c'.repeat(43)
     },
     navigator: clipboardAvailable ? { clipboard: { writeText: copy } } : {},
@@ -292,9 +335,239 @@ function browser(
   const ready = (async () => {
     for (let i = 0; i < 10; i++) await new Promise<void>((r) => setImmediate(r));
   })();
-  return { html, get, calls, copy, print, confirm, ready, transport: fetch };
+  return { html, get, calls, copy, print, confirm, ready, transport: fetch, created };
+}
+async function openSaved(b: ReturnType<typeof browser>) {
+  await b.ready;
+  await b.get('vm-load').event('click');
+  await all(b.get('vm-list'))
+    .find((e) => e.tag === 'button')!
+    .event('click');
 }
 describe('venue management browser controller (in-memory transport, not DB evidence)', () => {
+  it('requires an actual loaded and decoded image, even for readonly preview/download/print', async () => {
+    let decoded: (() => void) | undefined;
+    const b = browser(200, false, undefined, true, true, {
+      imageMode: 'manual',
+      imageDecode: () =>
+        new Promise<void>((resolve) => {
+          decoded = resolve;
+        })
+    });
+    await openSaved(b);
+    expect(b.calls.map((c) => c.action)).toEqual(['regions', 'list']);
+    expect(b.get('vm-qr').disabled).toBe(false);
+    await b.get('vm-qr').event('click');
+    expect(b.calls.at(-1)).toEqual({ action: 'qr', body: { regionId: id, id } });
+    const image = b.created.find((e) => e.tag === 'img')!;
+    expect(image.src).toBe(fakePng);
+    for (const control of ['vm-print', 'vm-download']) expect(b.get(control).disabled).toBe(true);
+    await b.get('vm-print').event('click');
+    await b.get('vm-download').event('click');
+    expect(b.print).not.toHaveBeenCalled();
+    expect(b.created.some((e) => e.tag === 'a')).toBe(false);
+    image.complete = true;
+    image.naturalWidth = 768;
+    await image.event('load');
+    expect(image.decode).toHaveBeenCalledOnce();
+    expect(b.get('vm-print').disabled).toBe(true);
+    decoded!();
+    await b.get('vm-print').event('click');
+    expect(b.print).toHaveBeenCalledOnce();
+    expect(b.get('vm-save').disabled).toBe(true);
+    await b.get('vm-download').event('click');
+    const download = b.created.find((e) => e.tag === 'a')!;
+    expect(download.href).toBe(fakePng);
+    expect(download.download).toBe('venue-tw-test-one-qr.png');
+    expect(download.click).toHaveBeenCalledOnce();
+    expect(download.remove).toHaveBeenCalledOnce();
+    expect(b.html).toContain('@page{size:A4 portrait;margin:12mm}');
+    expect(b.html).not.toContain('visibility:hidden');
+    expect(b.get('vm-sign').textContent).toContain(
+      'Developed with ❤️ by Bean, Bird & Badminton Tech Consulting'
+    );
+  });
+  it.each(['load', 'decode'])(
+    'image %s failure never enables print/download or claims readiness',
+    async (failure) => {
+      const b = browser(
+        200,
+        true,
+        undefined,
+        true,
+        true,
+        failure === 'load'
+          ? { imageMode: 'error' }
+          : {
+              imageDecode: async () => {
+                throw new Error('decode rejected');
+              }
+            }
+      );
+      await openSaved(b);
+      await b.get('vm-qr').event('click');
+      expect(b.get('vm-print').disabled).toBe(true);
+      expect(b.get('vm-download').disabled).toBe(true);
+      expect(b.get('vm-sign').hidden).toBe(true);
+      expect(b.get('vm-qr-status').textContent).toContain('QR 未就緒');
+      expect(b.get('vm-qr-status').textContent).not.toContain('可下載 PNG');
+    }
+  );
+  it.each([
+    { target: 'https://evil.invalid' },
+    { filename: '../evil.png' },
+    { pngDataUrl: 'data:image/svg+xml;base64,AAAA' },
+    { pngDataUrl: 'data:image/png;base64,<script>' },
+    { pngDataUrl: 'data:image/png;base64,' + 'A'.repeat(200000) },
+    { field: { ...row, version: 4 } },
+    { field: { ...row, region_id: secondRegion.id } },
+    { field: { ...row, code: 'tw-different-code' } },
+    { field: { ...row, urls: { ...row.urls, qr: 'https://evil.invalid' } } },
+    { field: null }
+  ])('rejects mismatched/unsafe response before DOM image use: %j', async (change) => {
+    const b = browser();
+    await openSaved(b);
+    b.transport.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ ...qrResponse(), ...change })
+    });
+    await b.get('vm-qr').event('click');
+    expect(b.created.some((e) => e.tag === 'img')).toBe(false);
+    expect(b.get('vm-print').disabled).toBe(true);
+    expect(b.get('vm-download').disabled).toBe(true);
+    expect(b.get('vm-qr-status').textContent).toContain('QR 未就緒');
+  });
+  it('discards stale server and image/decode results across selections without wrong names or URLs', async () => {
+    const second = {
+      ...row,
+      id: secondRegion.id,
+      code: 'tw-second-park',
+      name_zh_tw: 'Second synthetic park',
+      urls: venueManagementUrls('tw-second-park', origin)
+    };
+    const b = browser(200, true, undefined, true, true, { imageMode: 'manual' });
+    await b.ready;
+    b.transport.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ fields: [row, second] })
+    });
+    await b.get('vm-load').event('click');
+    const buttons = all(b.get('vm-list')).filter((e) => e.tag === 'button');
+    await buttons[0]!.event('click');
+    let respond: ((value: Awaited<ReturnType<typeof b.transport>>) => void) | undefined;
+    b.transport.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          respond = resolve;
+        })
+    );
+    await b.get('vm-qr').event('click');
+    await buttons[1]!.event('click');
+    respond!({ ok: true, status: 200, json: async () => qrResponse() });
+    await b.get('vm-print').event('click');
+    expect(b.created.some((e) => e.tag === 'img')).toBe(false);
+    expect(b.get('vm-sign').textContent).toBe('');
+    b.transport.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => qrResponse(second)
+    });
+    await b.get('vm-qr').event('click');
+    const image = b.created.find((e) => e.tag === 'img')!;
+    await buttons[0]!.event('click');
+    image.complete = true;
+    image.naturalWidth = 768;
+    await image.event('load');
+    expect(b.get('vm-sign').textContent).toBe('');
+    expect(b.get('vm-print').disabled).toBe(true);
+    expect(b.print).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['vm-search', 'input'],
+    ['vm-filter', 'change'],
+    ['vm-load', 'click'],
+    ['vm-add', 'click'],
+    ['vm-form', 'submit'],
+    ['vm-regions-retry', 'click'],
+    ['vm-region', 'change']
+  ])('clears loaded QR on %s %s', async (control, event) => {
+    const b = browser();
+    await openSaved(b);
+    await b.get('vm-qr').event('click');
+    expect(b.get('vm-print').disabled).toBe(false);
+    await b.get(control).event(event);
+    expect(b.get('vm-print').disabled).toBe(true);
+    expect(b.get('vm-download').disabled).toBe(true);
+    expect(b.get('vm-sign').textContent).toBe('');
+    expect(b.get('vm-sign').hidden).toBe(true);
+  });
+  it.each([401, 403, 404, 503])(
+    'QR HTTP %s failure clears prior image and never permits stale print',
+    async (status) => {
+      const b = browser();
+      await openSaved(b);
+      await b.get('vm-qr').event('click');
+      expect(b.get('vm-print').disabled).toBe(false);
+      b.transport.mockResolvedValueOnce({
+        ok: false,
+        status,
+        json: async () => ({ error: 'unavailable' })
+      });
+      await b.get('vm-qr').event('click');
+      expect(b.get('vm-sign').textContent).toBe('');
+      expect(b.get('vm-print').disabled).toBe(true);
+      await b.get('vm-print').event('click');
+      expect(b.print).not.toHaveBeenCalled();
+      if (status === 401) expect(b.get('vm-qr').disabled).toBe(true);
+    }
+  );
+  it('prints only saved metadata despite edited drafts, with early30, disabled notice, previous-day wrap and 24:00', async () => {
+    const saved = {
+      ...row,
+      is_active: false,
+      timezone: 'America/New_York',
+      radius_meters: 200,
+      active_time_rules: { day_of_week: [0, 6], start_time: '00:15', end_time: '24:00' }
+    };
+    const b = browser();
+    await b.ready;
+    b.transport.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ fields: [saved] })
+    });
+    await b.get('vm-load').event('click');
+    await all(b.get('vm-list'))
+      .find((e) => e.tag === 'button')!
+      .event('click');
+    b.get('vm-name_zh_tw').value = 'Unsaved draft';
+    b.get('vm-start').value = '08:00';
+    b.get('vm-radius_meters').value = '500';
+    b.transport.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => qrResponse(saved)
+    });
+    await b.get('vm-qr').event('click');
+    const text = b.get('vm-sign').textContent;
+    expect(text).toContain(field.name_zh_tw);
+    expect(text).not.toContain('Unsaved draft');
+    for (const expected of [
+      '不能簽到',
+      'America/New_York',
+      '提前 30 分鐘',
+      '前一天週六 23:45–週日 24:00',
+      '前一天週五 23:45–週六 24:00',
+      '200 m',
+      row.code,
+      row.urls.qr
+    ])
+      expect(text).toContain(expected);
+    expect(b.get('vm-print').disabled).toBe(false);
+    expect(b.html).toContain('掃描後仍須點 LINE 繼續登入與現場定位');
+  });
   it.each([true, false])(
     'derives a read-only preview without changing manage permission (%s)',
     async (manage) => {
@@ -369,7 +642,12 @@ describe('venue management browser controller (in-memory transport, not DB evide
       .find((e) => e.tag === 'button')!
       .event('click');
     expect(b.get('vm-code').readOnly).toBe(true);
+    expect(b.get('vm-sign').textContent).toBe('');
+    expect(b.get('vm-print').disabled).toBe(true);
+    await b.get('vm-qr').event('click');
     expect(b.get('vm-sign').textContent).toContain(field.name_zh_tw);
+    expect(all(b.get('vm-sign')).filter((e) => e.tag === 'img')).toHaveLength(1);
+    expect(b.get('vm-print').disabled).toBe(false);
     await all(b.get('vm-links'))
       .find((e) => e.tag === 'button')!
       .event('click');
@@ -384,8 +662,11 @@ describe('venue management browser controller (in-memory transport, not DB evide
       body: { id, version: 3, reason: 'location audit' }
     });
     expect(b.get('vm-status').textContent).toContain('已儲存，版本 4');
-    expect(b.html).not.toMatch(/qrserver|<img[^>]*qr|download=/i);
-    expect(b.html).toContain('沒有 QR 圖片');
+    expect(b.html).not.toMatch(/qrserver/i);
+    expect(b.html).not.toContain('沒有 QR 圖片');
+    expect(b.html).toContain('圖片載入後才可下載 PNG');
+    expect(b.get('vm-print').disabled).toBe(true);
+    expect(b.get('vm-sign').textContent).toBe('');
   });
   it.each([401, 403, 404, 409, 503])('failed HTTP %i never claims success', async (status) => {
     const b = browser(status);
@@ -523,7 +804,11 @@ describe('venue management browser controller (in-memory transport, not DB evide
     expect(b.get('vm-save').disabled).toBe(true);
     await b.get('vm-form').event('submit');
     expect(b.calls.map((c) => c.action)).toEqual(['regions', 'list']);
-    expect(b.get('vm-sign').textContent).toContain(row.urls.link);
+    expect(all(b.get('vm-links')).some((e) => e.value === row.urls.link)).toBe(true);
+    await b.get('vm-qr').event('click');
+    expect(b.get('vm-save').disabled).toBe(true);
+    expect(b.get('vm-sign').textContent).toContain(row.urls.qr);
+    expect(b.get('vm-print').disabled).toBe(false);
   });
 
   it('multiple same-name regions remain unambiguous; target determines create scope without a successful list', async () => {
