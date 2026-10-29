@@ -204,6 +204,54 @@ function venueManagementController(locale: AdminLocale) {
     const choices = regions.filter((r) => r.canManage || r.id === selected?.region_id);
     options('vm-region_id', choices, preferred, '請選擇可管理的目標地區');
   }
+  function previewSchedule() {
+    const start = value('vm-start');
+    const end = value('vm-end');
+    const zone = value('vm-timezone').trim();
+    const days = Array.from({ length: 7 }, (_, day) => day).filter(
+      (day) => get<HTMLInputElement>('vm-day-' + day).checked
+    );
+    const preview = get('vm-checkin-preview');
+    if (
+      !/^([01]\d|2[0-3]):[0-5]\d$/.test(start) ||
+      !/^(?:([01]\d|2[0-3]):[0-5]\d|24:00)$/.test(end) ||
+      start >= end ||
+      !days.length ||
+      !zone
+    ) {
+      preview.textContent = '可打卡：無法計算，請確認團練日、開始／結束時間與時區。';
+      return;
+    }
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: zone });
+    } catch {
+      preview.textContent = '可打卡：無法計算，請確認時區。';
+      return;
+    }
+    const minutes = Number(start.slice(0, 2)) * 60 + Number(start.slice(3)) - 30;
+    const clock = (total: number) =>
+      String(Math.floor(total / 60)).padStart(2, '0') + ':' + String(total % 60).padStart(2, '0');
+    const weekday = (day: number) => '週' + '日一二三四五六'[day];
+    preview.textContent =
+      '可打卡：' +
+      days
+        .map((day) =>
+          minutes < 0
+            ? '前一天' +
+              weekday((day + 6) % 7) +
+              ' ' +
+              clock(minutes + 1440) +
+              '–' +
+              weekday(day) +
+              ' ' +
+              end
+            : weekday(day) + ' ' + clock(minutes) + '–' + end
+        )
+        .join('、') +
+      '（' +
+      zone +
+      '）';
+  }
   function edit(venue: LinkedVenue | null) {
     selected = venue;
     targets(venue?.region_id ?? (manages(value('vm-region')) ? value('vm-region') : ''));
@@ -236,6 +284,7 @@ function venueManagementController(locale: AdminLocale) {
     set('vm-start', rules.start_time);
     set('vm-end', rules.end_time);
     set('vm-reason', '');
+    previewSchedule();
     sign(venue);
     editorState();
   }
@@ -480,6 +529,15 @@ function venueManagementController(locale: AdminLocale) {
       void load();
     }
   });
+  for (const id of [
+    'vm-start',
+    'vm-end',
+    'vm-timezone',
+    ...Array.from({ length: 7 }, (_, day) => 'vm-day-' + day)
+  ]) {
+    get(id).addEventListener('input', previewSchedule);
+    get(id).addEventListener('change', previewSchedule);
+  }
   get('vm-search').addEventListener('input', renderList);
   get('vm-filter').addEventListener('change', renderList);
   get('vm-form').addEventListener('submit', (event) => {
@@ -728,11 +786,11 @@ body *{visibility:hidden}
 
           <div class="vm-form-row">
             <div class="vm-label-col">
-              <span class="vm-field-label">每週開放日<span class="vm-req" aria-hidden="true">*</span></span>
+              <span class="vm-field-label">每週團練日<span class="vm-req" aria-hidden="true">*</span></span>
               <span class="vm-field-hint">以場地時區計算開團日</span>
             </div>
             <div class="vm-control-col">
-              <div class="vm-days-group" role="group" aria-label="每週開放日選擇">
+              <div class="vm-days-group" role="group" aria-label="每週團練日選擇">
                 ${['日', '一', '二', '三', '四', '五', '六'].map((label, day) => `<label class="vm-day-pill"><input id="vm-day-${day}" type="checkbox" class="vm-checkbox"><span>週${label}</span></label>`).join('')}
               </div>
             </div>
@@ -740,20 +798,28 @@ body *{visibility:hidden}
 
           <div class="vm-form-row">
             <div class="vm-label-col">
-              <span class="vm-field-label">開放時段<span class="vm-req" aria-hidden="true">*</span></span>
-              <span class="vm-field-hint">結束時間不含；跨日可用 24:00</span>
+              <span class="vm-field-label">團練時段<span class="vm-req" aria-hidden="true">*</span></span>
+              <span class="vm-field-hint">保留團練原時間；當日結束可用 24:00，不支援一般跨夜團練</span>
             </div>
             <div class="vm-control-col">
               <div class="vm-pair-grid">
                 <div class="vm-subfield">
-                  <label for="vm-start" class="vm-sublabel">開始 HH:mm<span class="vm-req" aria-hidden="true">*</span></label>
+                  <label for="vm-start" class="vm-sublabel">團練開始 HH:mm<span class="vm-req" aria-hidden="true">*</span></label>
                   <input id="vm-start" required pattern="([01][0-9]|2[0-3]):[0-5][0-9]" class="vm-input" placeholder="06:30">
                 </div>
                 <div class="vm-subfield">
-                  <label for="vm-end" class="vm-sublabel">結束 HH:mm<span class="vm-req" aria-hidden="true">*</span></label>
+                  <label for="vm-end" class="vm-sublabel">團練結束 HH:mm<span class="vm-req" aria-hidden="true">*</span></label>
                   <input id="vm-end" required pattern="(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)" class="vm-input" placeholder="09:00">
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div class="vm-form-row">
+            <div class="vm-label-col"><span class="vm-field-label">打卡時段（唯讀預覽）</span></div>
+            <div class="vm-control-col">
+              <p id="vm-checkin-preview" class="vm-intro" aria-live="polite">可打卡：請選擇場地或填入團練時段。</p>
+              <p class="vm-field-hint">團練開始前30分鐘開放打卡，結束即停止。一般週例預覽；日光節約切換依資料庫實際時刻判定。出席日期仍為打卡當下的場地當地日期。</p>
             </div>
           </div>
 

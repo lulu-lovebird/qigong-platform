@@ -1,9 +1,10 @@
-# 單場地短效測試簽到（schema57；預設關閉）
+# 單場地短效測試簽到（schema58；預設關閉）
 
 本專案由 **Bean, Bird & Badminton Tech Consulting** 開發並維護。
 Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 
-本輪證據與父代理交接見 [venue-test-scope-verification.md](venue-test-scope-verification.md)。
+目前 schema58 提前打卡規則與本地證據見 [venue-early-checkin-window.md](venue-early-checkin-window.md)。
+Schema57 證據與父代理交接見 [venue-test-scope-verification.md](venue-test-scope-verification.md)。
 [CKS schema56](venue-cks-debug-verification.md)、[schema55 integration](venue-debug-admin-integration.md) 與
 [schema55 verification](venue-distance-debug-verification.md) 保留為歷史，不是 schema57 啟用指示。
 
@@ -30,8 +31,10 @@ Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
 5. Debug INSERT policy 僅允當前 enabled、未過期配置的精確場地。兩碼的歷史 SELECT 保持；normal writer 不新增 `is_test`／mode INSERT 權限，不放寬 normal INSERT policy。
 6. 不改 attendance／audit／場地／身份資料，不新增角色、runtime 表 ACL、admin grant 或 HTTP setter；不更動 restrictive 正式統計排除。
 
-API 最大版本為57。Debug enabled **只接受精確57**，且獨立 probe function／role／ACL／RLS capability；不是只看版本。
-Debug off 的 default-off／normal QR／管理／people／history 保留各自已審過的56及更早相容範圍，並接受57；未知58拒絕。Suite probe 精確 count/version 配對54、55、56、57，debug 只接受57。
+上述為不可變 schema57 變更紀錄。Schema58 新增 `0058_venue_early_checkin_window.sql`，再次刪除舊 Debug singleton 配置以撤銷既有 token，絕不轉授 scope、建立秘密或自動開啟。正式與 Debug 共用純輸入 SECURITY INVOKER helper：團練開始瞬間減30分鐘（含）至原結束瞬間（不含）；團練原時間、實際當地打卡日期、去重與所有其他 guard 保持。
+
+API 最大版本為58。Debug enabled **只接受精確58**，且獨立 probe function／role／ACL／RLS 及純 helper capability；不是只看版本。
+Debug off 的 default-off／normal QR／管理／people／history 保留各自已審過的57及更早相容範圍，並接受58；未知59拒絕。Suite probe 精確 count/version 配對54、55、56、57、58，debug 只接受58。
 Readiness 不讀秘密、不建立配置，也不代表已啟用有效 token。
 
 ## 另行批准後才能配置
@@ -72,7 +75,7 @@ HMAC message 保持 `server nonce|verified subject|venue|issued seconds|expires 
 - Region guard 保持只讀 regions 四欄＋boolean helper；既有 `core.regions` 未啟用 RLS，不宣稱新增了 FORCE RLS。其他原有 FORCE RLS、narrow ACL、`row_security=on`／固定 search_path 不變。
 - Context 保持 backend PID＋transaction＋person 綁定；runtime 不可讀寫。成功清除，失敗 transaction rollback。原始 GPS 欄位均 NULL，只保存 derived distance。
 - DB enabled=false／刪配置、API off／撤銷秘密或到期可關閉；保留歷史，不能用刪 attendance 當撤銷。
-- **Schema57 forward-only。base `638e8d1` 最大只支援56，升57後不能直接 rollback 到原 binary。** 必須另備已驗證的 schema57-compatible feature-off baseline，或 fix-forward；本輪沒有聲稱已完成該 fallback release。
+- **Schema58 forward-only。base `89854cc` 最大只支援57，升58後不能直接 rollback 到原 binary。** 必須另備已驗證的 schema58-compatible feature-off baseline，或 fix-forward；本輪沒有建置或聲稱已完成該 fallback release。
 - 不編輯0056或更早 SQL、不 unsafe down migration、不回灌舊 snapshot 覆蓋新寫入。部署／備份／activation／正式 token／rollback rehearsal 均須另核准。
 
 ## 本地驗證入口

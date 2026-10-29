@@ -1,7 +1,7 @@
 /** Developed with ❤️ by Bean, Bird & Badminton Tech Consulting */
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
-export const venueDebugMigrationVersion = '0057_venue_test_scope.sql';
+export const venueDebugMigrationVersion = '0058_venue_early_checkin_window.sql';
 export type VenueDebugVenueCode = 'tw-location-test' | 'tw-taipei-cks';
 const isDebugVenue = (code: unknown): code is VenueDebugVenueCode =>
   code === 'tw-location-test' || code === 'tw-taipei-cks';

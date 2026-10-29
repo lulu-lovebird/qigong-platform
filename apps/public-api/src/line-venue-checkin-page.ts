@@ -190,7 +190,7 @@ const checkinTexts = {
     title: '團練場簽到',
     notice: '正式出席簽到：送出後由後端驗證並記錄',
     unknown:
-      '請在場地開放時段、定位半徑內簽到。簽到獨立於日課，同人同場當地日期一次，跨場正常累計。',
+      '團練開始前30分鐘開放打卡，結束即停止。團練時段由管理員提供；打卡時段依場地時區計算，午夜附近的團練可能前一天開放。請在定位半徑內簽到。簽到獨立於日課，同人同場以實際打卡當下的場地當地日期一次，跨場正常累計。',
     privacy:
       '按下按鈕才取得並傳送本次位置供後端驗證；不保存原始 GPS、不寫入網址或紀錄。QR 可轉傳，GPS 不是防偽證明。',
     button: '確認位置並簽到',
@@ -200,14 +200,14 @@ const checkinTexts = {
     success: '出席已記錄',
     retry: '無法確認結果，可能已記錄。請重試；同人同場同日不會重複計次。',
     outside_radius: '位置不在場地半徑內，請在現場重試。',
-    outside_window: '目前不是場地開放時段。',
+    outside_window: '目前不在可打卡時段：團練開始前30分鐘開放，結束即停止（依場地時區）。',
     rejected: '簽到未完成。請確認學員資格及最新隱私同意，或回 LINE 聊天辦理。'
   },
   zh_CN: {
     title: '团练场签到',
     notice: '正式出席签到：提交后由后端验证并记录',
     unknown:
-      '请在场地开放时段、定位半径内签到。签到独立于日课，同人同场当地日期一次，跨场正常累计。',
+      '团练开始前30分钟开放打卡，结束即停止。团练时段由管理员提供；打卡时段依场地时区计算，午夜附近的团练可能前一天开放。请在定位半径内签到。签到独立于日课，同人同场以实际打卡当下的场地当地日期一次，跨场正常累计。',
     privacy:
       '按下按钮才获取并传送本次位置供后端验证；不保存原始 GPS、不写入网址或日志。QR 可转发，GPS 不是防伪证明。',
     button: '确认位置并签到',
@@ -217,14 +217,14 @@ const checkinTexts = {
     success: '出席已记录',
     retry: '无法确认结果，可能已记录。请重试；同人同场同日不会重复计次。',
     outside_radius: '位置不在场地半径内，请在现场重试。',
-    outside_window: '目前不是场地开放时段。',
+    outside_window: '目前不在可打卡时段：团练开始前30分钟开放，结束即停止（依场地时区）。',
     rejected: '签到未完成。请确认学员资格及最新隐私同意，或回 LINE 聊天办理。'
   },
   en: {
     title: 'Venue attendance',
     notice: 'Live check-in: the server verifies and records attendance',
     unknown:
-      'Check in within the venue radius and opening hours. Attendance is separate from daily practice: once per person, venue and local date; visits to other venues count normally.',
+      'Check-in opens 30 minutes before group practice starts and stops when it ends, in the venue’s timezone. Ask the administrator for the practice schedule; check-in for a practice near midnight may open the previous day. Check in within the venue radius. Attendance is separate from daily practice: once per person, venue and actual local check-in date; visits to other venues count normally.',
     privacy:
       'Pressing the button sends this attempt’s location for server validation. Raw GPS is not stored, logged or put in URLs. QR links can be forwarded; GPS is not proof against impersonation.',
     button: 'Confirm location and check in',
@@ -235,7 +235,8 @@ const checkinTexts = {
     retry:
       'Result unknown; attendance may already be recorded. Retry safely: the same venue and local date will not count twice.',
     outside_radius: 'Outside the venue radius. Retry on site.',
-    outside_window: 'The venue is outside its opening hours.',
+    outside_window:
+      'Outside the check-in window: opens 30 minutes before practice starts and stops when it ends (venue timezone).',
     rejected:
       'Check-in was not completed. Confirm learner eligibility and current privacy consent, or return to LINE chat.'
   }
@@ -248,7 +249,7 @@ const debugTexts = {
     completedButton: '測試已完成',
     unavailableButton: '測試未開放',
     unavailable: '測試簽到尚未開放；此場地必須使用短效測試碼，不能進行普通簽到。',
-    help: '僅豁免距離；仍需真實 GPS、身份、同意與開放時段。測試碼限人工輸入，僅當次記憶體使用，不放入網址或儲存。',
+    help: '僅豁免距離；仍需真實 GPS、身份、同意與可打卡時段。測試碼限人工輸入，僅當次記憶體使用，不放入網址或儲存。',
     optIn: '使用異地測試',
     token: '短效測試碼',
     denied: '測試碼無效、已到期或測試未開啟；未完成簽到。'
@@ -259,7 +260,7 @@ const debugTexts = {
     completedButton: '测试已完成',
     unavailableButton: '测试未开放',
     unavailable: '测试签到尚未开放；此场地必须使用短效测试码，不能进行普通签到。',
-    help: '仅豁免距离；仍需真实 GPS、身份、同意与开放时段。测试码限人工输入，仅当次内存使用，不放入网址或存储。',
+    help: '仅豁免距离；仍需真实 GPS、身份、同意与可打卡时段。测试码限人工输入，仅当次内存使用，不放入网址或存储。',
     optIn: '使用异地测试',
     token: '短效测试码',
     denied: '测试码无效、已到期或测试未开启；未完成签到。'
@@ -271,7 +272,7 @@ const debugTexts = {
     unavailableButton: 'Testing unavailable',
     unavailable:
       'Test check-in is not open. This venue requires a short-lived test code; standard check-in is unavailable.',
-    help: 'Only distance is waived. Real GPS, identity, consent and opening hours are still required. Enter the code manually; it stays in request memory only, never in URLs or storage.',
+    help: 'Only distance is waived. Real GPS, identity, consent and the check-in window are still required. Enter the code manually; it stays in request memory only, never in URLs or storage.',
     optIn: 'Use distance test',
     token: 'Short-lived test code',
     denied: 'The test code is invalid, expired or testing is disabled. No check-in was completed.'

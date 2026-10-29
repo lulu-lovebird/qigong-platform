@@ -43,6 +43,7 @@ import { venueDebugMigrationVersion } from './venue-debug.js';
 import { registerVenueHistoryRoutes } from './venue-history.js';
 import {
   checkVenueFeatureReadiness,
+  checkVenueWindowReadiness,
   validateVenueSuiteConfig,
   venueSuiteMigrationVersion,
   type VenueSuiteConfig,
@@ -82,6 +83,7 @@ const defaultOffMigrationVersions = new Set([
   venueSuiteMigrationVersion,
   '0055_venue_distance_debug.sql',
   '0056_venue_cks_distance_debug.sql',
+  '0057_venue_test_scope.sql',
   venueDebugMigrationVersion
 ]);
 // HTTP error classes can inherit status/message data (unlike log diagnostics,
@@ -258,12 +260,14 @@ export const checkStartupReadiness = async (
           ? status.currentVersion === venueSuiteMigrationVersion ||
             status.currentVersion === '0055_venue_distance_debug.sql' ||
             status.currentVersion === '0056_venue_cks_distance_debug.sql' ||
+            status.currentVersion === '0057_venue_test_scope.sql' ||
             status.currentVersion === venueDebugMigrationVersion
           : venueQrEnabled
             ? status.currentVersion === venueQrMigrationVersion ||
               status.currentVersion === venueSuiteMigrationVersion ||
               status.currentVersion === '0055_venue_distance_debug.sql' ||
               status.currentVersion === '0056_venue_cks_distance_debug.sql' ||
+              status.currentVersion === '0057_venue_test_scope.sql' ||
               status.currentVersion === venueDebugMigrationVersion
             : status.currentVersion !== null &&
               defaultOffMigrationVersions.has(status.currentVersion))
@@ -273,6 +277,11 @@ export const checkStartupReadiness = async (
   const runtime = await checkApiRuntimePreflight(pool);
   if (!runtime.ready)
     return { ready: false as const, reason: 'runtime_role_misconfigured', runtime };
+  if (venueQrEnabled && status.currentVersion === venueDebugMigrationVersion) {
+    const capability = await checkVenueWindowReadiness(pool);
+    if (!capability.ready)
+      return { ready: false as const, reason: 'venue_feature_not_ready', capability };
+  }
   const capabilities: (VenueSuiteFeature | 'debug')[] = [
     ...enabledFeatures,
     ...(venueDebugEnabled ? ['debug' as const] : [])
