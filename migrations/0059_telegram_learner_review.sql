@@ -206,12 +206,20 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE t ops.
  RETURN jsonb_build_object('state','confirm_deny','locale',p.locale,'reason',btrim(input_reason),'messageId',t.message_id,'applicant',jsonb_build_object('name',left(a.learner_name,150),'platform',a.platform,'sourceId',left(a.external_subject_id,128)));
 END$$;
 
-DO $$DECLARE r RECORD;BEGIN
+-- Scrub inherited default ACLs too, not only PUBLIC/the two known runtimes.
+-- Keep only actual object-owner privileges before granting the narrow entrypoints.
+DO $$DECLARE r RECORD;g RECORD;BEGIN
+ FOR g IN SELECT DISTINCT a.grantee FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+ WHERE c.oid='ops.telegram_learner_reviews'::regclass AND a.grantee<>c.relowner
+ LOOP EXECUTE format('REVOKE ALL ON TABLE ops.telegram_learner_reviews FROM %s',CASE WHEN g.grantee=0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(g.grantee)) END);END LOOP;
  FOR r IN SELECT p.oid::regprocedure signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
  WHERE (n.nspname='ops' AND p.proname IN('lock_telegram_learner_review_permissions','telegram_learner_review_allowed','telegram_learner_review_eligible','claim_telegram_learner_reviews','telegram_learner_review_payload','finish_telegram_learner_review','review_delivery_eligible'))
  OR (n.nspname='admin' AND p.proname IN('reset_telegram_learner_review_consent','save_telegram_learner_review_preferences','review_notification_state','review_notification_state_58'))
  OR (n.nspname='platform' AND p.proname IN('telegram_learner_review_action','telegram_learner_review_prompt','telegram_learner_review_reason'))
- LOOP EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,qigong_api_runtime,qigong_worker_runtime',r.signature);END LOOP;
+ LOOP
+  FOR g IN SELECT DISTINCT a.grantee FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid=r.signature::oid AND a.grantee<>p.proowner
+  LOOP EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %s',r.signature,CASE WHEN g.grantee=0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(g.grantee)) END);END LOOP;
+ END LOOP;
 END$$;
 GRANT EXECUTE ON FUNCTION admin.review_notification_state(),admin.save_telegram_learner_review_preferences(INTEGER,BOOLEAN,BOOLEAN,TEXT,BOOLEAN,BOOLEAN,TEXT),
  platform.telegram_learner_review_action(TEXT,BIGINT,TEXT,TEXT,TEXT),platform.telegram_learner_review_prompt(TEXT,BIGINT,TEXT,BIGINT),platform.telegram_learner_review_reason(TEXT,BIGINT,TEXT,TEXT) TO qigong_api_runtime;

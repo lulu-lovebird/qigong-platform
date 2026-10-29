@@ -13,6 +13,8 @@ suite('Schema58→59 preservation and tested same-schema count-only fallback', (
   it('defaults old bound learner subscriptions OFF for personal data, preserves business functions, and safely returns to count-only', async () => {
     const db = await createIsolatedTestDatabase(base!);
     const old = await mkdtemp(path.join(tmpdir(), 'tgapply-schema58-'));
+    const aclRole = 'tgapply_default_' + randomUUID().replaceAll('-', '');
+    let aclCreated = false;
     try {
       for (const file of await readdir(directory))
         if (file.endsWith('.sql') && file < '0059_')
@@ -48,11 +50,32 @@ suite('Schema58→59 preservation and tested same-schema count-only fallback', (
         ).rows;
       const before = await business();
       const grants = (await db.pool.query('SELECT * FROM admin.role_grants')).rows;
+      await db.pool.query(`CREATE ROLE ${aclRole} NOLOGIN NOINHERIT NOBYPASSRLS`);
+      aclCreated = true;
+      await db.pool.query(
+        `ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO ${aclRole};ALTER DEFAULT PRIVILEGES GRANT SELECT ON TABLES TO ${aclRole}`
+      );
       expect((await runMigrations(db.pool, directory, 'tgapply-new')).applied).toEqual([
         '0059_telegram_learner_review.sql'
       ]);
       expect((await runMigrations(db.pool, directory, 'tgapply-repeat')).applied).toEqual([]);
       expect(await business()).toEqual(before);
+      expect(
+        (
+          await db.pool.query(
+            "SELECT p.oid FROM pg_proc p WHERE p.proname LIKE '%telegram_learner_review%' AND has_function_privilege($1,p.oid,'EXECUTE')",
+            [aclRole]
+          )
+        ).rows
+      ).toEqual([]);
+      expect(
+        (
+          await db.pool.query<{ allowed: boolean }>(
+            "SELECT has_table_privilege($1,'ops.telegram_learner_reviews','SELECT') allowed",
+            [aclRole]
+          )
+        ).rows[0]!.allowed
+      ).toBe(false);
       expect((await db.pool.query('SELECT * FROM admin.role_grants')).rows).toEqual(grants);
       expect((await db.pool.query('SELECT * FROM identity.people')).rowCount).toBe(0);
       expect((await db.pool.query('SELECT * FROM ops.telegram_learner_reviews')).rowCount).toBe(0);
@@ -146,6 +169,10 @@ suite('Schema58→59 preservation and tested same-schema count-only fallback', (
       expect(data).not.toHaveProperty('name');
       expect(JSON.stringify(data)).not.toContain('synthetic@example.invalid');
     } finally {
+      if (aclCreated) {
+        await db.pool.query(`DROP OWNED BY ${aclRole}`);
+        await db.pool.query(`DROP ROLE ${aclRole}`);
+      }
       await db.dispose();
       await rm(old, { recursive: true, force: true });
     }
