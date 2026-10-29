@@ -482,7 +482,9 @@ describe('shared learner pages without database or real LIFF SDK', () => {
   it('renders WhatsApp English applications with explicit consent and identity-bound payloads', async () => {
     const html = renderApplicationPage({ platform: 'whatsapp', locale: 'en' });
     expect(html).toContain('name="notificationConsent" type="checkbox" required');
-    expect(html).not.toContain('Telegram');
+    expect(html).toContain('private Telegram cloud chats');
+    expect(html).toContain('not end-to-end encrypted');
+    expect(html).not.toContain('/telegram/onboarding/');
     const page = fixture(html, { notificationConsent: true });
     await submit(page.get('application'));
     expect(page.fetchMock.mock.calls[0]?.[0]).toBe('/whatsapp/onboarding/apply');
