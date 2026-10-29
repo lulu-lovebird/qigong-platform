@@ -649,6 +649,22 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
       expect((await call('get', { regionId: tw, id: saved.id })).json()).toMatchObject({
         field: { id: saved.id, version: 2, is_active: false, urls: saved.urls }
       });
+      const disabledQr = await call(
+        'qr',
+        { regionId: tw, id: saved.id },
+        {
+          cookie: cookie.replace(session, 'v'.repeat(43))
+        }
+      );
+      expect(disabledQr.statusCode).toBe(200);
+      expect(disabledQr.json()).toMatchObject({
+        field: { id: saved.id, version: 2, is_active: false },
+        target: saved.urls.qr,
+        filename: 'venue-tw-http-test-qr.png'
+      });
+      expect(disabledQr.json<{ pngDataUrl: string }>().pngDataUrl).toMatch(
+        /^data:image\/png;base64,iVBOR/
+      );
       expect((await lookupManagedVenue(runtime, randomUUID(), value.code))?.active).toBe(false);
       expect(
         (
@@ -933,6 +949,55 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
       expect((await call('get', { regionId: tw, id: saved.id }, 'v'.repeat(43))).statusCode).toBe(
         200
       );
+      // Preserve the existing get read-audit, but no venue/attendance mutation or new write action.
+      const snapshot = () =>
+        owner.query(`SELECT
+        (SELECT jsonb_agg(to_jsonb(f) ORDER BY id) FROM core.practice_fields f) AS venues,
+        (SELECT jsonb_agg(to_jsonb(a) ORDER BY id) FROM core.field_attendance a) AS attendance,
+        (SELECT count(*) FROM audit.events WHERE action<>'venue.management.read') AS write_audit`);
+      const readAudits = () =>
+        owner.query<{ count: number }>(
+          "SELECT count(*)::int count FROM audit.events WHERE action='venue.management.read' AND target_id=$1 AND metadata->>'operation'='get'",
+          [saved.id]
+        );
+      const beforeQr = (await snapshot()).rows;
+      const beforeReadAudit = (await readAudits()).rows[0]!.count;
+      const qr = await call('qr', { regionId: tw, id: saved.id }, 'v'.repeat(43));
+      expect(qr.statusCode).toBe(200);
+      expect(qr.json()).toMatchObject({
+        field: { id: saved.id, version: 1 },
+        target: origin + '/venue-checkin?venue=tw-real-build-app&source=qr',
+        filename: 'venue-tw-real-build-app-qr.png'
+      });
+      expect(qr.json<{ pngDataUrl: string }>().pngDataUrl).toMatch(/^data:image\/png;base64,iVBOR/);
+      expect((await snapshot()).rows).toEqual(beforeQr);
+      expect((await readAudits()).rows[0]!.count).toBe(beforeReadAudit + 1);
+      expect((await call('qr', { regionId: sg, id: saved.id }, 'v'.repeat(43))).statusCode).toBe(
+        403
+      );
+      expect(
+        (await call('qr', { regionId: tw, id: randomUUID() }, 'v'.repeat(43))).statusCode
+      ).toBe(404);
+      expect(
+        (
+          await call(
+            'qr',
+            { regionId: tw, id: saved.id, target: 'https://evil.invalid' },
+            'v'.repeat(43)
+          )
+        ).statusCode
+      ).toBe(400);
+      expect(
+        (await call('qr?url=https://evil.invalid', { regionId: tw, id: saved.id }, 'v'.repeat(43)))
+          .statusCode
+      ).toBe(400);
+      const qrCsrf = await app.inject({
+        method: 'POST',
+        url: '/admin/api/venue-management/qr',
+        headers: { ...headers('v'.repeat(43)), 'x-csrf-token': 'wrong' },
+        payload: { regionId: tw, id: saved.id }
+      });
+      expect(qrCsrf.statusCode).toBe(403);
       const forbidden = await app.inject({
         method: 'POST',
         url: '/admin/api/venue-management/list',
@@ -980,6 +1045,9 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
         (await app.inject({ url: '/admin/api/venue-suite', headers: headers() })).statusCode
       ).toBe(401);
       expect((await call('list', { regionId: tw }, 'v'.repeat(43))).statusCode).toBe(401);
+      expect((await call('qr', { regionId: tw, id: saved.id }, 'v'.repeat(43))).statusCode).toBe(
+        401
+      );
       expect(
         (await app.inject({ url: '/admin/venue-people', headers: headers() })).statusCode
       ).toBe(401);
