@@ -7,6 +7,9 @@ export type LearnerPageChannel = (
   { platform: 'telegram' | 'whatsapp' } | { platform: 'line'; liffId: string }
 ) & { locale?: LearnerLocale };
 
+// Submission protocol ACK only: not proof that the notice was read or legal consent.
+export const telegramReviewNoticeVersion = 'telegram-learner-review-v1';
+
 export const telegramReviewTransferDisclosure = (locale: LearnerLocale) =>
   locale === 'en'
     ? 'Bean, Bird & Badminton Tech Consulting may transfer your self-reported name, phone and email, source-platform nickname, verified source system ID and requested region to explicitly opted-in, currently authorized reviewers in private Telegram cloud chats, solely to review this learner application. A LINE system ID is not a chosen LINE handle; other-platform identities are not inferred. Telegram cloud chats are not end-to-end encrypted or Secret Chats. Already delivered or forwarded data cannot be recalled. Reviewers must not forward or reuse it.'
@@ -233,7 +236,7 @@ ${channel.platform === 'line' ? '<script src="https://static.line-scdn.net/liff/
         ${channel.platform === 'line' ? 'await lineReady;' : ''}
         const response = await fetch('/${channel.platform}/onboarding/apply', {
           method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ token, ${channel.platform === 'line' ? 'idToken,' : ''} ...data ${channel.platform === 'whatsapp' ? `,locale: applicationLocale, notificationConsent: data.notificationConsent === 'on'` : ''} })
+          body: JSON.stringify({ token, ${channel.platform === 'line' ? 'idToken,' : ''} ...data, telegramReviewNoticeVersion: ${JSON.stringify(telegramReviewNoticeVersion)} ${channel.platform === 'whatsapp' ? `,locale: applicationLocale, notificationConsent: data.notificationConsent === 'on'` : ''} })
         });
         if (!response.ok) {
           ${
