@@ -295,6 +295,72 @@ function browser(
   return { html, get, calls, copy, print, confirm, ready, transport: fetch };
 }
 describe('venue management browser controller (in-memory transport, not DB evidence)', () => {
+  it.each([true, false])(
+    'derives a read-only preview without changing manage permission (%s)',
+    async (manage) => {
+      const b = browser(200, manage);
+      await b.ready;
+      await b.get('vm-load').event('click');
+      await all(b.get('vm-list'))
+        .find((e) => e.tag === 'button')!
+        .event('click');
+      expect(b.html).toContain('團練開始 HH:mm');
+      expect(b.html).toContain('打卡時段（唯讀預覽）');
+      expect(b.get('vm-save').disabled).toBe(!manage);
+      for (let day = 0; day < 7; day++) b.get('vm-day-' + day).checked = day === 6;
+      b.get('vm-start').value = '09:00';
+      b.get('vm-end').value = '11:00';
+      await b.get('vm-start').event('input');
+      expect(b.get('vm-checkin-preview').textContent).toBe(
+        '可打卡：週六 08:30–11:00（Asia/Taipei）'
+      );
+      expect(b.get('vm-save').disabled).toBe(!manage);
+      expect(b.get('vm-start').readOnly).toBe(!manage);
+      if (manage) {
+        b.get('vm-reason').value = 'schedule clarification';
+        await b.get('vm-form').event('submit');
+        expect(b.calls.find((c) => c.action === 'update')?.body).toMatchObject({
+          version: 3,
+          field: { active_time_rules: { day_of_week: [6], start_time: '09:00', end_time: '11:00' } }
+        });
+        expect(b.calls.find((c) => c.action === 'update')?.body.field).not.toHaveProperty(
+          'checkin_start'
+        );
+      } else expect(b.calls.some((c) => c.action === 'update')).toBe(false);
+    }
+  );
+  it('updates previous-day weekdays including Sunday wrap and fails closed on invalid input', async () => {
+    const b = browser();
+    await b.ready;
+    await b.get('vm-add').event('click');
+    for (let day = 0; day < 7; day++) b.get('vm-day-' + day).checked = day === 0 || day === 6;
+    b.get('vm-start').value = '00:15';
+    b.get('vm-end').value = '01:00';
+    await b.get('vm-start').event('input');
+    expect(b.get('vm-checkin-preview').textContent).toBe(
+      '可打卡：前一天週六 23:45–週日 01:00、前一天週五 23:45–週六 01:00（Asia/Taipei）'
+    );
+    b.get('vm-start').value = '23:00';
+    b.get('vm-end').value = '24:00';
+    await b.get('vm-end').event('input');
+    expect(b.get('vm-checkin-preview').textContent).toContain('22:30–24:00');
+    for (const [id, value] of [
+      ['vm-start', 'bad'],
+      ['vm-end', '24:01'],
+      ['vm-timezone', 'Invalid/Zone']
+    ] as const) {
+      b.get(id).value = value;
+      await b.get(id).event('input');
+      expect(b.get('vm-checkin-preview').textContent).toContain('無法計算');
+      expect(b.get('vm-checkin-preview').textContent).not.toContain('NaN');
+      b.get('vm-start').value = '09:00';
+      b.get('vm-end').value = '11:00';
+      b.get('vm-timezone').value = 'Asia/Taipei';
+    }
+    for (let day = 0; day < 7; day++) b.get('vm-day-' + day).checked = false;
+    await b.get('vm-day-0').event('change');
+    expect(b.get('vm-checkin-preview').textContent).toContain('無法計算');
+  });
   it('safe DOM displays hostile names literally; copy/print truthful URLs, immutable code and version save', async () => {
     const b = browser();
     await b.get('vm-load').event('click');

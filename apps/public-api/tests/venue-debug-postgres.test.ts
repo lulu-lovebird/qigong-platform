@@ -42,7 +42,7 @@ const checkin = (test = true, venue = 'tw-taipei-cks', lat = -25, issuedOffset =
     )
   );
 };
-describe.skipIf(!directory)('debug: owned socket-only PG17 56→57 chain', () => {
+describe.skipIf(!directory)('debug: owned socket-only PG17 57→58 chain', () => {
   beforeAll(async () => {
     if (!directory || !/^\/tmp\/venue-debug-(?:integration-)?[A-Za-z0-9]+$/.test(directory))
       throw new Error('owned debug harness required');
@@ -68,9 +68,9 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 56→57 chain', () =>
     const staging = await mkdtemp('/tmp/venue-debug-migrations-');
     try {
       for (const name of await readdir(resolve('../../migrations')))
-        if (name.endsWith('.sql') && name < '0057_')
+        if (name.endsWith('.sql') && name < '0058_')
           await copyFile(resolve('../../migrations', name), resolve(staging, name));
-      expect((await runMigrations(owner, staging)).applied).toHaveLength(56);
+      expect((await runMigrations(owner, staging)).applied).toHaveLength(57);
     } finally {
       await rm(staging, { recursive: true, force: true });
     }
@@ -93,11 +93,10 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 56→57 chain', () =>
       'qigong_api_runtime',
       { requestId: crypto.randomUUID() },
       (client) =>
-        client.query('SELECT platform.venue_qr_checkin($1,$2,25,121)', [
-          subject,
-          'tw-location-test'
-        ])
+        client.query('SELECT platform.venue_qr_checkin($1,$2,25,121)', [subject, 'tw-taipei-cks'])
     );
+    await owner.query(`UPDATE core.field_attendance SET field_id=(SELECT id FROM core.practice_fields WHERE code='tw-location-test') WHERE NOT is_test;
+      ALTER DEFAULT PRIVILEGES IN SCHEMA platform GRANT EXECUTE ON FUNCTIONS TO qigong_api_runtime,qigong_worker_runtime;`);
     const functionMetadata = () =>
       owner.query(`SELECT p.oid,p.proowner,p.proacl,p.prosecdef,p.proconfig
       FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -110,6 +109,14 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 56→57 chain', () =>
       owner.query(
         `SELECT polname,polrelid,polroles,polqual::text,polwithcheck::text FROM pg_policy ORDER BY oid`
       );
+    const securityMetadata = () =>
+      owner.query(`SELECT
+      (SELECT jsonb_agg(to_jsonb(r) ORDER BY r.oid) FROM pg_roles r) AS roles,
+      (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.oid) FROM pg_auth_members m) AS members,
+      (SELECT jsonb_agg(jsonb_build_array(c.oid,c.relowner,c.relacl,c.relrowsecurity,c.relforcerowsecurity) ORDER BY c.oid)
+        FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('core','platform','admin','identity','audit')) AS tables,
+      (SELECT jsonb_agg(to_jsonb(d) ORDER BY d.oid) FROM pg_default_acl d) AS defaults`);
+    const oldSecurity = (await securityMetadata()).rows;
     const oldMetadata = (await functionMetadata()).rows;
     const oldBodies = (await functionBodies()).rows;
     const oldPolicies = (await policies()).rows;
@@ -121,12 +128,12 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 56→57 chain', () =>
     const oldRows = (await owner.query('SELECT * FROM core.field_attendance ORDER BY id')).rows;
     const oldVenues = (await owner.query('SELECT * FROM core.practice_fields ORDER BY id')).rows;
     const result = await runMigrations(owner, resolve('../../migrations'));
-    expect(result.applied).toEqual(['0057_venue_test_scope.sql']);
-    expect(result.currentVersion).toBe('0057_venue_test_scope.sql');
+    expect(result.applied).toEqual(['0058_venue_early_checkin_window.sql']);
+    expect(result.currentVersion).toBe('0058_venue_early_checkin_window.sql');
     expect(
       (
         await owner.query(
-          "SELECT version,checksum FROM schema_migrations WHERE version<'0057_' ORDER BY version"
+          "SELECT version,checksum FROM schema_migrations WHERE version<'0058_' ORDER BY version"
         )
       ).rows
     ).toEqual(oldLedger);
@@ -146,8 +153,15 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 56→57 chain', () =>
       oldVenues
     );
     expect((await owner.query('SELECT * FROM audit.events ORDER BY id')).rows).toEqual(oldAudit);
-    expect((await functionMetadata()).rows).toEqual(oldMetadata);
-    const newBodies = (await functionBodies()).rows;
+    expect((await securityMetadata()).rows).toEqual(oldSecurity);
+    expect(
+      (await functionMetadata()).rows.filter((row) =>
+        oldMetadata.some((old) => old.oid === row.oid)
+      )
+    ).toEqual(oldMetadata);
+    const newBodies = (await functionBodies()).rows.filter((row) =>
+      oldBodies.some((old) => old.oid === row.oid)
+    );
     expect(
       newBodies
         .filter((row, i) => row.prosrc !== oldBodies[i]?.prosrc)
@@ -163,7 +177,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 56→57 chain', () =>
       newPolicies
         .filter((row, i) => JSON.stringify(row) !== JSON.stringify(oldPolicies[i]))
         .map((row) => row.polname)
-    ).toEqual(['venue_debug_insert']);
+    ).toEqual([]);
     runtime = new Pool({ ...options, user: 'venue_qr_test_login', max: 12 });
     await expect(checkin(false, 'tw-location-test', 25)).rejects.toMatchObject({
       code: '42501',
@@ -191,7 +205,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 56→57 chain', () =>
       UPDATE platform.learner_privacy_acceptances SET revoked_at=NULL;
       UPDATE identity.platform_identities SET revoked_at=NULL;
       UPDATE identity.person_interaction_channels SET valid_to=NULL;
-      UPDATE core.practice_fields SET is_active=TRUE,active_time_rules='{"day_of_week":[0,1,2,3,4,5,6],"start_time":"00:00","end_time":"24:00"}';`);
+      UPDATE core.practice_fields SET timezone='Asia/Taipei',is_active=TRUE,active_time_rules='{"day_of_week":[0,1,2,3,4,5,6],"start_time":"00:00","end_time":"24:00"}';`);
     expiresAt = new Date(Date.now() + 3500000).toISOString();
     await owner.query(
       "INSERT INTO platform.venue_debug_config(enabled,expires_at,token_hash,venue_code) VALUES(TRUE,$1,$2,'tw-taipei-cks')",
@@ -216,6 +230,196 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 56→57 chain', () =>
     } finally {
       await runtime?.end();
       await owner?.end();
+    }
+  });
+  it('calculates precise boundaries, next-day weekdays, end24 and PostgreSQL DST instants fail closed', async () => {
+    const cases: readonly [string, string, string, string, readonly number[], boolean][] = [
+      ['2026-10-31T00:29:59.999Z', 'Asia/Taipei', '09:00', '11:00', [6], false],
+      ['2026-10-31T00:30:00Z', 'Asia/Taipei', '09:00', '11:00', [6], true],
+      ['2026-10-31T01:00:00Z', 'Asia/Taipei', '09:00', '11:00', [6], true],
+      ['2026-10-31T02:59:59.999Z', 'Asia/Taipei', '09:00', '11:00', [6], true],
+      ['2026-10-31T03:00:00Z', 'Asia/Taipei', '09:00', '11:00', [6], false],
+      ['2026-10-31T00:29:00Z', 'Asia/Taipei', '09:00', '11:00', [6], false],
+      ['2026-10-30T00:30:00Z', 'Asia/Taipei', '09:00', '11:00', [6], false],
+      ['2026-10-30T15:44:59.999Z', 'Asia/Taipei', '00:15', '01:00', [6], false],
+      ['2026-10-30T15:45:00Z', 'Asia/Taipei', '00:15', '01:00', [6], true],
+      ['2026-10-30T15:45:00Z', 'Asia/Taipei', '00:15', '01:00', [5], false],
+      ['2026-10-31T15:45:00Z', 'Asia/Taipei', '00:15', '01:00', [0, 3], true],
+      ['2026-10-31T15:59:59.999Z', 'Asia/Taipei', '23:00', '24:00', [6], true],
+      ['2026-10-31T16:00:00Z', 'Asia/Taipei', '23:00', '24:00', [6], false],
+      // PG maps nonexistent 02:15 to 07:15Z; subtract elapsed time, not wall time.
+      ['2026-03-08T06:44:59.999Z', 'America/New_York', '02:15', '04:00', [0], false],
+      ['2026-03-08T06:45:00Z', 'America/New_York', '02:15', '04:00', [0], true],
+      ['2026-03-08T08:00:00Z', 'America/New_York', '02:15', '04:00', [0], false],
+      // Ambiguous 01:15 uses PG standard-time occurrence (06:15Z).
+      ['2026-11-01T05:44:59.999Z', 'America/New_York', '01:15', '02:00', [0], false],
+      ['2026-11-01T05:45:00Z', 'America/New_York', '01:15', '02:00', [0], true],
+      ['2026-11-01T07:00:00Z', 'America/New_York', '01:15', '02:00', [0], false]
+    ];
+    for (const [at, zone, start, end, days, expected] of cases) {
+      const result = await owner.query('SELECT platform.venue_checkin_window($1,$2,$3) AS open', [
+        JSON.stringify({ day_of_week: days, start_time: start, end_time: end }),
+        zone,
+        at
+      ]);
+      expect(result.rows[0]?.open, JSON.stringify([at, zone, start, end, days])).toBe(expected);
+    }
+    for (const [rules, zone, at] of [
+      [null, 'UTC', '2026-10-31T00:30:00Z'],
+      [{ day_of_week: [6], start_time: '09:00', end_time: '11:00' }, null, '2026-10-31T00:30:00Z'],
+      [
+        { day_of_week: [6], start_time: '09:00', end_time: '11:00' },
+        'invalid/zone',
+        '2026-10-31T00:30:00Z'
+      ],
+      [{ day_of_week: [6], start_time: '09:00', end_time: '11:00' }, 'UTC', null],
+      [{ day_of_week: [6], start_time: null, end_time: '24:00' }, 'UTC', '2026-10-31T00:30:00Z'],
+      [
+        { day_of_week: [6, 6], start_time: '00:00', end_time: '24:00' },
+        'UTC',
+        '2026-10-31T00:30:00Z'
+      ],
+      [{ day_of_week: [6], start_time: '23:00', end_time: '01:00' }, 'UTC', '2026-10-31T00:30:00Z'],
+      [{ day_of_week: [6], start_time: '24:00', end_time: '24:00' }, 'UTC', '2026-10-31T00:30:00Z']
+    ]) {
+      expect(
+        (
+          await owner.query('SELECT platform.venue_checkin_window($1,$2,$3) AS open', [
+            rules === null ? null : JSON.stringify(rules),
+            zone,
+            at
+          ])
+        ).rows[0]?.open
+      ).toBe(false);
+    }
+  });
+  it('removes helper default-ACL residue and grants execution only to the two writers', async () => {
+    const result =
+      await owner.query(`SELECT p.prosecdef,p.proconfig,pg_get_userbyid(p.proowner) AS owner,
+      ARRAY(SELECT r.rolname::text FROM aclexplode(p.proacl) a JOIN pg_roles r ON r.oid=a.grantee WHERE a.grantee<>p.proowner ORDER BY r.rolname) AS grantees,
+      EXISTS(SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee=0) AS public
+      FROM pg_proc p WHERE p.oid='platform.venue_checkin_window(jsonb,text,timestamptz)'::regprocedure`);
+    expect(result.rows[0]).toMatchObject({
+      prosecdef: false,
+      proconfig: ['search_path=pg_catalog'],
+      owner: 'venue_debug_owner',
+      grantees: ['qigong_venue_debug', 'qigong_venue_qr_writer'],
+      public: false
+    });
+    await expect(
+      call("SELECT platform.venue_checkin_window(NULL,'UTC',clock_timestamp())")
+    ).rejects.toMatchObject({ code: '42501' });
+    expect(await checkStartupReadiness(runtime, true)).toMatchObject({ ready: true });
+    expect(
+      await checkStartupReadiness(
+        runtime,
+        true,
+        { management: { enabled: true, publicOrigin: 'https://synthetic.invalid' } },
+        true
+      )
+    ).toMatchObject({ ready: true });
+    await owner.query(
+      'GRANT EXECUTE ON FUNCTION platform.venue_checkin_window(jsonb,text,timestamptz) TO qigong_api_runtime'
+    );
+    try {
+      expect(await checkStartupReadiness(runtime, true)).toMatchObject({
+        ready: false,
+        reason: 'venue_feature_not_ready',
+        capability: { feature: 'window', ready: false }
+      });
+      expect(
+        await checkStartupReadiness(
+          runtime,
+          true,
+          { management: { enabled: true, publicOrigin: 'https://synthetic.invalid' } },
+          true
+        )
+      ).toMatchObject({ ready: false, reason: 'venue_feature_not_ready' });
+    } finally {
+      await owner.query(
+        'REVOKE ALL ON FUNCTION platform.venue_checkin_window(jsonb,text,timestamptz) FROM qigong_api_runtime'
+      );
+    }
+  });
+  it('uses the same early gate for normal/debug real-clock writes and replay while keeping actual local dates', async () => {
+    // Pick a real IANA fixed-offset zone where local now is near noon, far from date rollover.
+    const hour = new Date().getUTCHours();
+    const offset = 12 - hour;
+    const zone = offset === 0 ? 'Etc/GMT' : 'Etc/GMT' + (offset > 0 ? '-' : '+') + Math.abs(offset);
+    const schedule = async (minutes: number) =>
+      owner.query(
+        `UPDATE core.practice_fields SET timezone=$1,
+      active_time_rules=jsonb_build_object('day_of_week',jsonb_build_array(extract(dow FROM clock_timestamp() AT TIME ZONE $1)::int),
+      'start_time',to_char((clock_timestamp() AT TIME ZONE $1)+make_interval(mins=>$2),'HH24:MI'),'end_time','24:00') WHERE code='tw-taipei-cks'`,
+        [zone, minutes]
+      );
+    await schedule(31);
+    for (const debug of [false, true])
+      await expect(checkin(debug, 'tw-taipei-cks', 25)).rejects.toMatchObject({
+        message: 'venue_outside_window'
+      });
+    await schedule(30);
+    await expect(checkin(true, 'tw-taipei-cks', 25, -60)).rejects.toMatchObject({
+      message: 'venue_debug_denied'
+    });
+    await expect(
+      call('SELECT platform.venue_qr_checkin($1,$2,NULL,121)', [subject, 'tw-taipei-cks'])
+    ).rejects.toMatchObject({ message: 'venue_invalid' });
+    await owner.query(
+      'UPDATE platform.learner_privacy_acceptances SET revoked_at=clock_timestamp()'
+    );
+    for (const debug of [false, true])
+      await expect(checkin(debug, 'tw-taipei-cks', 25)).rejects.toMatchObject({
+        code: '42501',
+        message: 'privacy acceptance required'
+      });
+    await owner.query(
+      "UPDATE platform.learner_privacy_acceptances SET revoked_at=NULL; UPDATE identity.person_interaction_channels SET valid_to=clock_timestamp(); UPDATE identity.people SET status='suspended'"
+    );
+    for (const debug of [false, true])
+      await expect(checkin(debug, 'tw-taipei-cks', 25)).rejects.toMatchObject({
+        message: 'venue_identity_denied'
+      });
+    await owner.query(
+      "UPDATE identity.people SET status='active'; UPDATE identity.person_interaction_channels SET valid_to=NULL"
+    );
+    for (const debug of [false, true]) {
+      expect((await checkin(debug, 'tw-taipei-cks', 25)).rows[0]?.data).toMatchObject({
+        replayed: false
+      });
+      expect((await checkin(debug, 'tw-taipei-cks', 25)).rows[0]?.data).toMatchObject({
+        replayed: true
+      });
+    }
+    expect(
+      (
+        await owner.query(
+          'SELECT bool_and(attendance_date=(checkin_at AT TIME ZONE attendance_timezone)::date) AS ok,count(*)::int AS n FROM core.field_attendance'
+        )
+      ).rows[0]
+    ).toEqual({ ok: true, n: 2 });
+    await schedule(31);
+    for (const debug of [false, true])
+      await expect(checkin(debug, 'tw-taipei-cks', 25)).rejects.toMatchObject({
+        message: 'venue_outside_window'
+      });
+    await owner.query(
+      "TRUNCATE core.field_attendance; UPDATE core.practice_fields SET timezone='Asia/Taipei'"
+    );
+  });
+  it('keeps actual previous-day dates and existing per-person/venue/date/test uniqueness in a synthetic midnight fixture', async () => {
+    const insert = `INSERT INTO core.field_attendance(person_id,field_id,checkin_method,distance_meters,checkin_at,attendance_date,attendance_timezone,is_test,verification_mode)
+      SELECT '20000000-0000-4000-8000-000000000001',id,'qr_gps',0,$1::timestamptz,($1::timestamptz AT TIME ZONE timezone)::date,timezone,$2,CASE WHEN $2 THEN 'distance_debug' ELSE 'standard' END
+      FROM core.practice_fields WHERE code='tw-taipei-cks' AND platform.venue_checkin_window('{"day_of_week":[6],"start_time":"00:15","end_time":"01:00"}',timezone,$1)
+      ON CONFLICT(person_id,field_id,attendance_date,is_test) DO NOTHING RETURNING attendance_date::text`;
+    for (const debug of [false, true]) {
+      expect((await owner.query(insert, ['2026-10-30T15:45:00Z', debug])).rows).toEqual([
+        { attendance_date: '2026-10-30' }
+      ]);
+      expect((await owner.query(insert, ['2026-10-30T15:50:00Z', debug])).rowCount).toBe(0);
+      expect((await owner.query(insert, ['2026-10-30T16:15:00Z', debug])).rows).toEqual([
+        { attendance_date: '2026-10-31' }
+      ]);
     }
   });
   it('migration keeps configuration operator-only and constrains finite single-venue authority', async () => {
@@ -451,7 +655,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 56→57 chain', () =>
     );
     await expect(checkin(true, venueCode)).rejects.toMatchObject({ code: '42501' });
     await owner.query(`UPDATE platform.learner_privacy_acceptances SET revoked_at=NULL;
-      UPDATE core.practice_fields SET active_time_rules=jsonb_build_object('day_of_week',jsonb_build_array((extract(dow FROM clock_timestamp() AT TIME ZONE timezone)::int+1)%7),'start_time','00:00','end_time','24:00');`);
+      UPDATE core.practice_fields SET active_time_rules=jsonb_build_object('day_of_week',jsonb_build_array((extract(dow FROM clock_timestamp() AT TIME ZONE timezone)::int+2)%7),'start_time','00:00','end_time','24:00');`);
     await expect(checkin(true, venueCode)).rejects.toMatchObject({
       code: 'P0001',
       message: 'venue_outside_window'
@@ -750,7 +954,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 56→57 chain', () =>
             403
           ],
           [
-            "UPDATE core.practice_fields SET active_time_rules=jsonb_build_object('day_of_week',jsonb_build_array((extract(dow FROM clock_timestamp() AT TIME ZONE timezone)::int+1)%7),'start_time','00:00','end_time','24:00')",
+            "UPDATE core.practice_fields SET active_time_rules=jsonb_build_object('day_of_week',jsonb_build_array((extract(dow FROM clock_timestamp() AT TIME ZONE timezone)::int+2)%7),'start_time','00:00','end_time','24:00')",
             `UPDATE core.practice_fields SET active_time_rules='{"day_of_week":[0,1,2,3,4,5,6],"start_time":"00:00","end_time":"24:00"}'`,
             409
           ]

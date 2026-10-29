@@ -3,6 +3,37 @@ import { withRequestContext, type Pool } from '@qigong/database';
 import { trustedVenueOrigin } from './venue-management.js';
 import { venueDebugMigrationVersion } from './venue-debug.js';
 
+// Input-only helper is deliberately not executable by runtime; inspect catalogs only.
+const windowCapabilityPredicate = `EXISTS(
+              SELECT 1 FROM pg_proc h WHERE h.oid=to_regprocedure('platform.venue_checkin_window(jsonb,text,timestamptz)')
+                AND NOT h.prosecdef AND h.proconfig=ARRAY['search_path=pg_catalog']
+                AND h.proowner=(SELECT nspowner FROM pg_namespace WHERE nspname='platform')
+                AND has_function_privilege('qigong_venue_qr_writer',h.oid,'EXECUTE')
+                AND has_function_privilege('qigong_venue_debug',h.oid,'EXECUTE')
+                AND NOT has_function_privilege('qigong_api_runtime',h.oid,'EXECUTE')
+                AND NOT has_function_privilege('qigong_worker_runtime',h.oid,'EXECUTE')
+                AND NOT EXISTS(SELECT 1 FROM aclexplode(coalesce(h.proacl,acldefault('f',h.proowner))) a
+                  WHERE a.grantee<>h.proowner AND (a.grantee=0 OR a.is_grantable OR a.grantee NOT IN
+                    (SELECT oid FROM pg_roles WHERE rolname IN ('qigong_venue_qr_writer','qigong_venue_debug')))))`;
+export const checkVenueWindowReadiness = async (pool: Pool) => {
+  try {
+    const ready = await withRequestContext(
+      pool,
+      'qigong_api_runtime',
+      { requestId: crypto.randomUUID() },
+      async (client) => {
+        const result = await client.query<{ ready: boolean }>(
+          `SELECT ${windowCapabilityPredicate} AS ready`
+        );
+        return result.rows[0]?.ready === true;
+      }
+    );
+    return { feature: 'window' as const, ready };
+  } catch {
+    return { feature: 'window' as const, ready: false };
+  }
+};
+
 export const venueSuiteMigrationVersion = '0054_venue_people_read.sql';
 export interface VenueFeatureConfig {
   readonly enabled: true;
@@ -83,7 +114,9 @@ export const checkVenueFeatureReadiness = async (
             (SELECT (count(*)=54 AND max(version)=$4 AND NOT $6)
               OR (count(*)=55 AND max(version)='0055_venue_distance_debug.sql' AND NOT $6)
               OR (count(*)=56 AND max(version)='0056_venue_cks_distance_debug.sql' AND NOT $6)
-              OR (count(*)=57 AND max(version)=$5) FROM public.schema_migrations)
+              OR (count(*)=57 AND max(version)='0057_venue_test_scope.sql' AND NOT $6)
+              OR (count(*)=58 AND max(version)=$5) FROM public.schema_migrations)
+            AND (NOT EXISTS(SELECT 1 FROM public.schema_migrations WHERE version=$5) OR ${windowCapabilityPredicate})
             AND (NOT $6 OR EXISTS(SELECT 1 FROM pg_proc g
               WHERE g.oid=to_regprocedure('platform.venue_debug_region_active(uuid)')
                 AND g.prosecdef AND g.proconfig @> ARRAY['search_path=pg_catalog','row_security=on']
