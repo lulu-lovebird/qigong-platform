@@ -3,6 +3,10 @@ import { setImmediate } from 'node:timers/promises';
 import { describe, expect, it, vi } from 'vitest';
 import { renderReviewNotificationPage } from '../src/admin-review-notification-page.js';
 import type { AdminLocale } from '../src/admin-locale.js';
+import {
+  renderApplicationPage,
+  telegramReviewTransferDisclosure
+} from '../src/application-page.js';
 interface Element {
   value: string;
   checked: boolean;
@@ -217,6 +221,24 @@ describe('Reviewer notification page runtime and checkbox layout', () => {
       expect(f.direct.checked).toBe(true);
     }
   );
+  it('discloses the Telegram transfer before submission on every source platform and locale, without changing legal acceptance records', () => {
+    for (const locale of ['zh_TW', 'zh_CN', 'en'] as const) {
+      const disclosure = telegramReviewTransferDisclosure(locale);
+      for (const platform of ['line', 'telegram', 'whatsapp'] as const) {
+        const html = renderApplicationPage(
+          platform === 'line' ? { platform, locale, liffId: 'synthetic' } : { platform, locale }
+        );
+        expect(html.indexOf('id="applicationReviewDisclosureText"')).toBeLessThan(
+          html.indexOf('<form id="application">')
+        );
+        expect(html).toContain(disclosure.replaceAll('&', '&amp;'));
+      }
+    }
+    expect(telegramReviewTransferDisclosure('en')).toContain('cannot be recalled');
+    expect(telegramReviewTransferDisclosure('en')).toContain(
+      'not end-to-end encrypted or Secret Chats'
+    );
+  });
   it('retains both selected choices and shows a failure when the API rejects the save', async () => {
     const f = fixture('zh_TW', { failSave: true });
     await tick();

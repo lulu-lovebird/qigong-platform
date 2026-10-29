@@ -101,7 +101,12 @@ describe('WhatsApp verification without database or external requests', () => {
         expect(page.statusCode).toBe(200);
         expect(page.headers['cache-control']).toBe('no-store');
         expect(page.body).toContain('<html lang="en">');
-        expect(page.body).not.toContain('Telegram');
+        expect(page.body).not.toContain('/telegram/onboarding/');
+        if (kind === 'apply') {
+          expect(page.body).toContain('private Telegram cloud chats');
+          expect(page.body).toContain('not end-to-end encrypted');
+          expect(page.body).toContain("fetch('/whatsapp/onboarding/apply'");
+        } else expect(page.body).not.toContain('Telegram');
       }
     } finally {
       await app.close();
