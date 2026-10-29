@@ -193,6 +193,7 @@ END$$;
 CREATE FUNCTION platform.telegram_learner_review_reason(input_subject TEXT,input_prompt BIGINT,input_reason TEXT,input_next_token TEXT) RETURNS JSONB
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE t ops.telegram_learner_reviews;p admin.review_notification_preferences;a identity.onboarding_applications;BEGIN
  IF input_reason IS NULL OR length(btrim(input_reason)) NOT BETWEEN 1 AND 500 OR btrim(input_reason) LIKE '/%'
+ OR btrim(input_reason) ~* '^(help(@[A-Za-z0-9_]+)?|說明|说明|使用說明|使用说明|幫助|帮助|隱私|隐私|條款|条款)$'
  OR input_next_token IS NULL OR input_next_token !~ '^[A-Za-z0-9_-]{43}$' THEN RETURN jsonb_build_object('state','unavailable');END IF;
  PERFORM ops.lock_telegram_learner_review_permissions();
  SELECT pref.* INTO p FROM admin.review_notification_preferences pref JOIN ops.telegram_learner_reviews x ON x.principal_id=pref.principal_id

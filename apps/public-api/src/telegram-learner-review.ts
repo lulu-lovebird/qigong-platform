@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { withRequestContext, type Pool } from '@qigong/database';
 import { z } from 'zod';
 import { localeSchema, uiText } from './ui-localization.js';
+import { isHelpCommand } from './learner-help-content.js';
 
 const positive = z.number().int().positive().safe();
 const subjectSchema = z.string().regex(/^[1-9][0-9]{0,19}$/);
@@ -364,6 +365,8 @@ export const handleTelegramLearnerReview = async (
     age < -60 ||
     age >= 86400 ||
     message.text.startsWith('/') ||
+    isHelpCommand(message.text) ||
+    /^(?:隱私|隐私|條款|条款)$/.test(message.text) ||
     message.entities?.some((entity) => entity.type === 'bot_command')
   )
     return false;

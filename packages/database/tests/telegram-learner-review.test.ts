@@ -245,7 +245,8 @@ suite('Telegram learner review: actual nonowner SQL and concurrent authorization
       ).rows[0]!.data;
     expect((await reply(subject, 593, 'Wrong prompt')).state).toBe('unavailable');
     expect((await reply('548000000060', 592, 'Wrong sender')).state).toBe('unavailable');
-    expect((await reply(subject, 592, '/journal')).state).toBe('unavailable');
+    for (const command of ['/journal', 'help', '使用說明', '隱私', '條款'])
+      expect((await reply(subject, 592, command)).state).toBe('unavailable');
     expect((await reply(subject, 592, ' ')).state).toBe('unavailable');
     const token = opaque();
     expect(

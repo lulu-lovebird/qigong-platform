@@ -209,6 +209,12 @@ describe('Explicit reason reply isolation', () => {
     ' /start',
     '/checkin',
     '/admin_notify something',
+    'help',
+    'HELP@fixture_bot',
+    '使用說明',
+    '帮助',
+    '隱私',
+    '條款',
     '',
     ' '.repeat(3),
     'x'.repeat(501)
