@@ -7,7 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runMigrations, withRequestContext, type Pool } from '@qigong/database';
 import { createIsolatedTestDatabase } from '../../../packages/database/tests/test-database.js';
-import { buildApp } from '../src/app.js';
+import { buildApp, checkStartupReadiness } from '../src/app.js';
 import {
   reviewNotificationsEnabled,
   buildReviewNotification,
@@ -225,6 +225,39 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
   });
   afterEach(async () => {
     for (const cleanup of cleaners.reverse()) await cleanup();
+  });
+  it('admits exact schema59 with reviewer feature off and preserves explicitly enabled venue capability checks', async () => {
+    const apiRole = 'tgapply_readiness_' + randomUUID().replaceAll('-', '');
+    await db.pool.query(
+      `CREATE ROLE ${apiRole} LOGIN NOINHERIT NOBYPASSRLS;GRANT qigong_api_runtime TO ${apiRole}`
+    );
+    cleaners.push(async () => {
+      await db.pool.query(`DROP OWNED BY ${apiRole}`);
+      await db.pool.query(`DROP ROLE ${apiRole}`);
+    });
+    const url = new URL(db.databaseUrl);
+    url.username = apiRole;
+    const apiOnly = new pg.Pool({ connectionString: url.href });
+    cleaners.push(() => apiOnly.end());
+    const off = await checkStartupReadiness(apiOnly);
+    expect(off.ready).toBe(true);
+    if (!off.ready) throw Error('Schema59 readiness unavailable');
+    expect(off.migration.currentVersion).toBe('0059_telegram_learner_review.sql');
+    expect(
+      (
+        await checkStartupReadiness(
+          apiOnly,
+          true,
+          {
+            history: { enabled: true, publicOrigin: origin },
+            management: { enabled: true, publicOrigin: origin },
+            people: { enabled: true, publicOrigin: origin }
+          },
+          true
+        )
+      ).ready
+    ).toBe(true);
+    expect((await state()).learnerReviewEnabled).toBe(false);
   });
   it('requires admin session, CSRF and private signed webhook, not a learner approval or name/email match', async () => {
     expect((await app.inject('/admin/api/notifications/state')).statusCode).toBe(401);

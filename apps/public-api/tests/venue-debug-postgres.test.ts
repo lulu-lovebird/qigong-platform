@@ -127,7 +127,20 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 57→58 chain', () =>
     ).rows;
     const oldRows = (await owner.query('SELECT * FROM core.field_attendance ORDER BY id')).rows;
     const oldVenues = (await owner.query('SELECT * FROM core.practice_fields ORDER BY id')).rows;
-    const result = await runMigrations(owner, resolve('../../migrations'));
+    // Keep this 57→58 security-metadata preservation test pinned to its exact
+    // feature migration. The 58→59 notification upgrade has its own isolated proof.
+    const migrate58 = async () => {
+      const exact58 = await mkdtemp('/tmp/venue-debug-migrations-');
+      try {
+        for (const name of await readdir(resolve('../../migrations')))
+          if (name.endsWith('.sql') && name < '0059_')
+            await copyFile(resolve('../../migrations', name), resolve(exact58, name));
+        return await runMigrations(owner, exact58);
+      } finally {
+        await rm(exact58, { recursive: true, force: true });
+      }
+    };
+    const result = await migrate58();
     expect(result.applied).toEqual(['0058_venue_early_checkin_window.sql']);
     expect(result.currentVersion).toBe('0058_venue_early_checkin_window.sql');
     expect(
@@ -145,7 +158,7 @@ describe.skipIf(!directory)('debug: owned socket-only PG17 57→58 chain', () =>
       ).rows[0]?.old
     ).toBeNull();
     expect((await owner.query('SELECT 1 FROM platform.venue_debug_config')).rowCount).toBe(0);
-    expect((await runMigrations(owner, resolve('../../migrations'))).applied).toEqual([]);
+    expect((await migrate58()).applied).toEqual([]);
     expect((await owner.query('SELECT * FROM core.field_attendance ORDER BY id')).rows).toEqual(
       oldRows
     );
