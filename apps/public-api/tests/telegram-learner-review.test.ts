@@ -8,12 +8,19 @@ import {
   handleTelegramLearnerReview,
   learnerReviewCallback,
   learnerReviewView,
+  telegramLearnerReviewEnabled,
   type TelegramReviewTransport
 } from '../src/telegram-learner-review.js';
 
 const fixture = vi.hoisted(
-  (): { data: Record<string, unknown>; order: string[]; query: ReturnType<typeof vi.fn> } => ({
+  (): {
+    data: Record<string, unknown>;
+    owned: boolean;
+    order: string[];
+    query: ReturnType<typeof vi.fn>;
+  } => ({
     data: { state: 'unavailable' },
+    owned: true,
     order: [],
     query: vi.fn()
   })
@@ -70,13 +77,16 @@ const transport: TelegramReviewTransport = {
   }),
   answer: vi.fn(async () => {})
 };
-const handle = (update: unknown) =>
-  handleTelegramLearnerReview(pool, randomUUID(), update, String(botId), transport);
+const handle = (update: unknown, enabled = true) =>
+  handleTelegramLearnerReview(pool, randomUUID(), update, String(botId), transport, enabled);
 beforeEach(() => {
   vi.clearAllMocks();
   fixture.data = { state: 'unavailable' };
+  fixture.owned = true;
   fixture.order.length = 0;
-  fixture.query.mockImplementation(async () => ({ rows: [{ data: fixture.data }] }));
+  fixture.query.mockImplementation(async () => ({
+    rows: [{ data: fixture.data, owned: fixture.owned }]
+  }));
 });
 afterEach(() => vi.unstubAllGlobals());
 describe('Bound private Telegram learner callbacks', () => {
@@ -214,10 +224,7 @@ describe('Explicit reason reply isolation', () => {
     '使用說明',
     '帮助',
     '隱私',
-    '條款',
-    '',
-    ' '.repeat(3),
-    'x'.repeat(501)
+    '條款'
   ])('never consumes command/invalid text %j as a reason', async (text) => {
     expect(await handle(reply(text))).toBe(false);
     expect(fixture.query).not.toHaveBeenCalled();
@@ -240,9 +247,6 @@ describe('Explicit reason reply isolation', () => {
     },
     (v: ReturnType<typeof reply>) => {
       Object.assign(v.message, { entities: [{ type: 'bot_command' }] });
-    },
-    (v: ReturnType<typeof reply>) => {
-      v.message.date = 1;
     }
   ])('does not capture unrelated, forwarded or expired conversations', async (mutate) => {
     const update = reply();
@@ -268,7 +272,7 @@ describe('Explicit reason reply isolation', () => {
   it('only updates the SQL-authorized originating application and still requires confirmation', async () => {
     fixture.data = { state: 'confirm_deny', locale: 'en', reason: '<plain>', messageId: 590 };
     expect(await handle(reply('<plain>'))).toBe(true);
-    expect(fixture.query.mock.calls[0]).toEqual([
+    expect(fixture.query.mock.calls[1]).toEqual([
       'SELECT platform.telegram_learner_review_reason($1,$2,$3,$4) data',
       [String(subject), 592, '<plain>', expect.any(String)]
     ]);
@@ -279,6 +283,60 @@ describe('Explicit reason reply isolation', () => {
       expect.any(Array)
     );
     fixture.data = { state: 'unavailable' };
-    expect(await handle(reply())).toBe(false);
+    expect(await handle(reply())).toBe(true);
+  });
+  it.each([false, true])(
+    'consumes exact owned stale/closed/repeated/invalid replies without reason capture; enabled=%s',
+    async (enabled) => {
+      for (const text of ['', ' '.repeat(3), 'x'.repeat(501), 'Private synthetic reason']) {
+        vi.clearAllMocks();
+        const update = reply(text);
+        update.message.date = 1;
+        expect(await handle(update, enabled)).toBe(true);
+        expect(await handle(update, enabled)).toBe(true);
+        expect(
+          fixture.query.mock.calls.every(
+            ([sql]) => sql === 'SELECT platform.telegram_learner_review_owned_prompt($1,$2) owned'
+          )
+        ).toBe(true);
+        expect(JSON.stringify(fixture.query.mock.calls)).not.toContain('Private synthetic reason');
+        expect(transport.edit).not.toHaveBeenCalled();
+        expect(transport.send).not.toHaveBeenCalled();
+      }
+    }
+  );
+  it.each([false, true])(
+    'does not swallow unrelated bot replies or plain conversations; enabled=%s',
+    async (enabled) => {
+      fixture.owned = false;
+      expect(await handle(reply(), enabled)).toBe(false);
+      expect(fixture.query).toHaveBeenCalledTimes(1);
+      expect(fixture.query.mock.calls[0]).toEqual([
+        'SELECT platform.telegram_learner_review_owned_prompt($1,$2) owned',
+        [String(subject), 592]
+      ]);
+      vi.clearAllMocks();
+      for (const text of ['/journal', '/start', '/privacy', 'help', '隱私', '條款'])
+        expect(await handle(reply(text), enabled)).toBe(false);
+      expect(fixture.query).not.toHaveBeenCalled();
+    }
+  );
+  it('strictly defaults off and blocks callbacks with no database action or PII', async () => {
+    expect(telegramLearnerReviewEnabled(undefined)).toBe(false);
+    expect(telegramLearnerReviewEnabled('false')).toBe(false);
+    expect(telegramLearnerReviewEnabled('true')).toBe(true);
+    for (const invalid of ['TRUE', '1', '', 'yes'])
+      expect(() => telegramLearnerReviewEnabled(invalid)).toThrow();
+    expect(await handle(callback(), false)).toBe(true);
+    expect(
+      await handleTelegramLearnerReview(pool, randomUUID(), callback(), String(botId), transport)
+    ).toBe(true);
+    expect(fixture.query).not.toHaveBeenCalled();
+    expect(transport.edit).not.toHaveBeenCalled();
+    expect(transport.send).not.toHaveBeenCalled();
+    expect(transport.answer).toHaveBeenCalledWith(
+      'callback-fixture',
+      expect.stringContaining('unavailable')
+    );
   });
 });

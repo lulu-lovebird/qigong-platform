@@ -49,7 +49,8 @@ describe('Review webhook ordering, authentication and body bounds', () => {
       expect.any(String),
       update,
       '59000',
-      expect.any(Object)
+      expect.any(Object),
+      false
     );
   });
   it('keeps 32KiB body limit and rejects oversized callbacks before handling', async () => {

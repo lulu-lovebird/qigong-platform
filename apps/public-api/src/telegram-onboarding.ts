@@ -75,6 +75,7 @@ export interface TelegramOnboardingConfig {
   botToken: string;
   webhookSecret: string;
   regionCode: string;
+  learnerReviewEnabled?: boolean;
   reviewTransport?: TelegramReviewTransport;
   sendMessage?: (
     chatId: number,
@@ -89,6 +90,7 @@ export const registerTelegramOnboarding = (
   config: TelegramOnboardingConfig,
   inviteTarget?: string
 ) => {
+  const learnerReviewEnabled = config.learnerReviewEnabled ?? false;
   registerChannelInvitePages(app, pool, 'telegram', config.webhookSecret, inviteTarget);
   const replyHelp = createHelpReplyGuard();
   const replyInvitation = createHelpReplyGuard();
@@ -165,7 +167,8 @@ export const registerTelegramOnboarding = (
             request.id,
             request.body,
             config.botToken.split(':')[0] ?? '',
-            reviewTransport
+            reviewTransport,
+            learnerReviewEnabled
           )
         )
           return { ok: true };

@@ -4,6 +4,9 @@ import { z } from 'zod';
 import { localeSchema, uiText } from './ui-localization.js';
 import { isHelpCommand } from './learner-help-content.js';
 
+export const telegramLearnerReviewEnabled = (value: string | undefined): boolean =>
+  z.enum(['true', 'false']).default('false').parse(value) === 'true';
+
 const positive = z.number().int().positive().safe();
 const subjectSchema = z.string().regex(/^[1-9][0-9]{0,19}$/);
 const opaqueSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
@@ -35,7 +38,8 @@ const replySchema = z.object({
   from: actor,
   chat: privateChat,
   date: positive,
-  text: z.string().trim().min(1).max(500),
+  // Ownership must be established even for empty/oversized late replies.
+  text: z.string().trim(),
   entities: z.array(z.object({ type: z.string() })).optional(),
   reply_to_message: originalMessage,
   forward_origin: z.never().optional(),
@@ -268,7 +272,8 @@ export const handleTelegramLearnerReview = async (
   requestId: string,
   update: unknown,
   botId: string,
-  transport: TelegramReviewTransport
+  transport: TelegramReviewTransport,
+  enabled = false
 ): Promise<boolean> => {
   const envelope = z
     .object({
@@ -294,6 +299,14 @@ export const handleTelegramLearnerReview = async (
       return true;
     const match = /^lr:([A-Za-z0-9_-]{43}):([adcyivt])$/.exec(callback.data);
     if (!match) return true;
+    if (!enabled) {
+      try {
+        await transport.answer(callback.id, 'Review unavailable / 審核已失效');
+      } catch {
+        /* No business action or PII when paused. */
+      }
+      return true;
+    }
     const token = randomBytes(32).toString('base64url');
     const subject = String(callback.from.id);
     const result = await query(
@@ -362,14 +375,24 @@ export const handleTelegramLearnerReview = async (
     message.chat.id !== message.from.id ||
     message.reply_to_message.chat.id !== message.chat.id ||
     String(message.reply_to_message.from.id) !== botId ||
-    age < -60 ||
-    age >= 86400 ||
     message.text.startsWith('/') ||
     isHelpCommand(message.text) ||
     /^(?:隱私|隐私|條款|条款)$/.test(message.text) ||
     message.entities?.some((entity) => entity.type === 'bot_command')
   )
     return false;
+  // Only exact subject/prompt ownership is queried while paused; never send reply
+  // text to SQL, echo it, or swallow unrelated conversations. Tombstones survive
+  // closure, expiry and repeated replies. Lookup failure fails the webhook closed.
+  const ownership = await withRequestContext(pool, 'qigong_api_runtime', { requestId }, (c) =>
+    c.query<{ owned: boolean }>(
+      'SELECT platform.telegram_learner_review_owned_prompt($1,$2) owned',
+      [String(message.from.id), message.reply_to_message.message_id]
+    )
+  );
+  if (ownership.rows[0]?.owned !== true) return false;
+  if (!enabled || age < -60 || age >= 86400 || message.text.length < 1 || message.text.length > 500)
+    return true;
   const token = randomBytes(32).toString('base64url');
   const result = await query('SELECT platform.telegram_learner_review_reason($1,$2,$3,$4) data', [
     String(message.from.id),
@@ -377,7 +400,7 @@ export const handleTelegramLearnerReview = async (
     message.text,
     token
   ]);
-  if (result.state === 'unavailable' || result.messageId === undefined) return false;
+  if (result.state === 'unavailable' || result.messageId === undefined) return true;
   const view = learnerReviewView(result, token);
   try {
     await transport.edit(String(message.from.id), result.messageId, view.text, view.buttons);
