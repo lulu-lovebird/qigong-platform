@@ -236,8 +236,9 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
   });
   it('admits exact schema59 with reviewer feature off and preserves explicitly enabled venue capability checks', async () => {
     const apiRole = 'tgapply_readiness_' + randomUUID().replaceAll('-', '');
+    const password = randomBytes(24).toString('hex');
     await db.pool.query(
-      `CREATE ROLE ${apiRole} LOGIN NOINHERIT NOBYPASSRLS;GRANT qigong_api_runtime TO ${apiRole}`
+      `CREATE ROLE ${apiRole} LOGIN NOINHERIT NOBYPASSRLS PASSWORD '${password}';GRANT qigong_api_runtime TO ${apiRole}`
     );
     cleaners.push(async () => {
       await db.pool.query(`DROP OWNED BY ${apiRole}`);
@@ -245,6 +246,7 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
     });
     const url = new URL(db.databaseUrl);
     url.username = apiRole;
+    url.password = password;
     const apiOnly = new pg.Pool({ connectionString: url.href });
     cleaners.push(() => apiOnly.end());
     const off = await checkStartupReadiness(apiOnly);
@@ -670,11 +672,13 @@ suite(
       db = await createIsolatedTestDatabase(base!);
       await runMigrations(db.pool, directory, 'disclosure-http');
       role = 'disclosure_http_' + randomUUID().replaceAll('-', '');
+      const password = randomBytes(24).toString('hex');
       await db.pool.query(
-        `CREATE ROLE ${role} LOGIN NOINHERIT NOBYPASSRLS;GRANT qigong_api_runtime TO ${role}`
+        `CREATE ROLE ${role} LOGIN NOINHERIT NOBYPASSRLS PASSWORD '${password}';GRANT qigong_api_runtime TO ${role}`
       );
       const url = new URL(db.databaseUrl);
       url.username = role;
+      url.password = password;
       runtime = new pg.Pool({ connectionString: url.href });
       await db.pool.query(
         "WITH g AS(INSERT INTO core.regions(code,region_type,name_zh_tw,name_en) VALUES('disclosure-http-global','global','全球','Global') RETURNING id),c AS(INSERT INTO core.regions(parent_region_id,code,region_type,name_zh_tw,name_en) SELECT id,'disclosure-http-country','country','國家','Country' FROM g RETURNING id) INSERT INTO core.regions(parent_region_id,code,region_type,name_zh_tw,name_en) SELECT id,'tw-general','operational','台灣','Taiwan' FROM c"

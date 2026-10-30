@@ -99,10 +99,12 @@ suite('Telegram learner review: actual nonowner SQL and concurrent authorization
     db = await createIsolatedTestDatabase(base!);
     await runMigrations(db.pool, directory, 'tgapply-test');
     role = 'tgapply_test_' + randomUUID().replaceAll('-', '');
-    await db.pool.query(`CREATE ROLE ${role} LOGIN NOINHERIT NOBYPASSRLS`);
+    const password = randomBytes(24).toString('hex');
+    await db.pool.query(`CREATE ROLE ${role} LOGIN NOINHERIT NOBYPASSRLS PASSWORD '${password}'`);
     await db.pool.query(`GRANT qigong_api_runtime,qigong_worker_runtime TO ${role}`);
     const url = new URL(db.databaseUrl);
     url.username = role;
+    url.password = password;
     runtime = new pg.Pool({ connectionString: url.href });
     principal = (
       await db.pool.query<{ id: string }>(

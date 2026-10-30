@@ -24,11 +24,13 @@ suite('Application-bound notice ACK: verified submission wrappers, actual nonown
     db = await createIsolatedTestDatabase(base!);
     await runMigrations(db.pool, directory, 'disclosure-test');
     role = 'disclosure_' + randomUUID().replaceAll('-', '');
+    const password = randomBytes(24).toString('hex');
     await db.pool.query(
-      `CREATE ROLE ${role} LOGIN NOINHERIT NOBYPASSRLS;GRANT qigong_api_runtime TO ${role}`
+      `CREATE ROLE ${role} LOGIN NOINHERIT NOBYPASSRLS PASSWORD '${password}';GRANT qigong_api_runtime TO ${role}`
     );
     const url = new URL(db.databaseUrl);
     url.username = role;
+    url.password = password;
     runtime = new pg.Pool({ connectionString: url.href });
     await db.pool.query(
       "WITH g AS(INSERT INTO core.regions(code,region_type,name_zh_tw,name_en) VALUES('disclosure-global','global','全球','Global') RETURNING id),c AS(INSERT INTO core.regions(parent_region_id,code,region_type,name_zh_tw,name_en) SELECT id,'disclosure-country','country','國家','Country' FROM g RETURNING id) INSERT INTO core.regions(parent_region_id,code,region_type,name_zh_tw,name_en) SELECT id,'tw-general','operational','地區','Region' FROM c"
