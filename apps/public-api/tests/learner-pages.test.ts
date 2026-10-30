@@ -215,6 +215,42 @@ const submit = async (form: ElementStub) => {
 };
 
 describe('shared learner pages without database or real LIFF SDK', () => {
+  for (const platform of ['line', 'telegram', 'whatsapp'] as const)
+    it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+      `${platform}/%s sends a notice-version protocol ACK only with the application submission`,
+      async (locale) => {
+        const html = renderApplicationPage(
+          platform === 'line' ? { platform, locale, liffId: '123456-test' } : { platform, locale }
+        );
+        expect(html.indexOf('id="applicationReviewDisclosureText"')).toBeLessThan(
+          html.indexOf('<form id="application">')
+        );
+        expect(html).toContain('Telegram');
+        const page = fixture(html, {
+          url: `https://checkin.baiyinqigong.org/${platform}/apply?lang=${locale}#${token}`,
+          notificationConsent: true
+        });
+        await setImmediate();
+        const applicationCalls = () =>
+          page.fetchMock.mock.calls.filter(
+            ([url]) => typeof url === 'string' && url.endsWith('/onboarding/apply')
+          );
+        expect(applicationCalls()).toEqual([]);
+        await submit(page.get('application'));
+        const calls = applicationCalls();
+        expect(calls).toHaveLength(1);
+        expect(calls[0]?.[0]).toBe(`/${platform}/onboarding/apply`);
+        expect(requestPayload(calls[0]?.[1]?.body)).toMatchObject({
+          token,
+          telegramReviewNoticeVersion: 'telegram-learner-review-v1',
+          ...(platform === 'line' ? { idToken: 'verified-id-token' } : {}),
+          ...(platform === 'whatsapp' ? { locale, notificationConsent: true } : {})
+        });
+        expect(calls[0]?.[1]?.credentials).toBe('same-origin');
+        expect(calls[0]?.[0]).not.toContain('telegram-learner-review-v1');
+        expect(page.document.cookie).not.toContain('telegram-learner-review-v1');
+      }
+    );
   it.each([
     ['line', 'zh_TW'],
     ['telegram', 'zh_TW'],
@@ -482,7 +518,9 @@ describe('shared learner pages without database or real LIFF SDK', () => {
   it('renders WhatsApp English applications with explicit consent and identity-bound payloads', async () => {
     const html = renderApplicationPage({ platform: 'whatsapp', locale: 'en' });
     expect(html).toContain('name="notificationConsent" type="checkbox" required');
-    expect(html).not.toContain('Telegram');
+    expect(html).toContain('private Telegram cloud chats');
+    expect(html).toContain('not end-to-end encrypted');
+    expect(html).not.toContain('/telegram/onboarding/');
     const page = fixture(html, { notificationConsent: true });
     await submit(page.get('application'));
     expect(page.fetchMock.mock.calls[0]?.[0]).toBe('/whatsapp/onboarding/apply');
@@ -547,6 +585,7 @@ describe('shared learner pages without database or real LIFF SDK', () => {
       expect(requestPayload(page.fetchMock.mock.calls[0]?.[1]?.body)).toEqual({
         token,
         ...values,
+        telegramReviewNoticeVersion: 'telegram-learner-review-v1',
         locale: 'en',
         notificationConsent: consent
       });

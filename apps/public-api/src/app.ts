@@ -69,7 +69,7 @@ export const apiLogRedaction = Object.freeze({
 
 export const minimumMigrationVersion = '0042_activity_consecutive_drafts.sql';
 // Exact QR schema compatibility does not enable QR or the old NFC routes.
-export const maximumMigrationVersion = venueDebugMigrationVersion;
+export const maximumMigrationVersion = '0059_telegram_learner_review.sql';
 const defaultOffMigrationVersions = new Set([
   minimumMigrationVersion,
   '0043_achievement_rule_versions.sql',
@@ -84,7 +84,8 @@ const defaultOffMigrationVersions = new Set([
   '0055_venue_distance_debug.sql',
   '0056_venue_cks_distance_debug.sql',
   '0057_venue_test_scope.sql',
-  venueDebugMigrationVersion
+  venueDebugMigrationVersion,
+  maximumMigrationVersion
 ]);
 // HTTP error classes can inherit status/message data (unlike log diagnostics,
 // which deliberately ignore prototypes). Preserve that compatibility without
@@ -226,6 +227,7 @@ interface AppDependencies {
   serviceVersion?: string;
   adminAuth?: AdminAuthProvider;
   telegramOnboarding?: TelegramOnboardingConfig;
+  telegramLearnerReviewEnabled?: boolean;
   line?: LineConfig;
   whatsapp?: WhatsAppConfig;
   venueQr?: VenueQrConfig;
@@ -255,20 +257,24 @@ export const checkStartupReadiness = async (
     ready:
       status.ready &&
       (venueDebugEnabled
-        ? venueQrEnabled && status.currentVersion === venueDebugMigrationVersion
+        ? venueQrEnabled &&
+          (status.currentVersion === venueDebugMigrationVersion ||
+            status.currentVersion === maximumMigrationVersion)
         : enabledFeatures.length > 0
           ? status.currentVersion === venueSuiteMigrationVersion ||
             status.currentVersion === '0055_venue_distance_debug.sql' ||
             status.currentVersion === '0056_venue_cks_distance_debug.sql' ||
             status.currentVersion === '0057_venue_test_scope.sql' ||
-            status.currentVersion === venueDebugMigrationVersion
+            status.currentVersion === venueDebugMigrationVersion ||
+            status.currentVersion === maximumMigrationVersion
           : venueQrEnabled
             ? status.currentVersion === venueQrMigrationVersion ||
               status.currentVersion === venueSuiteMigrationVersion ||
               status.currentVersion === '0055_venue_distance_debug.sql' ||
               status.currentVersion === '0056_venue_cks_distance_debug.sql' ||
               status.currentVersion === '0057_venue_test_scope.sql' ||
-              status.currentVersion === venueDebugMigrationVersion
+              status.currentVersion === venueDebugMigrationVersion ||
+              status.currentVersion === maximumMigrationVersion
             : status.currentVersion !== null &&
               defaultOffMigrationVersions.has(status.currentVersion))
   };
@@ -277,7 +283,11 @@ export const checkStartupReadiness = async (
   const runtime = await checkApiRuntimePreflight(pool);
   if (!runtime.ready)
     return { ready: false as const, reason: 'runtime_role_misconfigured', runtime };
-  if (venueQrEnabled && status.currentVersion === venueDebugMigrationVersion) {
+  if (
+    venueQrEnabled &&
+    (status.currentVersion === venueDebugMigrationVersion ||
+      status.currentVersion === maximumMigrationVersion)
+  ) {
     const capability = await checkVenueWindowReadiness(pool);
     if (!capability.ready)
       return { ready: false as const, reason: 'venue_feature_not_ready', capability };
@@ -305,6 +315,7 @@ export const buildApp = ({
   serviceVersion = 'development',
   adminAuth,
   telegramOnboarding,
+  telegramLearnerReviewEnabled = false,
   line,
   whatsapp,
   venueQr,
@@ -485,9 +496,23 @@ export const buildApp = ({
   registerExternalJournalRoutes(app, pool);
   registerNfcFeature(app, pool, registerFieldCheckinRoutes);
   if (adminAuth)
-    registerAdminRoutes(app, pool, adminAuth, line?.liffId, enabledInviteTransports, qr, suite);
+    registerAdminRoutes(
+      app,
+      pool,
+      adminAuth,
+      line?.liffId,
+      enabledInviteTransports,
+      qr,
+      suite,
+      telegramLearnerReviewEnabled
+    );
   if (telegramOnboarding)
-    registerTelegramOnboarding(app, pool, telegramOnboarding, enabledInviteTransports.telegram);
+    registerTelegramOnboarding(
+      app,
+      pool,
+      { ...telegramOnboarding, learnerReviewEnabled: telegramLearnerReviewEnabled },
+      enabledInviteTransports.telegram
+    );
   if (line) {
     registerLineOnboarding(
       app,

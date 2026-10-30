@@ -10,21 +10,25 @@ export const registerReviewNotificationRoutes = (
   app: FastifyInstance,
   pool: Pool,
   principalFor: (request: FastifyRequest) => Promise<string | null>,
-  validCsrf: (request: FastifyRequest) => boolean
+  validCsrf: (request: FastifyRequest) => boolean,
+  learnerReviewEnabled = false
 ) => {
   const query = async (principal: string, requestId: string, sql: string, values: unknown[] = []) =>
-    z
-      .record(z.string(), z.unknown())
-      .parse(
-        (
-          await withRequestContext(
-            pool,
-            'qigong_api_runtime',
-            { principalId: principal, requestId },
-            (c) => c.query<{ data: unknown }>(sql, values)
-          )
-        ).rows[0]?.data
-      );
+    z.record(z.string(), z.unknown()).parse(
+      (
+        await withRequestContext(
+          pool,
+          'qigong_api_runtime',
+          { principalId: principal, requestId },
+          async (c) => {
+            await c.query("SELECT set_config('qigong.telegram_learner_review_enabled',$1,true)", [
+              String(learnerReviewEnabled)
+            ]);
+            return c.query<{ data: unknown }>(sql, values);
+          }
+        )
+      ).rows[0]?.data
+    );
   const failure = (error: unknown) => {
     const text = error instanceof Error ? error.message : '';
     return text === 'review notification conflict'
@@ -73,7 +77,10 @@ export const registerReviewNotificationRoutes = (
     const principal = await principalFor(request);
     if (!principal) return reply.code(401).send({ error: 'unauthenticated' });
     try {
-      return await query(principal, request.id, 'SELECT admin.review_notification_state() data');
+      return {
+        ...(await query(principal, request.id, 'SELECT admin.review_notification_state() data')),
+        learnerReviewFeatureEnabled: learnerReviewEnabled
+      };
     } catch (error) {
       const f = failure(error);
       return reply.code(f.status).send({ error: f.error });
@@ -140,6 +147,8 @@ export const registerReviewNotificationRoutes = (
             version,
             adminEnabled: z.boolean(),
             learnerEnabled: z.boolean(),
+            learnerReviewEnabled: z.boolean().default(false),
+            learnerReviewDisclosure: z.literal('telegram-learner-review-v1').optional(),
             locale: localeSchema,
             disconnect: z.boolean().default(false)
           })
@@ -147,6 +156,39 @@ export const registerReviewNotificationRoutes = (
           .safeParse(request.body);
         if (!body.success) return reply.code(400).send({ error: 'invalid_notification_request' });
         const v = body.data;
+        if (v.learnerReviewEnabled) {
+          if (!learnerReviewEnabled)
+            return reply.code(403).send({ error: 'learner_review_disabled' });
+          const currentSuper = await withRequestContext(
+            pool,
+            'qigong_api_runtime',
+            { principalId: principal, requestId: request.id },
+            (c) => c.query<{ allowed: boolean }>('SELECT admin.is_super_admin() allowed')
+          );
+          if (currentSuper.rows[0]?.allowed !== true)
+            return reply.code(403).send({ error: 'notification_access_denied' });
+          if (
+            !v.learnerEnabled ||
+            v.disconnect ||
+            v.learnerReviewDisclosure !== 'telegram-learner-review-v1'
+          )
+            return reply.code(400).send({ error: 'invalid_notification_request' });
+          return await query(
+            principal,
+            request.id,
+            'SELECT admin.save_telegram_learner_review_preferences($1,$2,$3,$4,$5,$6,$7) data',
+            [
+              v.version,
+              v.adminEnabled,
+              v.learnerEnabled,
+              v.locale,
+              v.disconnect,
+              true,
+              v.learnerReviewDisclosure
+            ]
+          );
+        }
+        // The original signature stays a safe count-only opt-out, including schema58.
         return await query(
           principal,
           request.id,

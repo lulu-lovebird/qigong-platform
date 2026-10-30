@@ -7,6 +7,17 @@ export type LearnerPageChannel = (
   { platform: 'telegram' | 'whatsapp' } | { platform: 'line'; liffId: string }
 ) & { locale?: LearnerLocale };
 
+// Submission protocol ACK only: not proof that the notice was read or legal consent.
+export const telegramReviewNoticeVersion = 'telegram-learner-review-v1';
+
+export const telegramReviewTransferDisclosure = (locale: LearnerLocale) =>
+  locale === 'en'
+    ? 'Bean, Bird & Badminton Tech Consulting may transfer your self-reported name, phone and email, source-platform nickname, verified source system ID and requested region to explicitly opted-in, currently authorized reviewers in private Telegram cloud chats, solely to review this learner application. A LINE system ID is not a chosen LINE handle; other-platform identities are not inferred. Telegram cloud chats are not end-to-end encrypted or Secret Chats. Already delivered or forwarded data cannot be recalled. Reviewers must not forward or reuse it.'
+    : uiText(
+        locale,
+        'Bean, Bird & Badminton Tech Consulting 可能將您自行填寫的姓名、電話及電子信箱、來源平台暱稱、已驗證來源系統 ID 與申請地區，傳送至已明確同意且目前具權限的審核員之私人 Telegram 雲端聊天，僅供審核此學員申請。LINE 系統 ID 不是自選 LINE 帳號；不推斷其他平台身分。Telegram 雲端聊天並非端對端加密或秘密聊天；已送達或轉傳的資料無法收回。審核員不得轉傳或另作他用。'
+      );
+
 export const pageTexts = (channel: LearnerPageChannel) =>
   channel.platform === 'line'
     ? {
@@ -76,6 +87,7 @@ const whatsappApplicationLanguageScript = (locale: LearnerLocale) => `
           {
             ...pageTexts({ platform: 'whatsapp', locale: language }),
             languageLabel: language === 'en' ? 'Language' : uiText(language, '介面語言'),
+            reviewTransferDisclosure: telegramReviewTransferDisclosure(language),
             notificationConsentLabel:
               language === 'en'
                 ? 'I agree to receive WhatsApp messages about my application decision. Reply STOP to opt out.'
@@ -90,7 +102,7 @@ const whatsappApplicationLanguageScript = (locale: LearnerLocale) => `
       applicationLocale=next;ui=applicationInterfaces[next];
       document.documentElement.lang=next==='en'?'en':next==='zh_CN'?'zh-Hans':'zh-Hant';
       document.title=ui.applicationTitle;
-      for(const [id,key]of Object.entries({applicationTitleText:'applicationTitle',applicationLanguageText:'languageLabel',applicationNameText:'name',applicationEmailText:'email',applicationPhoneText:'phone',applicationRegionText:'region',applicationRegionPlaceholder:'selectRegion',applicationRegionTw:'taiwan',applicationRegionMy:'malaysia',applicationRegionSg:'singapore',applicationRegionHk:'hongKong',applicationRegionOther:'other',applicationConsentText:'notificationConsentLabel',applicationSubmitButton:'applyButton'}))document.getElementById(id).textContent=ui[key];
+      for(const [id,key]of Object.entries({applicationTitleText:'applicationTitle',applicationLanguageText:'languageLabel',applicationNameText:'name',applicationEmailText:'email',applicationPhoneText:'phone',applicationRegionText:'region',applicationRegionPlaceholder:'selectRegion',applicationRegionTw:'taiwan',applicationRegionMy:'malaysia',applicationRegionSg:'singapore',applicationRegionHk:'hongKong',applicationRegionOther:'other',applicationConsentText:'notificationConsentLabel',applicationSubmitButton:'applyButton',applicationReviewDisclosureText:'reviewTransferDisclosure'}))document.getElementById(id).textContent=ui[key];
       document.getElementById('applicationIntroText').textContent=ui.applicationIntro+' '+ui.privateLink;
       document.getElementById('languageSwitch').value=next;
       if(statusKey)status.textContent=ui[statusKey];
@@ -181,6 +193,7 @@ ${channel.platform === 'line' ? '<script src="https://static.line-scdn.net/liff/
     <h1 id="applicationTitleText">${t('applicationTitle')}</h1>
     <p id="applicationIntroText">${t('applicationIntro')} ${t(channel.platform === 'line' ? 'lineLink' : 'privateLink')}</p>
     <nav><label><span id="applicationLanguageText">${locale === 'en' ? 'Language' : uiText(locale, '介面語言')}</span> <select id="languageSwitch">${languageOptions(locale)}</select></label></nav>
+    <p id="applicationReviewDisclosureText">${telegramReviewTransferDisclosure(locale).replaceAll('&', '&amp;')}</p>
     <form id="application">
       <label><span id="applicationNameText">${t('name')}</span><input name="name" id="applicationNameInput" autocomplete="name" maxlength="150" required></label>
       <label><span id="applicationEmailText">${t('email')}</span><input name="email" id="applicationEmailInput" type="email" autocomplete="email" maxlength="254" required></label>
@@ -223,7 +236,7 @@ ${channel.platform === 'line' ? '<script src="https://static.line-scdn.net/liff/
         ${channel.platform === 'line' ? 'await lineReady;' : ''}
         const response = await fetch('/${channel.platform}/onboarding/apply', {
           method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ token, ${channel.platform === 'line' ? 'idToken,' : ''} ...data ${channel.platform === 'whatsapp' ? `,locale: applicationLocale, notificationConsent: data.notificationConsent === 'on'` : ''} })
+          body: JSON.stringify({ token, ${channel.platform === 'line' ? 'idToken,' : ''} ...data, telegramReviewNoticeVersion: ${JSON.stringify(telegramReviewNoticeVersion)} ${channel.platform === 'whatsapp' ? `,locale: applicationLocale, notificationConsent: data.notificationConsent === 'on'` : ''} })
         });
         if (!response.ok) {
           ${

@@ -71,6 +71,10 @@ export const runPublicApi = async (
     const environment = loadEnvironment(source);
     phase = 'api_channels_failed';
     const { z } = await import('zod');
+    const { telegramLearnerReviewEnabled } = await import('./telegram-learner-review.js');
+    const directReviewEnabled = telegramLearnerReviewEnabled(
+      source.TELEGRAM_LEARNER_REVIEW_ENABLED
+    );
     const { loadWhatsAppConfig } = await import('./whatsapp-onboarding.js');
     const telegramValues = [
       source.TELEGRAM_ONBOARDING_BOT_TOKEN,
@@ -163,6 +167,7 @@ export const runPublicApi = async (
     const { buildApp, checkStartupReadiness } = await import('./app.js');
     app = buildApp({
       pool,
+      telegramLearnerReviewEnabled: directReviewEnabled,
       adminAuth,
       ...(telegramOnboarding ? { telegramOnboarding } : {}),
       ...(line ? { line } : {}),

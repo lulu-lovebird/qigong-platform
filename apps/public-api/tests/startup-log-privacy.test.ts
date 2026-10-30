@@ -176,6 +176,7 @@ describe('contained startup boundaries', () => {
     { VENUE_QR_CHECKIN_ENABLED: 'true' },
     { VENUE_QR_CHECKIN_ENABLED: 'true', VENUE_QR_PUBLIC_ORIGIN: sentinel },
     { TELEGRAM_ONBOARDING_BOT_TOKEN: sentinel },
+    { TELEGRAM_LEARNER_REVIEW_ENABLED: 'yes' },
     { TELEGRAM_ONBOARDING_BOT_TOKEN: sentinel, TELEGRAM_ONBOARDING_WEBHOOK_SECRET: sentinel },
     { LINE_CHANNEL_SECRET: sentinel },
     {
@@ -200,6 +201,14 @@ describe('contained startup boundaries', () => {
     expect(exit).toHaveBeenCalledExactlyOnceWith(1);
   });
 
+  it('uses only the explicit startup source for direct mode and defaults safely off', async () => {
+    vi.stubEnv('TELEGRAM_LEARNER_REVIEW_ENABLED', 'true');
+    await runPublicApi({}, exit);
+    expect(mocks.build).toHaveBeenCalledWith(
+      expect.objectContaining({ telegramLearnerReviewEnabled: false })
+    );
+    vi.unstubAllEnvs();
+  });
   it('contains invalid WhatsApp invite configuration without changing startup order', async () => {
     await runPublicApi({ WHATSAPP_INVITE_CHAT_NUMBER: sentinel }, exit);
     expect(mocks.oidc).toHaveBeenCalledOnce();
@@ -320,6 +329,7 @@ describe('running API lifecycle', () => {
       TELEGRAM_INVITE_BOT_USERNAME: 'SyntheticBot',
       WHATSAPP_INVITE_CHAT_NUMBER: '+12025550123',
       SERVICE_VERSION: 'synthetic-version',
+      TELEGRAM_LEARNER_REVIEW_ENABLED: 'true',
       VENUE_QR_CHECKIN_ENABLED: 'true',
       VENUE_QR_PUBLIC_ORIGIN: 'https://synthetic.invalid'
     };
@@ -330,6 +340,7 @@ describe('running API lifecycle', () => {
       pool: { end },
       adminAuth: { syntheticProvider: true },
       serviceVersion: source.SERVICE_VERSION,
+      telegramLearnerReviewEnabled: true,
       venueQr: { enabled: true, publicOrigin: source.VENUE_QR_PUBLIC_ORIGIN },
       telegramOnboarding: {
         botToken: source.TELEGRAM_ONBOARDING_BOT_TOKEN,
@@ -405,7 +416,8 @@ describe('running API lifecycle', () => {
       pool: { end },
       adminAuth: { syntheticProvider: true },
       inviteTransports: {},
-      serviceVersion: 'development'
+      serviceVersion: 'development',
+      telegramLearnerReviewEnabled: false
     });
   });
 

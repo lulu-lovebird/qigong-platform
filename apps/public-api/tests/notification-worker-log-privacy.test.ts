@@ -2,6 +2,7 @@ import type { Pool, PoolClient } from '@qigong/database';
 import type * as FileSystem from 'node:fs';
 import type * as Reminders from '../src/telegram-reminders.js';
 import type * as Reviews from '../src/review-notifications.js';
+import type * as DirectReviews from '../src/telegram-learner-review.js';
 import type * as WhatsApp from '../src/whatsapp-client.js';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   line: vi.fn(),
   reminders: vi.fn(),
   review: vi.fn(),
+  directReview: vi.fn(),
+  directTransport: vi.fn(),
   telegramSender: vi.fn(),
   lineSender: vi.fn(),
   whatsappSender: vi.fn(),
@@ -63,6 +66,13 @@ vi.mock('../src/review-notifications.js', async (original) => ({
   ...(await original<typeof Reviews>()),
   createReviewNotificationSender: mocks.reviewSender,
   deliverReviewNotifications: mocks.review
+}));
+vi.mock('../src/telegram-learner-review-notifications.js', () => ({
+  deliverTelegramLearnerReviews: mocks.directReview
+}));
+vi.mock('../src/telegram-learner-review.js', async (original) => ({
+  ...(await original<typeof DirectReviews>()),
+  createTelegramReviewTransport: mocks.directTransport
 }));
 vi.mock('../src/whatsapp-client.js', async (original) => ({
   ...(await original<typeof WhatsApp>()),
@@ -133,6 +143,8 @@ beforeEach(() => {
       throw new Error('Unexpected synthetic transport call');
     })
   );
+  mocks.directReview.mockResolvedValue(4);
+  mocks.directTransport.mockReturnValue({ send: vi.fn(), edit: vi.fn(), answer: vi.fn() });
   mocks.environment.mockReturnValue(environment);
   mocks.pool.mockReturnValue(activePool);
   mocks.on.mockImplementation(() => activePool);
@@ -174,7 +186,8 @@ describe('notification entry containment and unchanged lane contracts', () => {
     { ...source, WHATSAPP_ACCESS_TOKEN: sentinel },
     { ...source, WHATSAPP_TEMPLATE_LANGUAGE_ZH_CN: 'zh_CN' },
     { ...source, TELEGRAM_REMINDERS_ENABLED: 'yes' },
-    { ...source, REVIEW_NOTIFICATIONS_ENABLED: 'yes' }
+    { ...source, REVIEW_NOTIFICATIONS_ENABLED: 'yes' },
+    { ...source, TELEGRAM_LEARNER_REVIEW_ENABLED: 'yes' }
   ])('contains invalid or partial enabled configuration %#', async (input) => {
     await runNotificationWorker(input);
     expect(process.exitCode).toBe(1);
@@ -249,6 +262,48 @@ describe('notification entry containment and unchanged lane contracts', () => {
     expect(mocks.end).toHaveBeenCalledOnce();
     expect(process.exitCode).toBeUndefined();
     expect(log).toHaveBeenCalledTimes(3);
+  });
+  it('keeps schema58 count-only and uses direct delivery only when schema59 functions are present', async () => {
+    await runNotificationWorker({ ...source, REVIEW_NOTIFICATIONS_ENABLED: 'true' });
+    expect(mocks.directReview).not.toHaveBeenCalled();
+    mocks.query.mockImplementation(async (sql) => ({
+      rows:
+        sql.includes('schema_ready') || sql.includes('to_regprocedure')
+          ? [{ ready: true }]
+          : [{ processed: 2 }]
+    }));
+    await runNotificationWorker({ ...source, REVIEW_NOTIFICATIONS_ENABLED: 'true' });
+    expect(mocks.directReview).not.toHaveBeenCalled();
+    expect(mocks.review).toHaveBeenLastCalledWith(
+      activePool,
+      expect.any(Function),
+      expect.any(Function),
+      { learnerReviewEnabled: false, schema59: true }
+    );
+    await runNotificationWorker({
+      ...source,
+      REVIEW_NOTIFICATIONS_ENABLED: 'true',
+      TELEGRAM_LEARNER_REVIEW_ENABLED: 'true'
+    });
+    expect(mocks.review).toHaveBeenLastCalledWith(
+      activePool,
+      expect.any(Function),
+      expect.any(Function),
+      { learnerReviewEnabled: true, schema59: true }
+    );
+    expect(mocks.directReview).toHaveBeenCalledExactlyOnceWith(
+      activePool,
+      mocks.directTransport.mock.results[0]!.value,
+      expect.any(Function)
+    );
+    expect(mocks.directTransport).toHaveBeenCalledExactlyOnceWith(
+      source.TELEGRAM_ONBOARDING_BOT_TOKEN
+    );
+    expect(
+      log.mock.calls
+        .map(([entry]) => String(entry))
+        .some((entry) => entry.includes('review_notifications_processed') && entry.includes('5'))
+    ).toBe(true);
   });
   it('retains all six lanes, sender bindings and enabled flags without contacting providers', async () => {
     const enabled = {

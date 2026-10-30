@@ -3,6 +3,10 @@ import { setImmediate } from 'node:timers/promises';
 import { describe, expect, it, vi } from 'vitest';
 import { renderReviewNotificationPage } from '../src/admin-review-notification-page.js';
 import type { AdminLocale } from '../src/admin-locale.js';
+import {
+  renderApplicationPage,
+  telegramReviewTransferDisclosure
+} from '../src/application-page.js';
 interface Element {
   value: string;
   checked: boolean;
@@ -23,7 +27,10 @@ const tick = async () => {
   await setImmediate();
   await setImmediate();
 };
-const fixture = (locale: AdminLocale, options: { bound?: boolean; failSave?: boolean } = {}) => {
+const fixture = (
+  locale: AdminLocale,
+  options: { bound?: boolean; failSave?: boolean; superAdmin?: boolean; enabled?: boolean } = {}
+) => {
   const nodes = new Map<string, Element>();
   const element = (): Element => ({
       value: '',
@@ -51,8 +58,13 @@ const fixture = (locale: AdminLocale, options: { bound?: boolean; failSave?: boo
     };
   const admin = element(),
     learner = element(),
+    direct = element(),
     code = element();
-  get('notify-preferences').elements = { adminEnabled: admin, learnerEnabled: learner };
+  get('notify-preferences').elements = {
+    adminEnabled: admin,
+    learnerEnabled: learner,
+    learnerReviewEnabled: direct
+  };
   get('notify-confirm').elements = { code };
   const buttons = [
     'notify-begin',
@@ -68,6 +80,10 @@ const fixture = (locale: AdminLocale, options: { bound?: boolean; failSave?: boo
     recipientHint: '••••0032',
     adminEnabled: false,
     learnerEnabled: false,
+    learnerReviewEnabled: false,
+    isSuperAdmin: options.superAdmin ?? true,
+    learnerReviewFeatureEnabled: options.enabled ?? true,
+    learnerReviewDisclosure: 'telegram-learner-review-v1',
     locale,
     pendingCount: 2,
     unroutedCount: 0,
@@ -91,7 +107,8 @@ const fixture = (locale: AdminLocale, options: { bound?: boolean; failSave?: boo
         revision: current.revision + 1,
         bound: body.disconnect ? false : current.bound,
         adminEnabled: body.adminEnabled === true,
-        learnerEnabled: body.learnerEnabled === true
+        learnerEnabled: body.learnerEnabled === true,
+        learnerReviewEnabled: body.learnerReviewEnabled === true
       };
       return Response.json({ saved: true, revision: current.revision });
     }
@@ -128,7 +145,7 @@ const fixture = (locale: AdminLocale, options: { bound?: boolean; failSave?: boo
     form.onsubmit?.({ target: form, preventDefault: () => {} });
     await tick();
   };
-  return { get, admin, learner, code, fetch, submit, context, html };
+  return { get, admin, learner, direct, code, fetch, submit, context, html };
 };
 const body = (request: RequestInit | undefined): Record<string, unknown> => {
   if (typeof request?.body !== 'string') throw Error('JSON required');
@@ -189,6 +206,63 @@ describe('Reviewer notification page runtime and checkbox layout', () => {
       expect(f.context.locale).toBeUndefined();
     }
   );
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'defaults detailed %s consent off and sends the disclosure revision only on explicit selection',
+    async (locale) => {
+      const f = fixture(locale);
+      await tick();
+      expect(f.direct.checked).toBe(false);
+      expect(f.html).not.toContain('name="learnerReviewEnabled" type="checkbox" checked');
+      f.learner.checked = true;
+      f.direct.checked = true;
+      await f.submit('notify-preferences');
+      const saved = f.fetch.mock.calls.find(
+        ([url]) => typeof url === 'string' && url.endsWith('/preferences')
+      );
+      expect(body(saved?.[1])).toMatchObject({
+        learnerReviewEnabled: true,
+        learnerReviewDisclosure: 'telegram-learner-review-v1'
+      });
+      expect(f.direct.checked).toBe(true);
+    }
+  );
+  it.each([{ superAdmin: false }, { enabled: false }])(
+    'blocks direct opt-in in the actual script while leaving counts usable: %j',
+    async (options) => {
+      const f = fixture('en', options);
+      await tick();
+      expect(f.direct.disabled).toBe(true);
+      expect(f.html).toContain('Global super administrator only');
+      expect(f.html).toContain('Count alerts and WebAdmin are unchanged');
+      f.learner.checked = true;
+      f.direct.checked = true;
+      await f.submit('notify-preferences');
+      const saved = f.fetch.mock.calls.find(
+        ([url]) => typeof url === 'string' && url.endsWith('/preferences')
+      );
+      expect(body(saved?.[1])).toMatchObject({ learnerEnabled: true });
+      expect(body(saved?.[1])).not.toHaveProperty('learnerReviewEnabled');
+      expect(f.direct.checked).toBe(false);
+    }
+  );
+  it('discloses the Telegram transfer before submission on every source platform and locale, without changing legal acceptance records', () => {
+    for (const locale of ['zh_TW', 'zh_CN', 'en'] as const) {
+      const disclosure = telegramReviewTransferDisclosure(locale);
+      for (const platform of ['line', 'telegram', 'whatsapp'] as const) {
+        const html = renderApplicationPage(
+          platform === 'line' ? { platform, locale, liffId: 'synthetic' } : { platform, locale }
+        );
+        expect(html.indexOf('id="applicationReviewDisclosureText"')).toBeLessThan(
+          html.indexOf('<form id="application">')
+        );
+        expect(html).toContain(disclosure.replaceAll('&', '&amp;'));
+      }
+    }
+    expect(telegramReviewTransferDisclosure('en')).toContain('cannot be recalled');
+    expect(telegramReviewTransferDisclosure('en')).toContain(
+      'not end-to-end encrypted or Secret Chats'
+    );
+  });
   it('retains both selected choices and shows a failure when the API rejects the save', async () => {
     const f = fixture('zh_TW', { failSave: true });
     await tick();

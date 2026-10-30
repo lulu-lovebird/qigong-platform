@@ -128,7 +128,7 @@ const httpRead = (
   });
 };
 
-describe.skipIf(!directory)('venue people: isolated PG16/17 integrated 58 migrations', () => {
+describe.skipIf(!directory)('venue people: isolated PG16/17 integrated 59 migrations', () => {
   beforeAll(async () => {
     if (
       !directory ||
@@ -178,15 +178,16 @@ describe.skipIf(!directory)('venue people: isolated PG16/17 integrated 58 migrat
       '0055_venue_distance_debug.sql',
       '0056_venue_cks_distance_debug.sql',
       '0057_venue_test_scope.sql',
-      '0058_venue_early_checkin_window.sql'
+      '0058_venue_early_checkin_window.sql',
+      '0059_telegram_learner_review.sql'
     ]);
-    expect(files).toHaveLength(58);
+    expect(files).toHaveLength(59);
     // Adversarial default ACL exists ONLY in this fresh disposable cluster.
     await owner.query(`CREATE ROLE venue_people_default_acl_fixture NOLOGIN NOINHERIT;
       ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO venue_people_default_acl_fixture`);
     const result = await runMigrations(owner, migrations, 'synthetic-venue-people-only');
     expect(result.applied).toEqual(files);
-    expect(result.currentVersion).toBe('0058_venue_early_checkin_window.sql');
+    expect(result.currentVersion).toBe('0059_telegram_learner_review.sql');
     expect((await runMigrations(owner, migrations)).applied).toEqual([]);
     expect((await owner.query('SELECT 1 FROM core.practice_fields')).rowCount).toBe(0);
     await owner.query(

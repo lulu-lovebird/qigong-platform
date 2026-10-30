@@ -17,6 +17,11 @@ import {
 } from './channel-invites.js';
 import { registerChannelInvitePages } from './channel-invite-routes.js';
 import { handleReviewNotificationBind } from './review-notifications.js';
+import {
+  createTelegramReviewTransport,
+  handleTelegramLearnerReview,
+  type TelegramReviewTransport
+} from './telegram-learner-review.js';
 import { handleTelegramReminder, parseTelegramReminder } from './telegram-reminders.js';
 import { registerTelegramMiniapp } from './telegram-miniapp-auth.js';
 import {
@@ -58,6 +63,7 @@ const telegramUpdate = z.object({
 });
 
 const applicationDetails = z.object({
+  telegramReviewNoticeVersion: z.literal('telegram-learner-review-v1').optional(),
   token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   name: z.string().trim().min(1).max(150),
   email: z.email().max(254),
@@ -69,6 +75,8 @@ export interface TelegramOnboardingConfig {
   botToken: string;
   webhookSecret: string;
   regionCode: string;
+  learnerReviewEnabled?: boolean;
+  reviewTransport?: TelegramReviewTransport;
   sendMessage?: (
     chatId: number,
     text: string,
@@ -82,6 +90,7 @@ export const registerTelegramOnboarding = (
   config: TelegramOnboardingConfig,
   inviteTarget?: string
 ) => {
+  const learnerReviewEnabled = config.learnerReviewEnabled ?? false;
   registerChannelInvitePages(app, pool, 'telegram', config.webhookSecret, inviteTarget);
   const replyHelp = createHelpReplyGuard();
   const replyInvitation = createHelpReplyGuard();
@@ -132,317 +141,356 @@ export const registerTelegramOnboarding = (
       if (!result || typeof result !== 'object' || !('ok' in result) || result.ok !== true)
         throw new Error('Telegram response not accepted');
     });
-  app.post('/telegram/onboarding/webhook', { bodyLimit: 32_768 }, async (request, reply) => {
-    const incoming = request.headers['x-telegram-bot-api-secret-token'];
-    const expected = Buffer.from(config.webhookSecret);
-    const supplied = typeof incoming === 'string' ? Buffer.from(incoming) : Buffer.alloc(0);
-    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
-      return reply.code(401).send({ error: 'invalid_telegram_webhook' });
-    }
-
-    const parsed = telegramUpdate.safeParse(request.body);
-    if (!parsed.success) return reply.code(400).send({ error: 'invalid_telegram_update' });
-    const message = parsed.data.message;
-    if (
-      !message ||
-      message.chat.type !== 'private' ||
-      message.chat.id !== message.from.id ||
-      message.from.is_bot
-    ) {
-      return { ok: true };
-    }
-    if (isHelpCommand(message.text)) {
-      const age = message.date === undefined ? 0 : Math.floor(Date.now() / 1000) - message.date;
-      if (age < -60 || age >= 86400) return { ok: true };
+  const reviewTransport = config.reviewTransport ?? createTelegramReviewTransport(config.botToken);
+  app.post(
+    '/telegram/onboarding/webhook',
+    {
+      bodyLimit: 32_768,
+      onRequest: async (request, reply) => {
+        // Authenticate before Fastify parses JSON, not merely before schema parsing.
+        const incoming = request.headers['x-telegram-bot-api-secret-token'];
+        const expected = Buffer.from(config.webhookSecret);
+        const supplied = typeof incoming === 'string' ? Buffer.from(incoming) : Buffer.alloc(0);
+        if (
+          !expected.length ||
+          supplied.length !== expected.length ||
+          !timingSafeEqual(supplied, expected)
+        )
+          return reply.code(401).send({ error: 'invalid_telegram_webhook' });
+      }
+    },
+    async (request, reply) => {
       try {
-        await replyHelp(
-          String(parsed.data.update_id),
-          String(message.from.id),
-          message.text ?? '',
-          async () => {
-            const saved = await withRequestContext(
+        if (
+          await handleTelegramLearnerReview(
+            pool,
+            request.id,
+            request.body,
+            config.botToken.split(':')[0] ?? '',
+            reviewTransport,
+            learnerReviewEnabled
+          )
+        )
+          return { ok: true };
+      } catch {
+        app.log.error({ requestId: request.id }, 'Private learner review unavailable');
+        return reply.code(503).send({ error: 'learner_review_unavailable' });
+      }
+      const parsed = telegramUpdate.safeParse(request.body);
+      if (!parsed.success) return reply.code(400).send({ error: 'invalid_telegram_update' });
+      const message = parsed.data.message;
+      if (
+        !message ||
+        message.chat.type !== 'private' ||
+        message.chat.id !== message.from.id ||
+        message.from.is_bot
+      ) {
+        return { ok: true };
+      }
+      if (isHelpCommand(message.text)) {
+        const age = message.date === undefined ? 0 : Math.floor(Date.now() / 1000) - message.date;
+        if (age < -60 || age >= 86400) return { ok: true };
+        try {
+          await replyHelp(
+            String(parsed.data.update_id),
+            String(message.from.id),
+            message.text ?? '',
+            async () => {
+              const saved = await withRequestContext(
+                pool,
+                'qigong_api_runtime',
+                { requestId: request.id },
+                (c) =>
+                  c.query<{ locale: string }>(
+                    "SELECT platform.get_identity_locale('telegram',$1) locale",
+                    [String(message.from.id)]
+                  )
+              );
+              const locale = learnerLocale(saved.rows[0]?.locale);
+              await sendMessage(
+                message.chat.id,
+                helpLabel(locale) + '\n' + helpUrl('telegram', locale),
+                [{ text: helpLabel(locale), url: helpUrl('telegram', locale), webApp: false }]
+              );
+            }
+          );
+          return { ok: true };
+        } catch {
+          return reply.code(503).send({ error: 'help_unavailable' });
+        }
+      }
+      const displayName = telegramProfileDisplayName(message.from),
+        proofTime = message.date,
+        now = Math.floor(Date.now() / 1000);
+      if (
+        displayName &&
+        proofTime !== undefined &&
+        proofTime <= now + 60 &&
+        proofTime >= now - 86400
+      ) {
+        try {
+          await refreshVerifiedTelegramProfile(pool, request.id, {
+            subject: String(message.from.id),
+            displayName,
+            source: 'webhook',
+            proofTime,
+            updateId: parsed.data.update_id
+          });
+        } catch {
+          app.log.warn('Verified Telegram nickname refresh unavailable');
+        }
+      }
+      if (/^\/admin_notify(?:@\w+)?(?:\s|$)/i.test(message.text ?? '')) {
+        try {
+          await sendMessage(
+            message.chat.id,
+            await handleReviewNotificationBind(
+              pool,
+              request.id,
+              message.text ?? '',
+              String(message.from.id),
+              config.webhookSecret
+            )
+          );
+          return { ok: true };
+        } catch {
+          app.log.error({ requestId: request.id }, 'Reviewer channel binding unavailable');
+          return reply.code(503).send({ error: 'review_channel_unavailable' });
+        }
+      }
+      const workspaceCommand =
+        /^\/(checkin|leaderboard|methods|methodanalysis|achievements|history|mystats|badges|journal|share)(?:@\w+)?(?:\s|$)/i.exec(
+          message.text ?? ''
+        );
+      const reminderCommand = /^\/(remind|remindtest)(?:@\w+)?(?:\s|$)/i.test(message.text ?? '');
+      const privacyCommand = /^(?:\/(privacy|terms)(?:@\w+)?|隱私|條款)\s*$/i.test(
+        message.text ?? ''
+      );
+      const languageCommand = /^\/language(?:@\w+)?(?:\s+(\S+))?\s*$/i.exec(message.text ?? '');
+      if (
+        !workspaceCommand &&
+        !privacyCommand &&
+        !languageCommand &&
+        !reminderCommand &&
+        !/^\/(start|apply)(?:@\w+)?(?:\s|$)/i.test(message.text ?? '')
+      ) {
+        return { ok: true };
+      }
+
+      const linkToken = createHmac('sha256', config.webhookSecret)
+        .update(`${parsed.data.update_id}:${message.from.id}`)
+        .digest('base64url');
+      try {
+        const localeResult = await withRequestContext(
+          pool,
+          'qigong_api_runtime',
+          { requestId: request.id },
+          (client) =>
+            client.query<{ locale: string }>(
+              "SELECT platform.get_identity_locale('telegram',$1) AS locale",
+              [String(message.from.id)]
+            )
+        );
+        const locale = learnerLocale(localeResult.rows[0]?.locale);
+        const texts = learnerTexts(locale);
+        if (languageCommand) {
+          const selected = languageCommand[1];
+          if (selected !== 'en' && selected !== 'zh_TW' && selected !== 'zh_CN') {
+            await sendMessage(message.chat.id, texts.languageHelp);
+          } else {
+            const change = await withRequestContext(
               pool,
               'qigong_api_runtime',
               { requestId: request.id },
-              (c) =>
-                c.query<{ locale: string }>(
-                  "SELECT platform.get_identity_locale('telegram',$1) locale",
-                  [String(message.from.id)]
+              (client) =>
+                client.query<{ changed: boolean }>(
+                  'SELECT platform.set_telegram_locale_from_update($1,$2,$3) AS changed',
+                  [parsed.data.update_id, String(message.from.id), selected]
                 )
             );
-            const locale = learnerLocale(saved.rows[0]?.locale);
-            await sendMessage(
-              message.chat.id,
-              helpLabel(locale) + '\n' + helpUrl('telegram', locale),
-              [{ text: helpLabel(locale), url: helpUrl('telegram', locale), webApp: false }]
-            );
+            if (!change.rows[0]?.changed) return { ok: true };
+            await sendMessage(message.chat.id, learnerTexts(selected).languageSaved);
           }
-        );
-        return { ok: true };
-      } catch {
-        return reply.code(503).send({ error: 'help_unavailable' });
-      }
-    }
-    const displayName = telegramProfileDisplayName(message.from),
-      proofTime = message.date,
-      now = Math.floor(Date.now() / 1000);
-    if (
-      displayName &&
-      proofTime !== undefined &&
-      proofTime <= now + 60 &&
-      proofTime >= now - 86400
-    ) {
-      try {
-        await refreshVerifiedTelegramProfile(pool, request.id, {
-          subject: String(message.from.id),
-          displayName,
-          source: 'webhook',
-          proofTime,
-          updateId: parsed.data.update_id
-        });
-      } catch {
-        app.log.warn('Verified Telegram nickname refresh unavailable');
-      }
-    }
-    if (/^\/admin_notify(?:@\w+)?(?:\s|$)/i.test(message.text ?? '')) {
-      try {
-        await sendMessage(
-          message.chat.id,
-          await handleReviewNotificationBind(
+          return { ok: true };
+        }
+        if (reminderCommand && parseTelegramReminder(message.text ?? '')?.action === 'off') {
+          const response = await handleTelegramReminder(
             pool,
             request.id,
-            message.text ?? '',
+            parsed.data.update_id,
             String(message.from.id),
-            config.webhookSecret
-          )
-        );
-        return { ok: true };
-      } catch {
-        app.log.error({ requestId: request.id }, 'Reviewer channel binding unavailable');
-        return reply.code(503).send({ error: 'review_channel_unavailable' });
-      }
-    }
-    const workspaceCommand =
-      /^\/(checkin|leaderboard|methods|methodanalysis|achievements|history|mystats|badges|journal|share)(?:@\w+)?(?:\s|$)/i.exec(
-        message.text ?? ''
-      );
-    const reminderCommand = /^\/(remind|remindtest)(?:@\w+)?(?:\s|$)/i.test(message.text ?? '');
-    const privacyCommand = /^(?:\/(privacy|terms)(?:@\w+)?|隱私|條款)\s*$/i.test(
-      message.text ?? ''
-    );
-    const languageCommand = /^\/language(?:@\w+)?(?:\s+(\S+))?\s*$/i.exec(message.text ?? '');
-    if (
-      !workspaceCommand &&
-      !privacyCommand &&
-      !languageCommand &&
-      !reminderCommand &&
-      !/^\/(start|apply)(?:@\w+)?(?:\s|$)/i.test(message.text ?? '')
-    ) {
-      return { ok: true };
-    }
-
-    const linkToken = createHmac('sha256', config.webhookSecret)
-      .update(`${parsed.data.update_id}:${message.from.id}`)
-      .digest('base64url');
-    try {
-      const localeResult = await withRequestContext(
-        pool,
-        'qigong_api_runtime',
-        { requestId: request.id },
-        (client) =>
-          client.query<{ locale: string }>(
-            "SELECT platform.get_identity_locale('telegram',$1) AS locale",
-            [String(message.from.id)]
-          )
-      );
-      const locale = learnerLocale(localeResult.rows[0]?.locale);
-      const texts = learnerTexts(locale);
-      if (languageCommand) {
-        const selected = languageCommand[1];
-        if (selected !== 'en' && selected !== 'zh_TW' && selected !== 'zh_CN') {
-          await sendMessage(message.chat.id, texts.languageHelp);
-        } else {
-          const change = await withRequestContext(
+            locale,
+            message.text ?? ''
+          );
+          if (response) await sendMessage(message.chat.id, response);
+          return { ok: true };
+        }
+        const invitationCommand = channelInviteCommand('telegram', message.text ?? '');
+        if (invitationCommand.command) {
+          const inviteCopy = channelInviteTexts(locale);
+          const age =
+            message.date === undefined
+              ? Number.POSITIVE_INFINITY
+              : Date.now() / 1000 - message.date;
+          if (
+            invitationCommand.invalid ||
+            (invitationCommand.token && (age < -60 || age >= 86400))
+          ) {
+            await sendMessage(message.chat.id, inviteCopy.unavailable);
+            return { ok: true };
+          }
+          const invitation = await withRequestContext(
             pool,
             'qigong_api_runtime',
             { requestId: request.id },
             (client) =>
-              client.query<{ changed: boolean }>(
-                'SELECT platform.set_telegram_locale_from_update($1,$2,$3) AS changed',
-                [parsed.data.update_id, String(message.from.id), selected]
+              beginChannelInvitation(
+                client,
+                'telegram',
+                String(message.from.id),
+                invitationCommand.token,
+                config.webhookSecret
               )
           );
-          if (!change.rows[0]?.changed) return { ok: true };
-          await sendMessage(message.chat.id, learnerTexts(selected).languageSaved);
+          if (invitation.status !== 'none' && invitation.status !== 'approved') {
+            if ('token' in invitation && typeof invitation.token === 'string') {
+              const url =
+                'https://checkin.baiyinqigong.org/telegram/invite' +
+                localeQuery(locale) +
+                '#' +
+                invitation.token;
+              await replyInvitation(
+                String(parsed.data.update_id),
+                String(message.from.id),
+                message.text ?? '',
+                () =>
+                  sendMessage(message.chat.id, inviteCopy.reply + '\n' + url, [
+                    { text: inviteCopy.join, url, webApp: false }
+                  ])
+              );
+            } else await sendMessage(message.chat.id, inviteCopy.unavailable);
+            return { ok: true };
+          }
         }
-        return { ok: true };
-      }
-      if (reminderCommand && parseTelegramReminder(message.text ?? '')?.action === 'off') {
-        const response = await handleTelegramReminder(
-          pool,
-          request.id,
-          parsed.data.update_id,
-          String(message.from.id),
-          locale,
-          message.text ?? ''
-        );
-        if (response) await sendMessage(message.chat.id, response);
-        return { ok: true };
-      }
-      const invitationCommand = channelInviteCommand('telegram', message.text ?? '');
-      if (invitationCommand.command) {
-        const inviteCopy = channelInviteTexts(locale);
-        const age =
-          message.date === undefined ? Number.POSITIVE_INFINITY : Date.now() / 1000 - message.date;
-        if (invitationCommand.invalid || (invitationCommand.token && (age < -60 || age >= 86400))) {
-          await sendMessage(message.chat.id, inviteCopy.unavailable);
-          return { ok: true };
-        }
-        const invitation = await withRequestContext(
+        const privacyToken = createHmac('sha256', config.webhookSecret)
+          .update('privacy:' + parsed.data.update_id + ':' + message.from.id)
+          .digest('base64url');
+        const privacyState = await withRequestContext(
           pool,
           'qigong_api_runtime',
           { requestId: request.id },
-          (client) =>
-            beginChannelInvitation(
-              client,
-              'telegram',
-              String(message.from.id),
-              invitationCommand.token,
-              config.webhookSecret
-            )
+          (client) => beginLearnerPrivacy(client, 'telegram', String(message.from.id), privacyToken)
         );
-        if (invitation.status !== 'none' && invitation.status !== 'approved') {
-          if ('token' in invitation && typeof invitation.token === 'string') {
-            const url =
-              'https://checkin.baiyinqigong.org/telegram/invite' +
-              localeQuery(locale) +
-              '#' +
-              invitation.token;
-            await replyInvitation(
-              String(parsed.data.update_id),
-              String(message.from.id),
-              message.text ?? '',
-              () =>
-                sendMessage(message.chat.id, inviteCopy.reply + '\n' + url, [
-                  { text: inviteCopy.join, url, webApp: false }
-                ])
-            );
-          } else await sendMessage(message.chat.id, inviteCopy.unavailable);
-          return { ok: true };
-        }
-      }
-      const privacyToken = createHmac('sha256', config.webhookSecret)
-        .update('privacy:' + parsed.data.update_id + ':' + message.from.id)
-        .digest('base64url');
-      const privacyState = await withRequestContext(
-        pool,
-        'qigong_api_runtime',
-        { requestId: request.id },
-        (client) => beginLearnerPrivacy(client, 'telegram', String(message.from.id), privacyToken)
-      );
-      const privacyMessage = learnerPrivacyReply(
-        privacyState,
-        'telegram',
-        privacyToken,
-        locale,
-        privacyCommand
-      );
-      if (privacyMessage) {
-        await sendMessage(
-          message.chat.id,
-          privacyMessage,
-          privacyState.unavailable
-            ? undefined
-            : [
-                {
-                  text: learnerPrivacyTexts(locale).privacyLink,
-                  url:
-                    'https://checkin.baiyinqigong.org/privacy?platform=telegram&lang=' +
-                    locale +
-                    '#' +
-                    privacyToken
-                }
-              ]
-        );
-        return { ok: true };
-      }
-      if (reminderCommand) {
-        const response = await handleTelegramReminder(
-          pool,
-          request.id,
-          parsed.data.update_id,
-          String(message.from.id),
+        const privacyMessage = learnerPrivacyReply(
+          privacyState,
+          'telegram',
+          privacyToken,
           locale,
-          message.text ?? ''
+          privacyCommand
         );
-        if (response) await sendMessage(message.chat.id, response);
-        return { ok: true };
-      }
-      const isStart = /^\/start(?:@\w+)?(?:\s|$)/i.test(message.text ?? '');
-      if (workspaceCommand || isStart) {
-        const readiness = await withRequestContext(
-          pool,
-          'qigong_api_runtime',
-          { requestId: request.id },
-          (client) =>
-            client.query<{ ready: boolean }>('SELECT platform.telegram_workspace_ready($1) ready', [
-              String(message.from.id)
-            ])
-        );
-        if (readiness.rows[0]?.ready) {
-          const buttons = telegramFeatureButtons(locale, workspaceCommand?.[1]);
+        if (privacyMessage) {
           await sendMessage(
             message.chat.id,
-            workspaceCommand
-              ? locale === 'en'
-                ? 'Tap below to open this feature.'
-                : uiText(locale, '請點下方按鈕開啟此功能。')
-              : locale === 'en'
-                ? 'Welcome to Baiyin Qigong. Choose a feature below to open the Mini App.'
-                : uiText(locale, '歡迎使用白雁氣功打卡小幫手，請點下方功能按鈕直接開啟。'),
-            buttons
+            privacyMessage,
+            privacyState.unavailable
+              ? undefined
+              : [
+                  {
+                    text: learnerPrivacyTexts(locale).privacyLink,
+                    url:
+                      'https://checkin.baiyinqigong.org/privacy?platform=telegram&lang=' +
+                      locale +
+                      '#' +
+                      privacyToken
+                  }
+                ]
           );
           return { ok: true };
         }
-        if (workspaceCommand) {
-          await sendMessage(message.chat.id, texts.notApproved);
+        if (reminderCommand) {
+          const response = await handleTelegramReminder(
+            pool,
+            request.id,
+            parsed.data.update_id,
+            String(message.from.id),
+            locale,
+            message.text ?? ''
+          );
+          if (response) await sendMessage(message.chat.id, response);
           return { ok: true };
         }
-      }
-      const result = await withRequestContext(
-        pool,
-        'qigong_api_runtime',
-        { requestId: request.id },
-        (client) =>
-          client.query<{ status: string }>(
-            `SELECT platform.begin_telegram_application($1, $2, $3) AS status`,
-            [parsed.data.update_id, String(message.from.id), linkToken]
+        const isStart = /^\/start(?:@\w+)?(?:\s|$)/i.test(message.text ?? '');
+        if (workspaceCommand || isStart) {
+          const readiness = await withRequestContext(
+            pool,
+            'qigong_api_runtime',
+            { requestId: request.id },
+            (client) =>
+              client.query<{ ready: boolean }>(
+                'SELECT platform.telegram_workspace_ready($1) ready',
+                [String(message.from.id)]
+              )
+          );
+          if (readiness.rows[0]?.ready) {
+            const buttons = telegramFeatureButtons(locale, workspaceCommand?.[1]);
+            await sendMessage(
+              message.chat.id,
+              workspaceCommand
+                ? locale === 'en'
+                  ? 'Tap below to open this feature.'
+                  : uiText(locale, '請點下方按鈕開啟此功能。')
+                : locale === 'en'
+                  ? 'Welcome to Baiyin Qigong. Choose a feature below to open the Mini App.'
+                  : uiText(locale, '歡迎使用白雁氣功打卡小幫手，請點下方功能按鈕直接開啟。'),
+              buttons
+            );
+            return { ok: true };
+          }
+          if (workspaceCommand) {
+            await sendMessage(message.chat.id, texts.notApproved);
+            return { ok: true };
+          }
+        }
+        const result = await withRequestContext(
+          pool,
+          'qigong_api_runtime',
+          { requestId: request.id },
+          (client) =>
+            client.query<{ status: string }>(
+              `SELECT platform.begin_telegram_application($1, $2, $3) AS status`,
+              [parsed.data.update_id, String(message.from.id), linkToken]
+            )
+        );
+        const status = result.rows[0]?.status;
+        if (status === 'duplicate') return { ok: true };
+        if (
+          !['form_required', 'link_pending', 'pending', 'approved', 'rejected'].includes(
+            status ?? ''
           )
-      );
-      const status = result.rows[0]?.status;
-      if (status === 'duplicate') return { ok: true };
-      if (
-        !['form_required', 'link_pending', 'pending', 'approved', 'rejected'].includes(status ?? '')
-      ) {
-        throw new Error('Unexpected Telegram onboarding state');
+        ) {
+          throw new Error('Unexpected Telegram onboarding state');
+        }
+        const text =
+          status === 'approved'
+            ? `${texts.approved}\n/leaderboard · /methodanalysis · /achievements`
+            : status === 'rejected'
+              ? texts.rejected
+              : status === 'pending'
+                ? texts.pending
+                : status === 'link_pending'
+                  ? texts.linkPending
+                  : `${texts.applicationLink}\nhttps://checkin.baiyinqigong.org/telegram/apply${localeQuery(locale)}#${linkToken}\n${texts.privateLink}`;
+        await sendMessage(message.chat.id, text);
+        return { ok: true };
+      } catch (error) {
+        app.log.error(
+          { err: error, updateId: parsed.data.update_id },
+          'telegram onboarding failed'
+        );
+        return reply.code(503).send({ error: 'telegram_onboarding_unavailable' });
       }
-      const text =
-        status === 'approved'
-          ? `${texts.approved}\n/leaderboard · /methodanalysis · /achievements`
-          : status === 'rejected'
-            ? texts.rejected
-            : status === 'pending'
-              ? texts.pending
-              : status === 'link_pending'
-                ? texts.linkPending
-                : `${texts.applicationLink}\nhttps://checkin.baiyinqigong.org/telegram/apply${localeQuery(locale)}#${linkToken}\n${texts.privateLink}`;
-      await sendMessage(message.chat.id, text);
-      return { ok: true };
-    } catch (error) {
-      app.log.error({ err: error, updateId: parsed.data.update_id }, 'telegram onboarding failed');
-      return reply.code(503).send({ error: 'telegram_onboarding_unavailable' });
     }
-  });
+  );
 
   app.post('/telegram/onboarding/apply', { bodyLimit: 4096 }, async (request, reply) => {
     if (
@@ -455,13 +503,21 @@ export const registerTelegramOnboarding = (
     if (!details.success) return reply.code(400).send({ error: 'invalid_application_details' });
     try {
       await withRequestContext(pool, 'qigong_api_runtime', { requestId: request.id }, (client) =>
-        client.query(`SELECT platform.submit_telegram_application($1, $2, $3, $4, $5)`, [
-          details.data.token,
-          details.data.name,
-          details.data.email,
-          details.data.phone,
-          details.data.region
-        ])
+        client.query(
+          details.data.telegramReviewNoticeVersion === undefined
+            ? 'SELECT platform.submit_telegram_application($1,$2,$3,$4,$5)'
+            : 'SELECT platform.submit_telegram_application_v2($1,$2,$3,$4,$5,$6)',
+          [
+            details.data.token,
+            details.data.name,
+            details.data.email,
+            details.data.phone,
+            details.data.region,
+            ...(details.data.telegramReviewNoticeVersion === undefined
+              ? []
+              : [details.data.telegramReviewNoticeVersion])
+          ]
+        )
       );
       return { status: 'pending' };
     } catch (error) {
