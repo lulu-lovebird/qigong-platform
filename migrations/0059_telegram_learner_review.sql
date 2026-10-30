@@ -58,11 +58,22 @@ END$$;
 CREATE TRIGGER reset_telegram_learner_review_consent BEFORE UPDATE ON admin.review_notification_preferences
  FOR EACH ROW EXECUTE FUNCTION admin.reset_telegram_learner_review_consent();
 
+-- Exact 0019 admin.is_super_admin semantics, without accepting a runtime actor.
+-- Internal only: callers derive the principal from context or confirmed binding/token.
+CREATE FUNCTION ops.telegram_learner_review_allowed(input_principal UUID) RETURNS BOOLEAN
+LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+ SELECT EXISTS(SELECT 1 FROM admin.role_grants g JOIN admin.roles r ON r.id=g.role_id
+ JOIN admin.principals p ON p.id=g.principal_id WHERE p.id=input_principal
+ AND p.status='active' AND r.code='super_admin' AND g.scope_type='global'
+ AND g.valid_from<=clock_timestamp() AND (g.valid_to IS NULL OR g.valid_to>clock_timestamp()))
+$$;
+
 CREATE FUNCTION admin.save_telegram_learner_review_preferences(input_revision INTEGER,input_admin BOOLEAN,input_learner BOOLEAN,input_locale TEXT,input_disconnect BOOLEAN,input_direct BOOLEAN,input_disclosure TEXT) RETURNS JSONB
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE result JSONB;actor UUID;BEGIN
  IF input_direct IS NULL OR (input_direct AND (input_disclosure IS DISTINCT FROM 'telegram-learner-review-v1' OR NOT input_learner OR input_disconnect)) THEN RAISE EXCEPTION 'invalid review notification settings';END IF;
- result:=admin.save_review_notification_preferences(input_revision,input_admin,input_learner,input_locale,input_disconnect);
  actor:=admin.review_notification_actor();
+ IF input_direct AND NOT ops.telegram_learner_review_allowed(actor) THEN RAISE EXCEPTION 'review notification access denied' USING ERRCODE='42501';END IF;
+ result:=admin.save_review_notification_preferences(input_revision,input_admin,input_learner,input_locale,input_disconnect);
  UPDATE admin.review_notification_preferences SET learner_review_enabled=input_direct,
  learner_review_disclosure=CASE WHEN input_direct THEN input_disclosure ELSE NULL END WHERE principal_id=actor;
  INSERT INTO audit.events(request_id,actor_principal_id,action,target_type,target_id,outcome,metadata)
@@ -73,28 +84,13 @@ ALTER FUNCTION admin.review_notification_state() RENAME TO review_notification_s
 CREATE FUNCTION admin.review_notification_state() RETURNS JSONB
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE result JSONB;BEGIN
  result:=admin.review_notification_state_58();RETURN result||
- (SELECT jsonb_build_object('learnerReviewEnabled',p.learner_review_enabled,'learnerReviewDisclosure','telegram-learner-review-v1',
+ (SELECT jsonb_build_object('isSuperAdmin',ops.telegram_learner_review_allowed(p.principal_id),'learnerReviewEnabled',p.learner_review_enabled,'learnerReviewDisclosure','telegram-learner-review-v1',
  'unroutedCount',(SELECT count(*) FROM ops.review_notification_events e WHERE e.kind<>'test' AND admin.review_notification_can_review(p.principal_id,e.id)
  AND NOT EXISTS(SELECT 1 FROM ops.review_notification_deliveries d WHERE d.event_id=e.id AND d.status IN('pending','sending','sent') AND ops.review_delivery_eligible(d.id))
- AND NOT EXISTS(SELECT 1 FROM ops.telegram_learner_reviews t WHERE t.event_id=e.id AND t.delivery_state IN('pending','sending','sent') AND ops.telegram_learner_review_eligible(t.id))),
+ AND NOT EXISTS(SELECT 1 FROM ops.telegram_learner_reviews t WHERE current_setting('qigong.telegram_learner_review_enabled',TRUE)='true' AND t.event_id=e.id AND t.delivery_state IN('pending','sending','sent') AND ops.telegram_learner_review_eligible(t.id))),
  'failedCount',coalesce((result->>'failedCount')::integer,0)+(SELECT count(*) FROM ops.telegram_learner_reviews t WHERE t.principal_id=p.principal_id AND t.delivery_state='failed' AND ops.telegram_learner_review_eligible(t.id)))
  FROM admin.review_notification_preferences p WHERE p.principal_id=admin.review_notification_actor());
 END$$;
-
--- The legacy count lease remains unchanged for count-only learner/admin/test subscriptions.
-ALTER FUNCTION ops.review_delivery_eligible(UUID) RENAME TO review_delivery_eligible_58;
-CREATE FUNCTION ops.review_delivery_eligible(input_id UUID) RETURNS BOOLEAN
-LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
- SELECT ops.review_delivery_eligible_58(input_id) AND NOT EXISTS(
- SELECT 1 FROM ops.review_notification_deliveries d JOIN ops.review_notification_events e ON e.id=d.event_id
- JOIN admin.review_notification_preferences p ON p.principal_id=d.principal_id
- JOIN identity.onboarding_applications a ON a.id=e.target_id
- WHERE d.id=input_id AND e.kind='learner' AND p.learner_review_enabled
- AND p.learner_review_disclosure='telegram-learner-review-v1'
- AND a.telegram_review_notice_version='telegram-learner-review-v1'
- AND a.status='pending' AND a.requested_region_id=e.region_id
- AND a.learner_name IS NOT NULL AND a.website_email IS NOT NULL AND a.phone_e164 IS NOT NULL)
-$$;
 
 CREATE TABLE ops.telegram_learner_reviews (
  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),event_id UUID NOT NULL REFERENCES ops.review_notification_events(id),
@@ -112,21 +108,67 @@ ALTER TABLE ops.telegram_learner_reviews FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON ops.telegram_learner_reviews FROM PUBLIC;
 CREATE INDEX telegram_learner_reviews_pending ON ops.telegram_learner_reviews(available_at) WHERE delivery_state IN('pending','sending');
 
--- Serialize permission/scope changes with the short authorization+decision transaction.
--- No network calls are made while these locks are held. Existing WebAdmin decisions
--- serialize separately on the application row inside identity.decide_application.
-CREATE FUNCTION ops.lock_telegram_learner_review_permissions() RETURNS VOID
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$BEGIN
- LOCK TABLE admin.principals,admin.role_grants,admin.roles,admin.role_permissions,admin.permissions,core.regions IN SHARE MODE;
-END$$;
-CREATE FUNCTION ops.telegram_learner_review_allowed(input_principal UUID,input_region UUID) RETURNS BOOLEAN
+-- The legacy count lease remains unchanged for count-only learner/admin/test subscriptions.
+ALTER FUNCTION ops.review_delivery_eligible(UUID) RENAME TO review_delivery_eligible_58;
+CREATE FUNCTION ops.review_delivery_eligible(input_id UUID) RETURNS BOOLEAN
 LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
- SELECT EXISTS(SELECT 1 FROM admin.principals p JOIN admin.role_grants g ON g.principal_id=p.id
- JOIN admin.role_permissions rp ON rp.role_id=g.role_id JOIN admin.permissions perm ON perm.id=rp.permission_id
- JOIN core.regions r ON r.id=input_region WHERE p.id=input_principal AND p.status='active' AND perm.code='onboarding.review'
- AND g.valid_from<=clock_timestamp() AND (g.valid_to IS NULL OR g.valid_to>clock_timestamp())
- AND (g.scope_type='global' OR (g.scope_type='region' AND g.region_id=input_region) OR (g.scope_type='country' AND g.region_id=r.parent_region_id)))
+ SELECT ops.review_delivery_eligible_58(input_id) AND NOT EXISTS(
+ SELECT 1 FROM ops.review_notification_deliveries d JOIN ops.review_notification_events e ON e.id=d.event_id
+ JOIN admin.review_notification_preferences p ON p.principal_id=d.principal_id
+ JOIN identity.onboarding_applications a ON a.id=e.target_id
+ WHERE d.id=input_id AND e.kind='learner' AND p.learner_review_enabled
+ AND (current_setting('qigong.telegram_learner_review_enabled',TRUE)='true' AND ops.telegram_learner_review_allowed(p.principal_id)
+ OR EXISTS(SELECT 1 FROM ops.telegram_learner_reviews t WHERE t.event_id=e.id AND t.principal_id=p.principal_id AND t.preferences_revision=p.revision AND t.delivery_state='sent'))
+ AND p.learner_review_disclosure='telegram-learner-review-v1'
+ AND a.telegram_review_notice_version='telegram-learner-review-v1'
+ AND a.status='pending' AND a.requested_region_id=e.region_id
+ AND a.learner_name IS NOT NULL AND a.website_email IS NOT NULL AND a.phone_e164 IS NOT NULL)
 $$;
+
+-- Immutable ownership tombstones: no applicant payload, tokens or reply text.
+-- Retain after prompt closure/expiry/reset so late replies never become journals.
+CREATE TABLE ops.telegram_learner_review_prompts (
+ subject TEXT NOT NULL CHECK(subject ~ '^[1-9][0-9]{0,19}$'),message_id BIGINT NOT NULL CHECK(message_id>0),
+ PRIMARY KEY(subject,message_id)
+);
+ALTER TABLE ops.telegram_learner_review_prompts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ops.telegram_learner_review_prompts FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON ops.telegram_learner_review_prompts FROM PUBLIC;
+CREATE FUNCTION platform.telegram_learner_review_owned_prompt(input_subject TEXT,input_prompt BIGINT) RETURNS BOOLEAN
+LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$
+ SELECT EXISTS(SELECT 1 FROM ops.telegram_learner_review_prompts WHERE subject=input_subject AND message_id=input_prompt)
+$$;
+
+-- Routing only, never authorization. All legacy permission checks remain in 0058.
+-- Every count-worker transaction explicitly sets the same mode. No default TRUE.
+-- Recover only eligible, unsent direct-suppressed counts, not sent direct notices.
+CREATE FUNCTION ops.queue_review_notifications_for_mode(input_limit INTEGER,input_direct BOOLEAN) RETURNS INTEGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE n INTEGER;saved TEXT:=current_setting('qigong.telegram_learner_review_enabled',TRUE);BEGIN
+ IF input_direct IS NULL THEN RAISE EXCEPTION 'review notification mode required';END IF;
+ PERFORM set_config('qigong.telegram_learner_review_enabled',input_direct::text,TRUE);
+ n:=ops.queue_review_notifications(input_limit);
+ IF NOT input_direct THEN
+  UPDATE ops.review_notification_deliveries d SET status='pending',lease_id=NULL,leased_until=NULL
+  FROM ops.review_notification_events e,admin.review_notification_preferences p,identity.onboarding_applications a
+  WHERE d.event_id=e.id AND d.principal_id=p.principal_id AND a.id=e.target_id AND e.kind='learner'
+  AND d.status='cancelled' AND d.preferences_revision=p.revision AND d.attempts<8
+  AND p.learner_review_enabled AND p.learner_review_disclosure='telegram-learner-review-v1'
+  AND a.telegram_review_notice_version='telegram-learner-review-v1' AND ops.review_delivery_eligible(d.id);
+ END IF;
+ PERFORM set_config('qigong.telegram_learner_review_enabled',coalesce(saved,''),TRUE);
+ RETURN n;
+EXCEPTION WHEN OTHERS THEN PERFORM set_config('qigong.telegram_learner_review_enabled',coalesce(saved,''),TRUE);RAISE;
+END$$;
+
+-- Owner-only explicit reset before off->on; feature pause alone is NOT revocation.
+CREATE FUNCTION ops.invalidate_telegram_learner_reviews() RETURNS INTEGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE n INTEGER;BEGIN
+ UPDATE ops.telegram_learner_reviews SET delivery_state='cancelled',stage='closed',token_hash=NULL,
+ lease_id=NULL,leased_until=NULL,prompt_message_id=NULL,reason=NULL WHERE stage<>'closed';
+ GET DIAGNOSTICS n=ROW_COUNT;
+ UPDATE admin.review_notification_preferences SET learner_review_enabled=FALSE,learner_review_disclosure=NULL,revision=revision+1 WHERE learner_review_enabled;
+ RETURN n;
+END$$;
 CREATE FUNCTION ops.telegram_learner_review_eligible(input_id UUID) RETURNS BOOLEAN
 LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
  SELECT EXISTS(SELECT 1 FROM ops.telegram_learner_reviews t JOIN admin.review_notification_preferences p ON p.principal_id=t.principal_id
@@ -135,12 +177,11 @@ LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
  AND p.learner_review_disclosure='telegram-learner-review-v1'
  AND a.telegram_review_notice_version='telegram-learner-review-v1'
  AND a.status='pending' AND a.requested_region_id=t.region_id AND public.digest(to_jsonb(a)::text,'sha256')=t.snapshot
- AND ops.telegram_learner_review_allowed(t.principal_id,a.requested_region_id))
+ AND ops.telegram_learner_review_allowed(t.principal_id))
 $$;
 CREATE FUNCTION ops.claim_telegram_learner_reviews(input_limit INTEGER DEFAULT 5) RETURNS TABLE(id UUID,lease_id UUID)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$BEGIN
  IF input_limit IS NULL OR input_limit NOT BETWEEN 1 AND 5 THEN RAISE EXCEPTION 'invalid learner review batch';END IF;
- PERFORM ops.lock_telegram_learner_review_permissions();
  UPDATE ops.telegram_learner_reviews t SET delivery_state='cancelled',token_hash=NULL,stage='closed',lease_id=NULL,leased_until=NULL
  WHERE t.delivery_state IN('pending','sending') AND NOT ops.telegram_learner_review_eligible(t.id);
  INSERT INTO ops.telegram_learner_reviews(event_id,principal_id,preferences_revision,application_id,region_id,snapshot)
@@ -149,7 +190,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$BEGIN
  WHERE e.kind='learner' AND a.telegram_review_notice_version='telegram-learner-review-v1' AND a.status='pending' AND a.requested_region_id=e.region_id AND p.telegram_subject IS NOT NULL
  AND p.learner_enabled AND p.learner_review_enabled AND p.learner_review_disclosure='telegram-learner-review-v1'
  AND a.learner_name IS NOT NULL AND a.website_email IS NOT NULL AND a.phone_e164 IS NOT NULL
- AND ops.telegram_learner_review_allowed(p.principal_id,a.requested_region_id)
+ AND ops.telegram_learner_review_allowed(p.principal_id)
  AND NOT EXISTS(SELECT 1 FROM ops.telegram_learner_reviews existing WHERE existing.event_id=e.id AND existing.principal_id=p.principal_id AND existing.preferences_revision=p.revision)
  ORDER BY e.created_at,e.id,p.principal_id LIMIT 200 ON CONFLICT DO NOTHING;
  RETURN QUERY WITH selected AS(SELECT t.id FROM ops.telegram_learner_reviews t
@@ -164,7 +205,6 @@ END$$;
 CREATE FUNCTION ops.telegram_learner_review_payload(input_id UUID,input_lease UUID,input_token TEXT) RETURNS JSONB
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE t ops.telegram_learner_reviews;result JSONB;BEGIN
  IF input_token IS NULL OR input_token !~ '^[A-Za-z0-9_-]{43}$' THEN RETURN jsonb_build_object('allowed',FALSE);END IF;
- PERFORM ops.lock_telegram_learner_review_permissions();
  SELECT * INTO t FROM ops.telegram_learner_reviews WHERE id=input_id FOR UPDATE;
  IF NOT FOUND OR t.delivery_state<>'sending' OR t.lease_id IS DISTINCT FROM input_lease OR t.leased_until<=clock_timestamp() OR NOT ops.telegram_learner_review_eligible(t.id) THEN RETURN jsonb_build_object('allowed',FALSE);END IF;
  -- Re-read application and binding immediately before producing any personal data.
@@ -199,7 +239,6 @@ DECLARE t ops.telegram_learner_reviews;p admin.review_notification_preferences;a
  IF input_subject IS NULL OR input_subject !~ '^[1-9][0-9]{0,19}$' OR input_message IS NULL OR input_message<=0
  OR input_token IS NULL OR input_token !~ '^[A-Za-z0-9_-]{43}$' OR input_next_token IS NULL OR input_next_token !~ '^[A-Za-z0-9_-]{43}$'
  OR input_action IS NULL OR input_action NOT IN('approve','deny','cancel','confirm','incomplete','contact','custom') THEN RETURN jsonb_build_object('state','unavailable');END IF;
- PERFORM ops.lock_telegram_learner_review_permissions();
  -- Binding lock precedes the per-application lease lock everywhere that needs both.
  SELECT pref.* INTO p FROM admin.review_notification_preferences pref JOIN ops.telegram_learner_reviews x ON x.principal_id=pref.principal_id
  WHERE x.token_hash=public.digest(input_token,'sha256') AND pref.telegram_subject=input_subject FOR UPDATE OF pref;
@@ -208,7 +247,7 @@ DECLARE t ops.telegram_learner_reviews;p admin.review_notification_preferences;a
  IF NOT FOUND OR t.delivery_state<>'sent' OR t.message_id IS DISTINCT FROM input_message OR t.expires_at<=clock_timestamp()
  OR t.preferences_revision<>p.revision OR NOT p.learner_enabled OR NOT p.learner_review_enabled OR p.learner_review_disclosure IS DISTINCT FROM 'telegram-learner-review-v1' THEN RETURN jsonb_build_object('state','unavailable');END IF;
  SELECT * INTO a FROM identity.onboarding_applications WHERE id=t.application_id FOR UPDATE;
- IF NOT FOUND OR a.telegram_review_notice_version IS DISTINCT FROM 'telegram-learner-review-v1' OR t.expires_at<=clock_timestamp() OR a.requested_region_id IS DISTINCT FROM t.region_id OR NOT ops.telegram_learner_review_allowed(p.principal_id,a.requested_region_id) THEN RETURN jsonb_build_object('state','unavailable');END IF;
+ IF NOT FOUND OR a.telegram_review_notice_version IS DISTINCT FROM 'telegram-learner-review-v1' OR t.expires_at<=clock_timestamp() OR a.requested_region_id IS DISTINCT FROM t.region_id OR NOT ops.telegram_learner_review_allowed(p.principal_id) THEN RETURN jsonb_build_object('state','unavailable');END IF;
  IF a.status<>'pending' OR public.digest(to_jsonb(a)::text,'sha256')<>t.snapshot THEN
   UPDATE ops.telegram_learner_reviews SET stage='closed',token_hash=NULL,prompt_message_id=NULL,reason=NULL WHERE id=t.id;
   RETURN jsonb_build_object('state','stale','locale',p.locale);
@@ -222,6 +261,9 @@ DECLARE t ops.telegram_learner_reviews;p admin.review_notification_preferences;a
  ELSIF input_action='confirm' AND t.stage IN('confirm_approve','confirm_deny') THEN
   IF t.stage='confirm_deny' AND (t.reason IS NULL OR length(btrim(t.reason))=0) THEN RETURN jsonb_build_object('state','unavailable');END IF;
   PERFORM set_config('qigong.principal_id',p.principal_id::text,TRUE);
+  IF NOT ops.telegram_learner_review_allowed(p.principal_id) THEN
+   PERFORM set_config('qigong.principal_id',coalesce(saved,''),TRUE);RETURN jsonb_build_object('state','unavailable');
+  END IF;
   PERFORM identity.decide_application(t.application_id,CASE t.stage WHEN 'confirm_approve' THEN 'approved' ELSE 'rejected' END,t.reason);
   PERFORM set_config('qigong.principal_id',coalesce(saved,''),TRUE);
   UPDATE ops.telegram_learner_reviews SET stage='closed',token_hash=NULL,prompt_message_id=NULL,reason=NULL WHERE id=t.id;
@@ -234,6 +276,10 @@ END$$;
 CREATE FUNCTION platform.telegram_learner_review_prompt(input_subject TEXT,input_message BIGINT,input_token TEXT,input_prompt BIGINT) RETURNS BOOLEAN
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$BEGIN
  IF input_prompt IS NULL OR input_prompt<=0 THEN RETURN FALSE;END IF;
+ INSERT INTO ops.telegram_learner_review_prompts(subject,message_id)
+ SELECT p.telegram_subject,input_prompt FROM ops.telegram_learner_reviews t JOIN admin.review_notification_preferences p ON p.principal_id=t.principal_id
+ WHERE p.telegram_subject=input_subject AND t.message_id=input_message AND t.token_hash=public.digest(input_token,'sha256') AND t.stage='input'
+ ON CONFLICT DO NOTHING;
  UPDATE ops.telegram_learner_reviews t SET prompt_message_id=input_prompt
  FROM admin.review_notification_preferences p WHERE t.principal_id=p.principal_id AND p.telegram_subject=input_subject
  AND p.revision=t.preferences_revision AND p.learner_review_enabled AND p.learner_enabled
@@ -246,7 +292,6 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE t ops.
  IF input_reason IS NULL OR length(btrim(input_reason)) NOT BETWEEN 1 AND 500 OR btrim(input_reason) LIKE '/%'
  OR btrim(input_reason) ~* '^(help(@[A-Za-z0-9_]+)?|說明|说明|使用說明|使用说明|幫助|帮助|隱私|隐私|條款|条款)$'
  OR input_next_token IS NULL OR input_next_token !~ '^[A-Za-z0-9_-]{43}$' THEN RETURN jsonb_build_object('state','unavailable');END IF;
- PERFORM ops.lock_telegram_learner_review_permissions();
  SELECT pref.* INTO p FROM admin.review_notification_preferences pref JOIN ops.telegram_learner_reviews x ON x.principal_id=pref.principal_id
  WHERE pref.telegram_subject=input_subject AND x.prompt_message_id=input_prompt AND x.stage='input' AND x.expires_at>clock_timestamp() FOR UPDATE OF pref;
  IF NOT FOUND THEN RETURN jsonb_build_object('state','unavailable');END IF;
@@ -262,12 +307,12 @@ END$$;
 -- Keep only actual object-owner privileges before granting the narrow entrypoints.
 DO $$DECLARE r RECORD;g RECORD;BEGIN
  FOR g IN SELECT DISTINCT a.grantee FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
- WHERE c.oid='ops.telegram_learner_reviews'::regclass AND a.grantee<>c.relowner
- LOOP EXECUTE format('REVOKE ALL ON TABLE ops.telegram_learner_reviews FROM %s',CASE WHEN g.grantee=0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(g.grantee)) END);END LOOP;
+ WHERE c.oid IN('ops.telegram_learner_reviews'::regclass,'ops.telegram_learner_review_prompts'::regclass) AND a.grantee<>c.relowner
+ LOOP EXECUTE format('REVOKE ALL ON TABLE ops.telegram_learner_reviews,ops.telegram_learner_review_prompts FROM %s',CASE WHEN g.grantee=0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(g.grantee)) END);END LOOP;
  FOR r IN SELECT p.oid::regprocedure signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
- WHERE (n.nspname='ops' AND p.proname IN('lock_telegram_learner_review_permissions','telegram_learner_review_allowed','telegram_learner_review_eligible','claim_telegram_learner_reviews','telegram_learner_review_payload','finish_telegram_learner_review','review_delivery_eligible'))
+ WHERE (n.nspname='ops' AND p.proname IN('queue_review_notifications_for_mode','invalidate_telegram_learner_reviews','telegram_learner_review_allowed','telegram_learner_review_eligible','claim_telegram_learner_reviews','telegram_learner_review_payload','finish_telegram_learner_review','review_delivery_eligible'))
  OR (n.nspname='admin' AND p.proname IN('reset_telegram_learner_review_consent','save_telegram_learner_review_preferences','review_notification_state','review_notification_state_58'))
- OR (n.nspname='platform' AND p.proname IN('telegram_learner_review_action','telegram_learner_review_prompt','telegram_learner_review_reason','submit_line_application_v2','submit_telegram_application_v2','submit_whatsapp_application_v2'))
+ OR (n.nspname='platform' AND p.proname IN('telegram_learner_review_owned_prompt','telegram_learner_review_action','telegram_learner_review_prompt','telegram_learner_review_reason','submit_line_application_v2','submit_telegram_application_v2','submit_whatsapp_application_v2'))
  LOOP
   FOR g IN SELECT DISTINCT a.grantee FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid=r.signature::oid AND a.grantee<>p.proowner
   LOOP EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %s',r.signature,CASE WHEN g.grantee=0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(g.grantee)) END);END LOOP;
@@ -276,7 +321,7 @@ END$$;
 GRANT EXECUTE ON FUNCTION platform.submit_line_application_v2(TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT),
  platform.submit_telegram_application_v2(TEXT,TEXT,TEXT,TEXT,TEXT,TEXT),
  platform.submit_whatsapp_application_v2(TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,BOOLEAN,TEXT) TO qigong_api_runtime;
-GRANT EXECUTE ON FUNCTION admin.review_notification_state(),admin.save_telegram_learner_review_preferences(INTEGER,BOOLEAN,BOOLEAN,TEXT,BOOLEAN,BOOLEAN,TEXT),
+GRANT EXECUTE ON FUNCTION platform.telegram_learner_review_owned_prompt(TEXT,BIGINT),admin.review_notification_state(),admin.save_telegram_learner_review_preferences(INTEGER,BOOLEAN,BOOLEAN,TEXT,BOOLEAN,BOOLEAN,TEXT),
  platform.telegram_learner_review_action(TEXT,BIGINT,TEXT,TEXT,TEXT),platform.telegram_learner_review_prompt(TEXT,BIGINT,TEXT,BIGINT),platform.telegram_learner_review_reason(TEXT,BIGINT,TEXT,TEXT) TO qigong_api_runtime;
-GRANT EXECUTE ON FUNCTION ops.claim_telegram_learner_reviews(INTEGER),ops.telegram_learner_review_payload(UUID,UUID,TEXT),ops.finish_telegram_learner_review(UUID,UUID,BIGINT) TO qigong_worker_runtime;
+GRANT EXECUTE ON FUNCTION ops.queue_review_notifications_for_mode(INTEGER,BOOLEAN),ops.claim_telegram_learner_reviews(INTEGER),ops.telegram_learner_review_payload(UUID,UUID,TEXT),ops.finish_telegram_learner_review(UUID,UUID,BIGINT) TO qigong_worker_runtime;
 -- Keep existing architecture-version readiness guards intact; entrypoints must explicitly accept schema59.

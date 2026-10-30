@@ -45,7 +45,7 @@ suite('Schema58→59 preservation and tested same-schema count-only fallback', (
       const business = async () =>
         (
           await db.pool.query(
-            "SELECT p.oid::regprocedure::text signature,md5(pg_get_functiondef(p.oid)) definition,p.proowner,p.proacl::text FROM pg_proc p WHERE p.oid IN('identity.decide_application(uuid,text,text)'::regprocedure,'ops.capture_review_notification_event()'::regprocedure,'platform.submit_line_application(text,text,text,text,text,text)'::regprocedure,'platform.submit_telegram_application(text,text,text,text,text)'::regprocedure,'platform.submit_whatsapp_application(text,text,text,text,text,text,boolean)'::regprocedure) ORDER BY 1"
+            "SELECT p.oid::regprocedure::text signature,md5(pg_get_functiondef(p.oid)) definition,p.proowner,p.proacl::text FROM pg_proc p WHERE p.oid IN('identity.decide_application(uuid,text,text)'::regprocedure,'ops.capture_review_notification_event()'::regprocedure,'ops.queue_review_notifications(integer)'::regprocedure,'ops.claim_review_notifications(integer)'::regprocedure,'ops.review_notification_payload(uuid,uuid)'::regprocedure,'ops.finish_review_notification(uuid,uuid,boolean)'::regprocedure,'platform.submit_line_application(text,text,text,text,text,text)'::regprocedure,'platform.submit_telegram_application(text,text,text,text,text)'::regprocedure,'platform.submit_whatsapp_application(text,text,text,text,text,text,boolean)'::regprocedure) ORDER BY 1"
           )
         ).rows;
       const before = await business();
@@ -97,6 +97,21 @@ suite('Schema58→59 preservation and tested same-schema count-only fallback', (
           )
         ).rows[0]!.allowed
       ).toBe(false);
+      expect(
+        (
+          await db.pool.query(
+            "SELECT to_regprocedure('ops.lock_telegram_learner_review_permissions()') helper"
+          )
+        ).rows
+      ).toEqual([{ helper: null }]);
+      expect(
+        (
+          await db.pool.query(
+            "SELECT has_table_privilege($1,'ops.telegram_learner_review_prompts','SELECT') allowed",
+            [aclRole]
+          )
+        ).rows
+      ).toEqual([{ allowed: false }]);
       expect((await db.pool.query('SELECT * FROM admin.role_grants')).rows).toEqual(grants);
       expect((await db.pool.query('SELECT * FROM identity.people')).rowCount).toBe(0);
       expect((await db.pool.query('SELECT * FROM ops.telegram_learner_reviews')).rowCount).toBe(0);
@@ -150,6 +165,29 @@ suite('Schema58→59 preservation and tested same-schema count-only fallback', (
         "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164,telegram_review_notice_version) VALUES('line',$1,'Synthetic new form',$2,'Synthetic new form','new@example.invalid','+659900000060','telegram-learner-review-v1')",
         ['U' + randomBytes(16).toString('hex'), region]
       );
+      // Actual schema59 pause with PREEXISTING direct consent + receipted app.
+      // No reset required for count-only routing; a pause is not token revocation.
+      await db.pool.query('SELECT ops.queue_review_notifications_for_mode(200,false)');
+      await db.pool.query(
+        'UPDATE ops.review_notification_deliveries SET available_at=clock_timestamp()'
+      );
+      const paused = (
+        await db.pool.query<{ id: string; lease_id: string }>(
+          'SELECT * FROM ops.claim_review_notifications(5)'
+        )
+      ).rows[0]!;
+      expect(
+        (
+          await db.pool.query<{ data: unknown }>(
+            'SELECT ops.review_notification_payload($1,$2) data',
+            [paused.id, paused.lease_id]
+          )
+        ).rows[0]!.data
+      ).toMatchObject({ allowed: true, count: 2, kind: 'learner' });
+      await db.pool.query('SELECT ops.finish_review_notification($1,$2,false)', [
+        paused.id,
+        paused.lease_id
+      ]);
       const job = (
         await db.pool.query<{ id: string; lease_id: string }>(
           'SELECT * FROM ops.claim_telegram_learner_reviews(5)'

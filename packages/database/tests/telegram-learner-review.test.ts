@@ -34,7 +34,10 @@ suite('Telegram learner review: actual nonowner SQL and concurrent authorization
       runtime,
       worker ? 'qigong_worker_runtime' : 'qigong_api_runtime',
       { requestId: randomUUID(), ...(actor ? { principalId: actor } : {}) },
-      (c) => c.query<Row>(sql, values)
+      async (c) => {
+        await c.query("SELECT set_config('qigong.telegram_learner_review_enabled','true',true)");
+        return c.query<Row>(sql, values);
+      }
     );
   const optIn = async (enabled = true) => {
     const rev = (
@@ -114,8 +117,8 @@ suite('Telegram learner review: actual nonowner SQL and concurrent authorization
     region = regions[0]!.id;
     otherRegion = regions[1]!.id;
     await db.pool.query(
-      "INSERT INTO admin.role_grants(principal_id,role_id,scope_type,region_id,valid_from,reason) SELECT $1,id,'region',$2,clock_timestamp()-INTERVAL '1 day','Synthetic grant' FROM admin.roles WHERE code='regional_admin'",
-      [principal, region]
+      "INSERT INTO admin.role_grants(principal_id,role_id,scope_type,valid_from,reason) SELECT $1,id,'global',clock_timestamp()-INTERVAL '1 day','Synthetic direct SUPER scope' FROM admin.roles WHERE code='super_admin'",
+      [principal]
     );
     // Use the real two-sided binding; direct review is still off afterwards.
     const binding = opaque();
@@ -155,6 +158,130 @@ suite('Telegram learner review: actual nonowner SQL and concurrent authorization
       await db.pool.query(`DROP ROLE ${role}`);
     }
     await db?.dispose();
+  });
+  it('requires current active global SUPER; regional counts/WebAdmin remain unchanged and same-bound unexpired regrant is intentional', async () => {
+    await optIn();
+    const job = await deliver();
+    await db.pool.query('DELETE FROM admin.role_grants WHERE principal_id=$1', [principal]);
+    await db.pool.query(
+      "INSERT INTO admin.role_grants(principal_id,role_id,scope_type,region_id,valid_from,reason) SELECT $1,id,'region',$2,clock_timestamp()-INTERVAL '1 day','Regional negative' FROM admin.roles WHERE code='regional_admin'",
+      [principal, region]
+    );
+    await expect(optIn()).rejects.toMatchObject({ code: '42501' });
+    expect((await action(job.token, 'approve')).state).toBe('unavailable');
+    expect((await claims()).rows).toEqual([]);
+    expect(
+      (
+        await query<{ allowed: boolean }>(
+          'SELECT admin.can_review_application($1) allowed',
+          [region],
+          principal
+        )
+      ).rows[0]!.allowed
+    ).toBe(true);
+    await db.pool.query(
+      "INSERT INTO admin.role_grants(principal_id,role_id,scope_type,valid_from,reason) SELECT $1,id,'global',clock_timestamp()-INTERVAL '1 day','Intentional regrant' FROM admin.roles WHERE code='super_admin'",
+      [principal]
+    );
+    await db.pool.query("UPDATE admin.principals SET status='suspended' WHERE id=$1", [principal]);
+    expect((await action(job.token, 'approve')).state).toBe('unavailable');
+    await db.pool.query("UPDATE admin.principals SET status='active' WHERE id=$1", [principal]);
+    const confirm = await action(job.token, 'approve');
+    expect(confirm.state).toBe('confirm_approve');
+    expect((await action(confirm.token, 'confirm')).state).toBe('decided');
+  });
+  it('keeps owned prompt tombstones through closure/expiry/reset with no text stored and maintenance denied to runtimes', async () => {
+    await optIn();
+    const job = await deliver();
+    const deny = await action(job.token, 'deny');
+    const custom = await action(deny.token, 'custom');
+    await query('SELECT platform.telegram_learner_review_prompt($1,590,$2,592)', [
+      subject,
+      custom.token
+    ]);
+    const owned = async (from = subject, prompt = 592) =>
+      (
+        await query<{ owned: boolean }>(
+          'SELECT platform.telegram_learner_review_owned_prompt($1,$2) owned',
+          [from, prompt]
+        )
+      ).rows[0]!.owned;
+    expect(await owned()).toBe(true);
+    expect(await owned('548000000061')).toBe(false);
+    expect(await owned(subject, 593)).toBe(false);
+    await action(custom.token, 'cancel');
+    await db.pool.query(
+      "UPDATE ops.telegram_learner_reviews SET expires_at=clock_timestamp()-INTERVAL '1 day'"
+    );
+    await db.pool.query('SELECT ops.invalidate_telegram_learner_reviews()');
+    expect(await owned()).toBe(true);
+    for (const worker of [false, true])
+      await expect(
+        query('SELECT ops.invalidate_telegram_learner_reviews()', [], null, worker)
+      ).rejects.toThrow();
+    await expect(query('SELECT * FROM ops.telegram_learner_review_prompts')).rejects.toThrow();
+    expect(
+      (
+        await db.pool.query(
+          'SELECT learner_review_enabled FROM admin.review_notification_preferences'
+        )
+      ).rows
+    ).toEqual([{ learner_review_enabled: false }]);
+  });
+  it('recovers suppressed receipted counts off without changing consent, permissions, or double-notifying sent direct notices', async () => {
+    await optIn();
+    const countQuery = <Row extends pg.QueryResultRow>(
+      sql: string,
+      values: unknown[] = [],
+      mode = false
+    ) =>
+      withRequestContext(
+        runtime,
+        'qigong_worker_runtime',
+        { requestId: randomUUID() },
+        async (c) => {
+          await c.query("SELECT set_config('qigong.telegram_learner_review_enabled',$1,true)", [
+            String(mode)
+          ]);
+          return c.query<Row>(sql, values);
+        }
+      );
+    await countQuery('SELECT ops.queue_review_notifications_for_mode(200,true)', [], true);
+    await db.pool.query(
+      'UPDATE ops.review_notification_deliveries SET available_at=clock_timestamp()'
+    );
+    expect(
+      (await countQuery('SELECT * FROM ops.claim_review_notifications(5)', [], true)).rows
+    ).toEqual([]);
+    expect(
+      (await db.pool.query('SELECT status FROM ops.review_notification_deliveries')).rows
+    ).toEqual([{ status: 'cancelled' }]);
+    await countQuery('SELECT ops.queue_review_notifications_for_mode(200,false)');
+    const job = (
+      await countQuery<{ id: string; lease_id: string }>(
+        'SELECT * FROM ops.claim_review_notifications(5)'
+      )
+    ).rows[0]!;
+    const data = (
+      await countQuery<{ data: unknown }>('SELECT ops.review_notification_payload($1,$2) data', [
+        job.id,
+        job.lease_id
+      ])
+    ).rows[0]!.data;
+    expect(data).toMatchObject({ allowed: true, kind: 'learner', count: 1 });
+    expect(data).not.toHaveProperty('name');
+    await countQuery('SELECT ops.finish_review_notification($1,$2,true)', [job.id, job.lease_id]);
+    expect(
+      (
+        await db.pool.query(
+          'SELECT learner_review_enabled FROM admin.review_notification_preferences'
+        )
+      ).rows
+    ).toEqual([{ learner_review_enabled: true }]);
+    await deliver();
+    await countQuery('SELECT ops.queue_review_notifications_for_mode(200,false)');
+    expect((await countQuery('SELECT * FROM ops.claim_review_notifications(5)')).rows).toEqual([]);
+    expect((await db.pool.query('SELECT * FROM identity.people')).rows).toEqual([]);
   });
   it('keeps existing learner consent count-only and requires the exact revised disclosure', async () => {
     expect((await claims()).rows).toEqual([]);
@@ -219,8 +346,18 @@ suite('Telegram learner review: actual nonowner SQL and concurrent authorization
     expect(direct).toHaveLength(1);
     await query('SELECT ops.queue_review_notifications(200)', [], null, true);
     const eligible = (
-      await db.pool.query<{ target_id: string; eligible: boolean }>(
-        'SELECT e.target_id,ops.review_delivery_eligible(d.id) eligible FROM ops.review_notification_deliveries d JOIN ops.review_notification_events e ON e.id=d.event_id'
+      await withRequestContext(
+        db.pool,
+        'qigong_worker_runtime',
+        { requestId: randomUUID() },
+        async (c) => {
+          await c.query("SELECT set_config('qigong.telegram_learner_review_enabled','true',true)");
+          // Owner-only probe: runtime cannot call this internal eligibility helper.
+          await c.query('RESET ROLE');
+          return c.query<{ target_id: string; eligible: boolean }>(
+            'SELECT e.target_id,ops.review_delivery_eligible(d.id) eligible FROM ops.review_notification_deliveries d JOIN ops.review_notification_events e ON e.id=d.event_id'
+          );
+        }
       )
     ).rows;
     expect(eligible).toEqual(
@@ -454,7 +591,7 @@ suite('Telegram learner review: actual nonowner SQL and concurrent authorization
     expect((await db.pool.query('SELECT * FROM identity.people')).rowCount).toBe(0);
   });
   it.each(['grant', 'region', 'expiry'] as const)(
-    'rechecks %s after a real authorization lock wait, not its transaction start',
+    'rechecks %s after an ordinary application-row wait, not its transaction start',
     async (change) => {
       await optIn();
       const j = await deliver();
@@ -462,12 +599,17 @@ suite('Telegram learner review: actual nonowner SQL and concurrent authorization
       const blocker = await db.pool.connect();
       try {
         await blocker.query('BEGIN');
-        if (change === 'grant')
+        // Ordinary application locking, not permission-catalog coordination.
+        if (change === 'grant') {
           await blocker.query(
+            'SELECT id FROM identity.onboarding_applications WHERE id=$1 FOR UPDATE',
+            [application]
+          );
+          await db.pool.query(
             "UPDATE admin.role_grants SET valid_to=clock_timestamp()-INTERVAL '1 second' WHERE principal_id=$1",
             [principal]
           );
-        else if (change === 'region')
+        } else if (change === 'region')
           await blocker.query(
             'UPDATE identity.onboarding_applications SET requested_region_id=$1 WHERE id=$2',
             [otherRegion, application]
@@ -502,10 +644,6 @@ suite('Telegram learner review: actual nonowner SQL and concurrent authorization
   );
   it('preserves administrator/test batching while direct learner leases remain per application', async () => {
     await optIn();
-    await db.pool.query(
-      "INSERT INTO admin.role_grants(principal_id,role_id,scope_type,valid_from,reason) SELECT $1,id,'global',clock_timestamp()-INTERVAL '1 day','Synthetic' FROM admin.roles WHERE code='super_admin'",
-      [principal]
-    );
     await query(
       "SELECT admin.save_telegram_learner_review_preferences(4,true,true,'en',false,true,'telegram-learner-review-v1')",
       [],
@@ -647,7 +785,7 @@ suite('Telegram learner review: actual nonowner SQL and concurrent authorization
     expect(await check()).toBeNull();
     await expect(query('SELECT * FROM ops.telegram_learner_reviews')).rejects.toThrow();
     await expect(
-      query('SELECT ops.telegram_learner_review_allowed($1,$2)', [principal, region])
+      query('SELECT ops.telegram_learner_review_allowed($1)', [principal])
     ).rejects.toThrow();
     await expect(query('SELECT admin.review_notification_state_58()')).rejects.toThrow();
     await expect(query('SELECT ops.claim_telegram_learner_reviews(5)')).rejects.toThrow();
