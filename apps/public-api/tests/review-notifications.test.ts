@@ -15,6 +15,7 @@ import {
   deliverReviewNotifications,
   type ReviewNotification
 } from '../src/review-notifications.js';
+import { runNotificationWorker } from '../src/notification-worker.js';
 import { renderReviewNotificationPage } from '../src/admin-review-notification-page.js';
 import { deliverTelegramLearnerReviews } from '../src/telegram-learner-review-notifications.js';
 import type { TelegramReviewTransport } from '../src/telegram-learner-review.js';
@@ -96,6 +97,7 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
     cookie: string,
     csrf: string;
   let cleaners: Array<() => Promise<void>> = [];
+  let setDirectMode: (enabled: boolean) => Promise<void>;
   const subject = '548000000032',
     secret = 'synthetic-review-secret-not-real',
     replies: string[] = [];
@@ -188,30 +190,36 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
         "WITH g AS(INSERT INTO core.regions(code,region_type,name_zh_tw,name_en) VALUES('review-http-global','global','全球','Global') RETURNING id),c AS(INSERT INTO core.regions(parent_region_id,code,region_type,name_zh_tw,name_en) SELECT id,'review-http-country','country','國家','Country' FROM g RETURNING id) INSERT INTO core.regions(parent_region_id,code,region_type,name_zh_tw,name_en) SELECT id,'tw-general','operational','台灣','Taiwan' FROM c RETURNING id"
       )
     ).rows[0]!.id;
-    app = buildApp({
-      pool: runtime,
-      logger: false,
-      adminAuth: {
-        callbackUrl: origin + '/admin/auth/callback',
-        begin: async (verifier, s) => {
-          expect(verifier).toBeTruthy();
-          return new URL('https://review-http.example.invalid/authorize?state=' + s);
+    const createApp = (enabled: boolean) =>
+      buildApp({
+        pool: runtime,
+        telegramLearnerReviewEnabled: enabled,
+        logger: false,
+        adminAuth: {
+          callbackUrl: origin + '/admin/auth/callback',
+          begin: async (verifier, s) => {
+            expect(verifier).toBeTruthy();
+            return new URL('https://review-http.example.invalid/authorize?state=' + s);
+          },
+          complete: async () => ({ iss: 'https://review-http.example.invalid', sub: 'super' })
         },
-        complete: async () => ({ iss: 'https://review-http.example.invalid', sub: 'super' })
-      },
-      telegramOnboarding: {
-        botToken: '123456:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-        webhookSecret: secret,
-        regionCode: 'tw-general',
-        reviewTransport,
-        sendMessage: async (chat, text) => {
-          expect(chat).toBe(Number(subject));
-          replies.push(text);
+        telegramOnboarding: {
+          botToken: '123456:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          webhookSecret: secret,
+          regionCode: 'tw-general',
+          reviewTransport,
+          sendMessage: async (chat, text) => {
+            expect(chat).toBe(Number(subject));
+            replies.push(text);
+          }
         }
-      }
-    });
-    const api = app;
-    cleaners.push(() => api.close());
+      });
+    app = createApp(true);
+    setDirectMode = async (enabled) => {
+      await app.close();
+      app = createApp(enabled);
+    };
+    cleaners.push(() => app.close());
     const login = await app.inject('/admin/auth/login'),
       s = new URL(login.headers.location!).searchParams.get('state')!;
     const callback = await app.inject({
@@ -404,6 +412,217 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
     expect(page.headers['content-security-policy']).toContain("default-src 'none'");
     expect(page.headers['cache-control']).toBe('no-store');
     expect(page.body).toContain('not end-to-end encrypted');
+  });
+  it('denies regional direct opt-in with 403 while counts and WebAdmin stay authorized', async () => {
+    await bind('en');
+    await db.pool.query('DELETE FROM admin.role_grants WHERE principal_id=$1', [actor]);
+    await db.pool.query(
+      "INSERT INTO admin.role_grants(principal_id,role_id,scope_type,region_id,valid_from,reason) SELECT $1,id,'region',$2,clock_timestamp()-INTERVAL '1 day','Regional negative' FROM admin.roles WHERE code='regional_admin'",
+      [actor, region]
+    );
+    const preferences = {
+      version: (await state()).revision,
+      adminEnabled: false,
+      learnerEnabled: true,
+      locale: 'en'
+    };
+    expect(
+      (
+        await post('preferences', {
+          ...preferences,
+          learnerReviewEnabled: true,
+          learnerReviewDisclosure: 'telegram-learner-review-v1'
+        })
+      ).statusCode
+    ).toBe(403);
+    expect((await post('preferences', preferences)).statusCode).toBe(200);
+    expect(
+      (
+        await withRequestContext(
+          runtime,
+          'qigong_api_runtime',
+          { principalId: actor, requestId: randomUUID() },
+          (c) =>
+            c.query<{ allowed: boolean }>('SELECT admin.can_review_application($1) allowed', [
+              region
+            ])
+        )
+      ).rows[0]!.allowed
+    ).toBe(true);
+    expect(await deliverTelegramLearnerReviews(runtime, reviewTransport, () => {})).toBe(0);
+  });
+  it('actual schema59 worker/API off preserves unsent legacy counts with existing direct consent and receipts, blocks callbacks and consumes closed owned replies without capture', async () => {
+    await bind('en');
+    const preferences = {
+      version: (await state()).revision,
+      adminEnabled: false,
+      learnerEnabled: true,
+      locale: 'en',
+      learnerReviewEnabled: true,
+      learnerReviewDisclosure: 'telegram-learner-review-v1'
+    };
+    expect((await post('preferences', preferences)).statusCode).toBe(200);
+    const add = async () =>
+      db.pool.query(
+        "INSERT INTO identity.onboarding_applications(platform,external_subject_id,display_name,requested_region_id,learner_name,website_email,phone_e164,telegram_review_notice_version) VALUES('line',$1,'Private synthetic',$2,'Private synthetic','paused-private@example.invalid','+659900000059','telegram-learner-review-v1')",
+        ['U' + randomBytes(16).toString('hex'), region]
+      );
+    await add();
+    vi.mocked(reviewTransport.send).mockResolvedValueOnce(590).mockResolvedValueOnce(592);
+    expect(await deliverTelegramLearnerReviews(runtime, reviewTransport, () => {})).toBe(1);
+    const press = (data: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/telegram/onboarding/webhook',
+        headers: { 'x-telegram-bot-api-secret-token': secret },
+        payload: {
+          update_id: 590,
+          callback_query: {
+            id: 'paused-callback',
+            from: { id: Number(subject), is_bot: false },
+            message: {
+              message_id: 590,
+              date: Math.floor(Date.now() / 1000),
+              from: { id: 123456, is_bot: true },
+              chat: { id: Number(subject), type: 'private' }
+            },
+            data
+          }
+        }
+      });
+    const deny = vi.mocked(reviewTransport.send).mock.calls[0]![2]![0]![1]!.callback_data;
+    expect((await press(deny)).statusCode).toBe(200);
+    const custom = vi.mocked(reviewTransport.edit).mock.calls[0]![3][2]![0]!.callback_data;
+    expect((await press(custom)).statusCode).toBe(200);
+    await add(); // Unsent receipted application must not be silently lost off.
+    await withRequestContext(runtime, 'qigong_worker_runtime', { requestId: randomUUID() }, (c) =>
+      c.query('SELECT ops.queue_review_notifications_for_mode(200,true)')
+    );
+    await db.pool.query(
+      'UPDATE ops.review_notification_deliveries SET available_at=clock_timestamp()'
+    );
+    await withRequestContext(
+      runtime,
+      'qigong_worker_runtime',
+      { requestId: randomUUID() },
+      async (c) => {
+        await c.query("SELECT set_config('qigong.telegram_learner_review_enabled','true',true)");
+        await c.query('SELECT * FROM ops.claim_review_notifications(5)');
+      }
+    );
+    expect(
+      (await db.pool.query('SELECT status FROM ops.review_notification_deliveries')).rows
+    ).toEqual([{ status: 'cancelled' }, { status: 'cancelled' }]);
+    await setDirectMode(false);
+    expect(await state()).toMatchObject({
+      learnerReviewEnabled: true,
+      learnerReviewFeatureEnabled: false,
+      isSuperAdmin: true
+    });
+    expect(
+      (await post('preferences', { ...preferences, version: (await state()).revision })).statusCode
+    ).toBe(403);
+    vi.clearAllMocks();
+    expect((await press(deny)).statusCode).toBe(200);
+    expect(reviewTransport.edit).not.toHaveBeenCalled();
+    expect(reviewTransport.send).not.toHaveBeenCalled();
+    expect(reviewTransport.answer).toHaveBeenCalledWith(
+      'paused-callback',
+      expect.stringContaining('unavailable')
+    );
+    const before = (await db.pool.query('SELECT * FROM ops.telegram_learner_reviews')).rows;
+    const calls: unknown[] = [];
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+      if (typeof init?.body !== 'string') throw Error('JSON required');
+      calls.push(JSON.parse(init.body) as unknown);
+      return Response.json({ ok: true });
+    });
+    const logs = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const previousExit = process.exitCode;
+    process.exitCode = undefined;
+    vi.stubGlobal('fetch', fetch);
+    try {
+      const connectionString: unknown = runtime.options.connectionString;
+      if (typeof connectionString !== 'string') throw Error('Synthetic runtime URL unavailable');
+      const source = {
+        DATABASE_URL: connectionString,
+        TELEGRAM_ONBOARDING_BOT_TOKEN: '123456:' + 'a'.repeat(35),
+        REVIEW_NOTIFICATIONS_ENABLED: 'true',
+        TELEGRAM_LEARNER_REVIEW_ENABLED: 'false'
+      };
+      await runNotificationWorker(source);
+      await runNotificationWorker(source);
+      expect(process.exitCode).toBeUndefined();
+      expect(errors).not.toHaveBeenCalled();
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({
+        chat_id: subject,
+        text: expect.stringContaining('1 new pending application')
+      });
+      expect(JSON.stringify(calls)).not.toMatch(
+        /paused-private|Private synthetic|659900000059|lr:/
+      );
+      expect((await db.pool.query('SELECT * FROM ops.telegram_learner_reviews')).rows).toEqual(
+        before
+      );
+      expect(await state()).toMatchObject({
+        learnerReviewEnabled: true,
+        learnerReviewFeatureEnabled: false
+      });
+    } finally {
+      vi.unstubAllGlobals();
+      logs.mockRestore();
+      errors.mockRestore();
+      process.exitCode = previousExit;
+    }
+    await db.pool.query(
+      "UPDATE ops.telegram_learner_reviews SET stage='closed',prompt_message_id=NULL,expires_at=clock_timestamp()-INTERVAL '1 day'"
+    );
+    for (let i = 0; i < 2; i++)
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/telegram/onboarding/webhook',
+            headers: { 'x-telegram-bot-api-secret-token': secret },
+            payload: {
+              update_id: 600 + i,
+              message: {
+                message_id: 600 + i,
+                date: Math.floor(Date.now() / 1000),
+                from: { id: Number(subject), is_bot: false },
+                chat: { id: Number(subject), type: 'private' },
+                text: 'NEVER journal this private custom reason',
+                reply_to_message: {
+                  message_id: 592,
+                  date: Math.floor(Date.now() / 1000) - 90000,
+                  from: { id: 123456, is_bot: true },
+                  chat: { id: Number(subject), type: 'private' }
+                }
+              }
+            }
+          })
+        ).statusCode
+      ).toBe(200);
+    expect(reviewTransport.edit).not.toHaveBeenCalled();
+    expect(reviewTransport.send).not.toHaveBeenCalled();
+    expect(
+      (await db.pool.query('SELECT count(*)::integer n FROM identity.onboarding_applications')).rows
+    ).toEqual([{ n: 2 }]);
+    expect((await db.pool.query('SELECT * FROM identity.people')).rows).toEqual([]);
+    expect((await db.pool.query('SELECT * FROM core.checkin_notes')).rows).toEqual([]);
+    expect((await db.pool.query('SELECT * FROM ops.onboarding_notifications')).rows).toEqual([]);
+    expect((await db.pool.query('SELECT reason FROM ops.telegram_learner_reviews')).rows).toEqual([
+      { reason: null }
+    ]);
+    expect(
+      (
+        await db.pool.query(
+          "SELECT * FROM audit.events WHERE action IN('onboarding.approved','onboarding.rejected')"
+        )
+      ).rows
+    ).toEqual([]);
   });
   it('disconnects pending alerts and rate-limits tests without changing roles or sessions', async () => {
     const grants = (await db.pool.query('SELECT * FROM admin.role_grants')).rows;
