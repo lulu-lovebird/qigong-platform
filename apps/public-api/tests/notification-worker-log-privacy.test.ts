@@ -2,6 +2,7 @@ import type { Pool, PoolClient } from '@qigong/database';
 import type * as FileSystem from 'node:fs';
 import type * as Reminders from '../src/telegram-reminders.js';
 import type * as Reviews from '../src/review-notifications.js';
+import type * as DirectReviews from '../src/telegram-learner-review.js';
 import type * as WhatsApp from '../src/whatsapp-client.js';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -69,7 +70,8 @@ vi.mock('../src/review-notifications.js', async (original) => ({
 vi.mock('../src/telegram-learner-review-notifications.js', () => ({
   deliverTelegramLearnerReviews: mocks.directReview
 }));
-vi.mock('../src/telegram-learner-review.js', () => ({
+vi.mock('../src/telegram-learner-review.js', async (original) => ({
+  ...(await original<typeof DirectReviews>()),
   createTelegramReviewTransport: mocks.directTransport
 }));
 vi.mock('../src/whatsapp-client.js', async (original) => ({
@@ -184,7 +186,8 @@ describe('notification entry containment and unchanged lane contracts', () => {
     { ...source, WHATSAPP_ACCESS_TOKEN: sentinel },
     { ...source, WHATSAPP_TEMPLATE_LANGUAGE_ZH_CN: 'zh_CN' },
     { ...source, TELEGRAM_REMINDERS_ENABLED: 'yes' },
-    { ...source, REVIEW_NOTIFICATIONS_ENABLED: 'yes' }
+    { ...source, REVIEW_NOTIFICATIONS_ENABLED: 'yes' },
+    { ...source, TELEGRAM_LEARNER_REVIEW_ENABLED: 'yes' }
   ])('contains invalid or partial enabled configuration %#', async (input) => {
     await runNotificationWorker(input);
     expect(process.exitCode).toBe(1);
@@ -270,6 +273,24 @@ describe('notification entry containment and unchanged lane contracts', () => {
           : [{ processed: 2 }]
     }));
     await runNotificationWorker({ ...source, REVIEW_NOTIFICATIONS_ENABLED: 'true' });
+    expect(mocks.directReview).not.toHaveBeenCalled();
+    expect(mocks.review).toHaveBeenLastCalledWith(
+      activePool,
+      expect.any(Function),
+      expect.any(Function),
+      { learnerReviewEnabled: false, schema59: true }
+    );
+    await runNotificationWorker({
+      ...source,
+      REVIEW_NOTIFICATIONS_ENABLED: 'true',
+      TELEGRAM_LEARNER_REVIEW_ENABLED: 'true'
+    });
+    expect(mocks.review).toHaveBeenLastCalledWith(
+      activePool,
+      expect.any(Function),
+      expect.any(Function),
+      { learnerReviewEnabled: true, schema59: true }
+    );
     expect(mocks.directReview).toHaveBeenCalledExactlyOnceWith(
       activePool,
       mocks.directTransport.mock.results[0]!.value,

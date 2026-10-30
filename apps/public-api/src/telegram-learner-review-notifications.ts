@@ -56,8 +56,8 @@ export const buildTelegramLearnerReviewNotification = (
       text('Requested region: ', '申請地區：') + field(data.region),
       '',
       text(
-        'Approve or deny below; a second confirmation is required. Buttons expire within 24 hours and after permission, binding or application changes. Do not forward. Telegram cloud chats are not end-to-end encrypted.',
-        '可在下方通過或拒絕；必須再次確認。按鈕於 24 小時內及權限、綁定或申請資料變更後失效。請勿轉傳。Telegram 雲端聊天並非端對端加密。'
+        'Approve or deny below; a second confirmation is required. Buttons expire within 24 hours. Actions require a currently active global super administrator and unchanged binding, preferences and application. A role removal blocks actions; an unexpired action may work again after regrant. Do not forward. Telegram cloud chats are not end-to-end encrypted.',
+        '可在下方通過或拒絕；必須再次確認。按鈕有效期最長 24 小時；操作須具目前有效的全站超級管理員權限，且綁定、偏好及申請資料未變。移除權限時禁止操作；重新授權後，未過期操作可能恢復可用。請勿轉傳。Telegram 雲端聊天並非端對端加密。'
       )
     ].join('\n'),
     buttons: [

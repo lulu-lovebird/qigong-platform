@@ -29,7 +29,8 @@ export const runNotificationWorker = async (
     } = await import('./review-notifications.js');
     const { deliverTelegramLearnerReviews } =
       await import('./telegram-learner-review-notifications.js');
-    const { createTelegramReviewTransport } = await import('./telegram-learner-review.js');
+    const { createTelegramReviewTransport, telegramLearnerReviewEnabled } =
+      await import('./telegram-learner-review.js');
     const {
       createTelegramReminderSender,
       deliverTelegramReminders,
@@ -47,6 +48,9 @@ export const runNotificationWorker = async (
     const whatsapp = loadWhatsAppNotificationConfig(source);
     const remindersEnabled = telegramReminderWorkerEnabled(source.TELEGRAM_REMINDERS_ENABLED);
     const reviewEnabled = reviewNotificationsEnabled(source.REVIEW_NOTIFICATIONS_ENABLED);
+    const directReviewEnabled = telegramLearnerReviewEnabled(
+      source.TELEGRAM_LEARNER_REVIEW_ENABLED
+    );
     phase = 'notification_worker_pool_failed';
     const { createPool, withRequestContext } = await import('@qigong/database');
     const activePool = createPool(environment);
@@ -131,25 +135,28 @@ export const runNotificationWorker = async (
               lane: 'review',
               event: 'review_notifications_processed',
               run: async () => {
-                const countOnly = await deliverReviewNotifications(
-                  activePool,
-                  createReviewNotificationSender(token),
-                  deliveryFailure('review')
-                );
-                // A schema58-compatible feature-off artifact keeps the original
-                // count-only lane without invoking functions not yet migrated.
+                // Same59 off mode must retain legacy counts even when existing
+                // preferences are already opted into detailed review. Never use
+                // binary58 on schema59 as a rollback artifact.
                 const direct = await withRequestContext(
                   activePool,
                   'qigong_worker_runtime',
                   { requestId: randomUUID() },
                   (client) =>
                     client.query<{ ready: boolean }>(
-                      "SELECT to_regprocedure('ops.claim_telegram_learner_reviews(integer)') IS NOT NULL AS ready"
+                      "SELECT to_regprocedure('ops.claim_telegram_learner_reviews(integer)') IS NOT NULL AND to_regprocedure('ops.queue_review_notifications_for_mode(integer,boolean)') IS NOT NULL AS ready"
                     )
+                );
+                const schema59 = direct.rows[0]?.ready === true;
+                const countOnly = await deliverReviewNotifications(
+                  activePool,
+                  createReviewNotificationSender(token),
+                  deliveryFailure('review'),
+                  { learnerReviewEnabled: directReviewEnabled, schema59 }
                 );
                 return (
                   countOnly +
-                  (direct.rows[0]?.ready === true
+                  (directReviewEnabled && schema59
                     ? await deliverTelegramLearnerReviews(
                         activePool,
                         createTelegramReviewTransport(token),

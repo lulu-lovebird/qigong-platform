@@ -124,13 +124,27 @@ export const createReviewNotificationSender =
 export const deliverReviewNotifications = async (
   pool: Pool,
   sender: ReviewNotificationSender,
-  onError: (error: Error, id: string) => void
+  onError: (error: Error, id: string) => void,
+  mode: { learnerReviewEnabled: boolean; schema59: boolean } = {
+    learnerReviewEnabled: false,
+    schema59: false
+  }
 ) => {
   const query = <Row extends Record<string, unknown>>(sql: string, values: unknown[] = []) =>
-    withRequestContext(pool, 'qigong_worker_runtime', { requestId: randomUUID() }, (c) =>
-      c.query<Row>(sql, values)
-    );
-  await query('SELECT ops.queue_review_notifications(200)');
+    withRequestContext(pool, 'qigong_worker_runtime', { requestId: randomUUID() }, async (c) => {
+      // Routing-only GUC is transaction local: no pooled-connection leakage and no
+      // effect on legacy authorization or direct payload/action permission checks.
+      await c.query("SELECT set_config('qigong.telegram_learner_review_enabled',$1,true)", [
+        String(mode.learnerReviewEnabled && mode.schema59)
+      ]);
+      return c.query<Row>(sql, values);
+    });
+  await query(
+    mode.schema59
+      ? 'SELECT ops.queue_review_notifications_for_mode(200,$1)'
+      : 'SELECT ops.queue_review_notifications(200)',
+    mode.schema59 ? [mode.learnerReviewEnabled] : []
+  );
   const jobs = await query<{ id: string; lease_id: string }>(
     'SELECT * FROM ops.claim_review_notifications(5)'
   );
