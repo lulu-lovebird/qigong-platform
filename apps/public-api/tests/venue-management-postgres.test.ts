@@ -73,8 +73,8 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
     );
     expect(migrations.applied).toContain('0053_venue_management.sql');
     expect(migrations.applied).toContain('0052_venue_personal_history.sql');
-    expect(migrations.applied).toHaveLength(59);
-    expect(migrations.currentVersion).toBe('0059_telegram_learner_review.sql');
+    expect(migrations.applied).toHaveLength(60);
+    expect(migrations.currentVersion).toBe('0060_venue_entry_guidance.sql');
     const visibleMigrations = (await readdir(resolve(process.cwd(), '../../migrations')))
       .filter((file) => /^\d{4}_[a-z0-9_]+\.sql$/.test(file))
       .sort();

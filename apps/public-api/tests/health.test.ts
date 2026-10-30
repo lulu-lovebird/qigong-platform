@@ -25,12 +25,27 @@ afterEach(() => {
 
 const createPoolMock = (
   version: string | null = maximumMigrationVersion,
-  preflightReady = true
+  preflightReady = true,
+  evidence: {
+    window?: boolean;
+    entry?: boolean;
+    feature?: boolean;
+    throws?: 'window' | 'entry';
+  } = {}
 ) => {
   const query = vi.fn(async (queryText: string) => {
     // Readiness must never probe NFC relations, even with LIMIT 0 or missing permissions.
     if (/core\.(practice_fields|field_attendance)|pg_index/.test(queryText)) {
       throw new Error('NFC table and index probes are forbidden');
+    }
+    if (queryText.includes(' AS ready')) {
+      const feature = queryText.includes('WITH entry_functions AS')
+        ? 'entry'
+        : queryText.startsWith('SELECT EXISTS(')
+          ? 'window'
+          : 'feature';
+      if (feature === evidence.throws) throw new Error('Private catalog diagnostics');
+      return { rows: [{ ready: evidence[feature] ?? true }] };
     }
     if (queryText.includes('schema_migrations')) return { rows: version ? [{ version }] : [] };
     if (queryText.includes('FROM pg_roles')) {
@@ -124,7 +139,10 @@ describe('health endpoints', () => {
     '0046_achievement_evaluation_and_readers.sql',
     '0047_channel_invitations.sql',
     nfcMigrationVersion,
-    nfcQuarantineMigrationVersion
+    nfcQuarantineMigrationVersion,
+    '0058_venue_early_checkin_window.sql',
+    '0059_telegram_learner_review.sql',
+    maximumMigrationVersion
   ])('accepts %s at startup and health without NFC access when off', async (version) => {
     const mock = createPoolMock(version);
     const app = buildApp({ pool: mock.pool, logger: false });
@@ -204,7 +222,10 @@ describe('health endpoints', () => {
         '0050_other.sql',
         '0051_other.sql',
         '0051_z_future.sql',
-        '0052_future.sql'
+        '0052_future.sql',
+        '0059_future.sql',
+        '0060_future.sql',
+        '0061_future.sql'
       ]) {
         const mock = createPoolMock(version);
         expect(await checkStartupReadiness(mock.pool)).toMatchObject({
@@ -239,6 +260,109 @@ describe('health endpoints', () => {
       expect(response.json()).toMatchObject({ reason: 'schema_version_mismatch' });
       expectNoNfcAccess(mock);
       await app.close();
+    }
+  );
+
+  it('keeps the reviewed schema60 maximum explicit without enabling Telegram review', () => {
+    expect(maximumMigrationVersion).toBe('0060_venue_entry_guidance.sql');
+  });
+
+  it.each([
+    '0058_venue_early_checkin_window.sql',
+    '0059_telegram_learner_review.sql',
+    '0060_venue_entry_guidance.sql'
+  ])(
+    'default-off build, liveness and ordinary public preview use zero DB on %s',
+    async (version) => {
+      const mock = createPoolMock(version);
+      const app = buildApp({ pool: mock.pool, logger: false });
+      try {
+        await app.ready();
+        expect((await app.inject('/health/live')).statusCode).toBe(200);
+        expect((await app.inject('/venue-checkin?venue=tw-synthetic&source=nfc')).statusCode).toBe(
+          200
+        );
+        expect(
+          (await app.inject('/api/venue-entry/availability?venue=tw-synthetic')).statusCode
+        ).toBe(404);
+        expect(mock.connect).not.toHaveBeenCalled();
+        expect(mock.directQuery).not.toHaveBeenCalled();
+      } finally {
+        await app.close();
+      }
+    }
+  );
+
+  it.each([
+    '0058_venue_early_checkin_window.sql',
+    '0059_telegram_learner_review.sql',
+    '0060_venue_entry_guidance.sql'
+  ])(
+    'QR readiness requires version-specific evidence on %s (mock catalog replies)',
+    async (version) => {
+      const mock = createPoolMock(version);
+      expect(await checkStartupReadiness(mock.pool, true)).toMatchObject({ ready: true });
+      const probes = mock.client.query.mock.calls
+        .map(([sql]) => sql)
+        .filter((sql) => sql.includes(' AS ready'));
+      expect(probes.filter((sql) => sql.startsWith('SELECT EXISTS('))).toHaveLength(1);
+      expect(probes.filter((sql) => sql.includes('WITH entry_functions AS'))).toHaveLength(
+        version.startsWith('0060_') ? 1 : 0
+      );
+      expectNoNfcAccess(mock);
+    }
+  );
+
+  it.each([
+    ['window', { window: false }],
+    ['entry', { entry: false }],
+    ['window', { throws: 'window' }],
+    ['entry', { throws: 'entry' }]
+  ] as const)(
+    'schema60 QR fails closed for %s missing/error evidence',
+    async (feature, evidence) => {
+      const mock = createPoolMock(maximumMigrationVersion, true, evidence);
+      expect(await checkStartupReadiness(mock.pool, true)).toMatchObject({
+        ready: false,
+        reason: 'venue_feature_not_ready',
+        capability: { feature, ready: false }
+      });
+      expectNoNfcAccess(mock);
+    }
+  );
+
+  it.each(['0058_venue_early_checkin_window.sql', '0059_telegram_learner_review.sql'])(
+    'legacy QR never probes absent entry objects on %s',
+    async (version) => {
+      const mock = createPoolMock(version, true, { throws: 'entry' });
+      expect(await checkStartupReadiness(mock.pool, true)).toMatchObject({ ready: true });
+      expect(
+        mock.client.query.mock.calls.some(([sql]) => sql.includes('WITH entry_functions AS'))
+      ).toBe(false);
+    }
+  );
+
+  it('QR-off schema60 does not probe entry, including when independent history is enabled', async () => {
+    const mock = createPoolMock(maximumMigrationVersion, true, { throws: 'entry' });
+    expect(
+      await checkStartupReadiness(mock.pool, false, {
+        history: { enabled: true, publicOrigin: 'https://synthetic.invalid' }
+      })
+    ).toMatchObject({ ready: true });
+    expect(
+      mock.client.query.mock.calls.some(([sql]) => sql.includes('WITH entry_functions AS'))
+    ).toBe(false);
+  });
+
+  it.each(['0060_unknown.sql', '0061_venue_entry_guidance.sql'])(
+    'QR rejects unreviewed/future %s before probing capabilities',
+    async (version) => {
+      const mock = createPoolMock(version);
+      expect(await checkStartupReadiness(mock.pool, true)).toMatchObject({
+        ready: false,
+        reason: 'schema_version_mismatch'
+      });
+      expect(mock.client.query.mock.calls.some(([sql]) => sql.includes(' AS ready'))).toBe(false);
     }
   );
 

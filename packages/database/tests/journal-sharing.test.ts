@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
@@ -22,16 +23,24 @@ suite('Private journal scopes and explicit sharing', () => {
   let assignment: string;
   let token: string;
   let sequence: number;
+  type RuntimeQueryObserver = (client: pg.PoolClient) => Promise<void>;
   const query = <Row extends pg.QueryResultRow>(
     sql: string,
     values: unknown[] = [],
-    worker = false
+    worker = false,
+    observe?: RuntimeQueryObserver
   ) =>
     withRequestContext(
       runtime,
       worker ? 'qigong_worker_runtime' : 'qigong_api_runtime',
       { requestId: randomUUID() },
-      (client) => client.query<Row>(sql, values)
+      (client) => {
+        // Opt-in only for the final diagnostic: same initialized runtime client,
+        // immediately before its RPC. The default branch returns the original
+        // query promise directly, with no added async wrapper for other cases.
+        if (observe) return observe(client).then(() => client.query<Row>(sql, values));
+        return client.query<Row>(sql, values);
+      }
     );
   const learner = async (targetRegion = region, name = 'Secret legal learner name') => {
     const subject = String(++sequence);
@@ -153,7 +162,8 @@ suite('Private journal scopes and explicit sharing', () => {
     external = false,
     auth = token,
     note = true,
-    feelings = false
+    feelings = false,
+    observe?: RuntimeQueryObserver
   ) => {
     const sourceHash = (
       await pool.query<{ hash: string }>(
@@ -164,7 +174,9 @@ suite('Private journal scopes and explicit sharing', () => {
     return (
       await query<{ data: { version: number; active: boolean } }>(
         'SELECT platform.journal_publish($1,$2,$3,$4,$5,$6,$7,$8,$9) data',
-        [auth, id, version, active, note, feelings, external, 'Shared alias', sourceHash]
+        [auth, id, version, active, note, feelings, external, 'Shared alias', sourceHash],
+        false,
+        observe
       )
     ).rows[0]!.data;
   };
@@ -438,24 +450,294 @@ suite('Private journal scopes and explicit sharing', () => {
     ]);
     expect((await feed()).total).toBe(0);
   });
-  it('rechecks expired capabilities after waiting for the person lock', async () => {
+  // This fixes an unproved fixture precondition, not the original incident's
+  // unresolved cause. Both regressions use native low-privilege RPCs, exactly once.
+  const exercisePersonLockExpiry = async (expireNaturally: boolean) => {
     const id = await seed(0);
     await privateNote(id);
-    const blocker = await pool.connect();
-    await blocker.query('BEGIN');
-    await blocker.query('SELECT id FROM identity.people WHERE id=$1 FOR UPDATE', [person]);
-    await pool.query(
-      "UPDATE platform.telegram_checkin_links SET expires_at=clock_timestamp()+INTERVAL '100 milliseconds' WHERE token_hash=public.digest($1,'sha256')",
-      [token]
-    );
-    const pending = publish(id);
-    const outcome = expect(pending).rejects.toThrow('practice identity unavailable');
-    await new Promise((r) => setTimeout(r, 150));
-    await blocker.query('COMMIT');
-    blocker.release();
-    await outcome;
-    expect(
-      (await pool.query('SELECT count(*)::int n FROM core.journal_publications')).rows[0]!.n
-    ).toBe(0);
-  });
+    const started = performance.now();
+    const d = {
+      phase: 'setup' as
+        | 'setup'
+        | 'wait_valid'
+        | 'natural_expiry'
+        | 'before_unlock'
+        | 'after_unlock'
+        | 'settle'
+        | 'count',
+      expireNaturally,
+      blockerPid: 0,
+      runtimePid: 0,
+      lockRows: null as number | null,
+      targetMatches: false,
+      expiryRows: null as number | null,
+      expiryUtc: '',
+      runtimeUtc: '',
+      transactionUtc: '',
+      apiRuntime: false,
+      sessionSuperuser: null as boolean | null,
+      readCommitted: false,
+      transactionBeforeExpiry: false,
+      clockBeforeExpiry: false,
+      waitWhileValid: false,
+      waitUtc: '',
+      waitMs: 0,
+      beforeUtc: '',
+      afterUtc: '',
+      unchangedBefore: false,
+      unchangedAfter: false,
+      expiredBefore: null as boolean | null,
+      expiredAfter: null as boolean | null,
+      committed: false,
+      preconditionsFailed: false,
+      cleanupFailed: false,
+      resultKind: 'not_started' as 'not_started' | 'fulfilled' | 'rejected',
+      active: null as boolean | null,
+      version: null as number | null,
+      publicationCount: null as number | null,
+      elapsedMs: 0
+    };
+    type State = {
+      utc: string;
+      unchanged: boolean;
+      valid: boolean;
+      expired: boolean;
+      waiting: boolean;
+      owned: boolean;
+    };
+    let blocker: pg.PoolClient | undefined;
+    let blockerOpen = false;
+    let pending: ReturnType<typeof publish> | undefined;
+    let captured: Promise<void> | undefined;
+    let settled = false;
+    const requireState = (condition: boolean) => {
+      if (!condition)
+        throw new Error('Journal lock/expiry preconditions unavailable; NO_AUTH_VERDICT');
+    };
+    const one = <Row extends pg.QueryResultRow>(result: pg.QueryResult<Row>): Row => {
+      const row = result.rows[0];
+      if (result.rowCount !== 1 || !row)
+        throw new Error('Journal observation row unavailable; NO_AUTH_VERDICT');
+      return row;
+    };
+    const read = <Row extends pg.QueryResultRow>(
+      client: Pool | pg.PoolClient,
+      text: string,
+      values: unknown[] = [],
+      timeout = 500
+    ) => {
+      const config: pg.QueryConfig<unknown[]> & { query_timeout: number } = {
+        text,
+        values,
+        query_timeout: timeout
+      };
+      return client.query<Row>(config); // Bound metadata only, never the authenticated RPC.
+    };
+    const inspect = async (timeout = 500): Promise<State> => {
+      requireState(d.runtimePid > 0 && d.blockerPid > 0);
+      return one(
+        await read<State>(
+          pool,
+          `WITH observed AS MATERIALIZED (SELECT clock_timestamp() at_time)
+        SELECT to_char(observed.at_time AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') utc,
+          l.expires_at=$1::timestamptz unchanged, l.expires_at>observed.at_time valid,
+          l.expires_at<=observed.at_time expired,
+          EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.pid=$3 AND a.wait_event_type='Lock') waiting,
+          $4::integer=ANY(pg_blocking_pids($3::integer)) owned
+        FROM platform.telegram_checkin_links l CROSS JOIN observed
+        WHERE l.token_hash=public.digest($2,'sha256')`,
+          [d.expiryUtc, token, d.runtimePid, d.blockerPid],
+          timeout
+        )
+      );
+    };
+    const barrier = async (deadline: number, expired: boolean): Promise<State> => {
+      while (performance.now() < deadline) {
+        requireState(!settled);
+        if (d.runtimePid > 0) {
+          const state = await inspect(
+            Math.max(1, Math.min(500, Math.floor(deadline - performance.now())))
+          );
+          requireState(state.unchanged && !settled && performance.now() < deadline);
+          if (state.waiting && state.owned && (expired ? state.expired : state.valid)) return state;
+        }
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, Math.max(1, Math.min(10, deadline - performance.now())))
+        );
+      }
+      throw new Error('Journal state barrier deadline exceeded; NO_AUTH_VERDICT');
+    };
+    try {
+      blocker = await pool.connect();
+      await blocker.query('BEGIN');
+      blockerOpen = true;
+      d.blockerPid = one(await read<{ pid: number }>(blocker, 'SELECT pg_backend_pid() pid')).pid;
+      const locked = await blocker.query<{ id: string }>(
+        'SELECT id FROM identity.people WHERE id=$1 FOR UPDATE',
+        [person]
+      );
+      d.lockRows = locked.rowCount;
+      d.targetMatches = locked.rows.length === 1 && locked.rows[0]?.id === person;
+      requireState(d.blockerPid > 0 && d.lockRows === 1 && d.targetMatches);
+      const columns = `to_char(expires_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') expiry, expires_at>clock_timestamp() valid`;
+      // Negative: issue one future timestamp BEFORE RPC. Positive: keep the normal
+      // 15-minute credential. Neither case mutates expiry once publishing starts.
+      const issued = await read<{ expiry: string; valid: boolean }>(
+        pool,
+        expireNaturally
+          ? `UPDATE platform.telegram_checkin_links SET expires_at=clock_timestamp()+INTERVAL '2 seconds' WHERE token_hash=public.digest($1,'sha256') RETURNING ${columns}`
+          : `SELECT ${columns} FROM platform.telegram_checkin_links WHERE token_hash=public.digest($1,'sha256')`,
+        [token]
+      );
+      d.expiryRows = issued.rowCount;
+      const credential = one(issued);
+      d.expiryUtc = credential.expiry;
+      requireState(credential.valid);
+      const observe: RuntimeQueryObserver = async (client) => {
+        const row = one(
+          await read<{
+            pid: number;
+            utc: string;
+            transaction_utc: string;
+            api_runtime: boolean;
+            session_superuser: boolean | null;
+            read_committed: boolean;
+            transaction_before: boolean;
+            clock_before: boolean;
+          }>(
+            client,
+            `SELECT pg_backend_pid() pid,
+          to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') utc,
+          to_char(transaction_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') transaction_utc,
+          current_user='qigong_api_runtime' api_runtime,
+          (SELECT rolsuper FROM pg_roles WHERE rolname=session_user) session_superuser,
+          current_setting('transaction_isolation')='read committed' read_committed,
+          transaction_timestamp()<$1::timestamptz transaction_before, clock_timestamp()<$1::timestamptz clock_before`,
+            [d.expiryUtc]
+          )
+        );
+        d.runtimePid = row.pid;
+        d.runtimeUtc = row.utc;
+        d.transactionUtc = row.transaction_utc;
+        d.apiRuntime = row.api_runtime;
+        d.sessionSuperuser = row.session_superuser;
+        d.readCommitted = row.read_committed;
+        d.transactionBeforeExpiry = row.transaction_before;
+        d.clockBeforeExpiry = row.clock_before;
+      };
+      const setupDeadline = performance.now() + 1000; // Fixed, strictly shorter than negative TTL.
+      pending = publish(id, 0, true, false, token, true, false, observe); // Source-hash SELECT remains FIRST.
+      captured = pending.then(
+        (value) => {
+          settled = true;
+          d.resultKind = 'fulfilled';
+          d.active = typeof value?.active === 'boolean' ? value.active : null;
+          d.version = Number.isSafeInteger(value?.version) ? value.version : null;
+        },
+        () => {
+          settled = true;
+          d.resultKind = 'rejected';
+        }
+      ); // Both handlers attach immediately.
+      d.phase = 'wait_valid';
+      const waiting = await barrier(setupDeadline, false);
+      d.waitWhileValid = waiting.waiting && waiting.owned && waiting.valid;
+      d.waitUtc = waiting.utc;
+      d.waitMs = performance.now() - started;
+      requireState(
+        d.runtimePid !== d.blockerPid &&
+          d.apiRuntime &&
+          d.sessionSuperuser === false &&
+          d.readCommitted &&
+          d.transactionBeforeExpiry &&
+          d.clockBeforeExpiry &&
+          d.waitWhileValid
+      );
+      if (expireNaturally) {
+        d.phase = 'natural_expiry';
+        await barrier(performance.now() + 5000, true); // DB clock, unchanged expiry, actor STILL locked.
+      }
+      d.phase = 'before_unlock';
+      const before = await inspect();
+      d.beforeUtc = before.utc;
+      d.unchangedBefore = before.unchanged;
+      d.expiredBefore = before.expired;
+      requireState(
+        !settled &&
+          before.waiting &&
+          before.owned &&
+          before.unchanged &&
+          before.expired === expireNaturally &&
+          before.valid !== expireNaturally
+      );
+      await blocker.query('COMMIT');
+      blockerOpen = false;
+      d.committed = true;
+      d.phase = 'after_unlock';
+      const after = await inspect();
+      d.afterUtc = after.utc;
+      d.unchangedAfter = after.unchanged;
+      d.expiredAfter = after.expired;
+      requireState(
+        after.unchanged && after.expired === expireNaturally && after.valid !== expireNaturally
+      );
+    } catch {
+      d.preconditionsFailed = true; // Infrastructure/barrier uncertainty is NOT an auth verdict.
+    } finally {
+      let destroy = false;
+      try {
+        if (blockerOpen && blocker) await blocker.query('ROLLBACK');
+      } catch {
+        d.cleanupFailed = true;
+        destroy = true;
+      } finally {
+        try {
+          blocker?.release(destroy);
+        } catch {
+          d.cleanupFailed = true;
+        }
+      }
+      d.phase = 'settle';
+      if (captured) await captured; // Known blocker released first; awaited before fixture teardown.
+      d.phase = 'count';
+      try {
+        d.publicationCount = one(
+          await pool.query<{ n: number }>('SELECT count(*)::int n FROM core.journal_publications')
+        ).n;
+      } catch {
+        d.preconditionsFailed = true;
+      }
+    }
+    const failures: unknown[] = [];
+    try {
+      if (!pending) throw new Error('Journal publisher not started; NO_AUTH_VERDICT');
+      if (expireNaturally) await expect(pending).rejects.toThrow('practice identity unavailable');
+      else await expect(pending).resolves.toEqual({ active: true, version: 1 });
+    } catch (failure) {
+      failures.push(failure);
+    } // Original RPC assertion stays PRIMARY.
+    try {
+      expect(d.publicationCount).toBe(expireNaturally ? 0 : 1);
+    } catch (failure) {
+      failures.push(failure);
+    }
+    if (d.preconditionsFailed || !d.committed)
+      failures.push(new Error('Journal lock/expiry barriers incomplete; NO_AUTH_VERDICT'));
+    if (d.cleanupFailed) failures.push(new Error('Journal blocker cleanup failed'));
+    if (failures.length) {
+      d.elapsedMs = performance.now() - started;
+      // Fixed typed allowlist only: no Error/SQL/token/hash/UUID/contact/content/config.
+      console.error('journal_lock_expiry_diagnostic', JSON.stringify(d));
+      if (failures.length === 1 && !d.cleanupFailed) throw failures[0];
+      throw new AggregateError(failures, 'Journal lock/expiry regression failed', {
+        cause: failures[0]
+      });
+    }
+  };
+  it('rechecks expired capabilities after waiting for the person lock', async () => {
+    await exercisePersonLockExpiry(true);
+  }, 15000);
+  it('allows a valid capability held on the person lock before expiry', async () => {
+    await exercisePersonLockExpiry(false);
+  }, 15000);
 });

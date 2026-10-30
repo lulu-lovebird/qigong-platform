@@ -234,7 +234,7 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
   afterEach(async () => {
     for (const cleanup of cleaners.reverse()) await cleanup();
   });
-  it('admits exact schema59 with reviewer feature off and preserves explicitly enabled venue capability checks', async () => {
+  it('admits latest schema60 with reviewer feature off and preserves explicitly enabled venue capability checks', async () => {
     const apiRole = 'tgapply_readiness_' + randomUUID().replaceAll('-', '');
     const password = randomBytes(24).toString('hex');
     await db.pool.query(
@@ -251,8 +251,8 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
     cleaners.push(() => apiOnly.end());
     const off = await checkStartupReadiness(apiOnly);
     expect(off.ready).toBe(true);
-    if (!off.ready) throw Error('Schema59 readiness unavailable');
-    expect(off.migration.currentVersion).toBe('0059_telegram_learner_review.sql');
+    if (!off.ready) throw Error('Schema60 readiness unavailable');
+    expect(off.migration.currentVersion).toBe('0060_venue_entry_guidance.sql');
     expect(
       (
         await checkStartupReadiness(
@@ -453,7 +453,7 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
     ).toBe(true);
     expect(await deliverTelegramLearnerReviews(runtime, reviewTransport, () => {})).toBe(0);
   });
-  it('actual schema59 worker/API off preserves unsent legacy counts with existing direct consent and receipts, blocks callbacks and consumes closed owned replies without capture', async () => {
+  it('latest schema60 worker/API off preserves unsent legacy counts with existing direct consent and receipts, blocks callbacks and consumes closed owned replies without capture', async () => {
     await bind('en');
     const preferences = {
       version: (await state()).revision,

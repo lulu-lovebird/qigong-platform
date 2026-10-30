@@ -1,10 +1,16 @@
-/** Real buildApp composition; synthetic SQL/LINE only. Live RLS has separate PG coverage. */
+/** Real buildApp/VM composition; SQL and LINE are MOCKED, not PostgreSQL.
+ * New catalog SQL still requires reviewed PG QA; older function/RLS PG evidence
+ * does not execute or prove these readiness predicates. */
 import type { Pool } from '@qigong/database';
 import { runInNewContext } from 'node:vm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp, checkStartupReadiness } from '../src/app.js';
 import type { AdminAuthProvider } from '../src/admin-auth.js';
-import { venueSuiteMigrationVersion, type VenueSuiteConfig } from '../src/venue-suite.js';
+import {
+  venueSuiteMigrationVersion,
+  venueEntryGuidanceMigrationVersion,
+  type VenueSuiteConfig
+} from '../src/venue-suite.js';
 import { venueDebugMigrationVersion } from '../src/venue-debug.js';
 
 const origin = 'https://synthetic.invalid';
@@ -40,6 +46,19 @@ const fixture = (version = venueDebugMigrationVersion, capable = true) => {
     revoked: false
   };
   const unavailableFunctions = new Set<string>();
+  // This is a deliberately explicit mock evidence model, NOT a SQL evaluator.
+  const catalog = {
+    ledgerCount: Number(version.slice(0, 4)),
+    windowGrantees: new Set([
+      'qigong_venue_qr_writer',
+      'qigong_venue_debug',
+      ...(version === venueEntryGuidanceMigrationVersion ? ['qigong_venue_entry_reader'] : [])
+    ]),
+    entryRoleExists: version === venueEntryGuidanceMigrationVersion,
+    entryValid: true,
+    failures: new Set<string>(),
+    errors: new Set<string>()
+  };
   const query = vi.fn(async (sql: string, values?: unknown[]) => {
     if (sql.includes('WITH eligible')) {
       if (permissions.fail) throw new Error('private catalog diagnostics');
@@ -118,6 +137,32 @@ const fixture = (version = venueDebugMigrationVersion, capable = true) => {
       return { rows: [{ data: managed.value }] };
     }
     if (sql.includes(' AS ready')) {
+      const kind = sql.includes('WITH entry_functions AS')
+        ? 'entry'
+        : sql.startsWith('SELECT EXISTS(')
+          ? 'window'
+          : 'feature';
+      if (catalog.errors.has(kind)) throw new Error('Private readiness catalog diagnostics');
+      if (
+        !catalog.entryRoleExists &&
+        /has_function_privilege\('qigong_venue_entry_reader'/.test(sql)
+      )
+        throw Object.assign(new Error('missing role'), { code: '42704' });
+      const historical =
+        version === venueDebugMigrationVersion || version === '0059_telegram_learner_review.sql';
+      const modern = version === venueEntryGuidanceMigrationVersion;
+      const grantees = [
+        'qigong_venue_qr_writer',
+        'qigong_venue_debug',
+        ...(modern ? ['qigong_venue_entry_reader'] : [])
+      ];
+      const validWindow =
+        (historical || modern) &&
+        catalog.ledgerCount === Number(version.slice(0, 4)) &&
+        catalog.windowGrantees.size === grantees.length &&
+        grantees.every((r) => catalog.windowGrantees.has(r)) &&
+        (!modern || catalog.entryRoleExists) &&
+        !unavailableFunctions.has('platform.venue_checkin_window(jsonb,text,timestamptz)');
       const functions =
         values?.[0] ??
         (sql.includes('platform.venue_checkin_window(jsonb,text,timestamptz)')
@@ -128,6 +173,12 @@ const fixture = (version = venueDebugMigrationVersion, capable = true) => {
           {
             ready:
               capable &&
+              !catalog.failures.has(kind) &&
+              (kind === 'window'
+                ? validWindow
+                : kind === 'entry'
+                  ? modern && validWindow && catalog.entryValid
+                  : !(historical || modern) || validWindow) &&
               Array.isArray(functions) &&
               !functions.some(
                 (signature: unknown) =>
@@ -195,11 +246,10 @@ const fixture = (version = venueDebugMigrationVersion, capable = true) => {
       };
     return { rows: [], rowCount: 0 };
   });
-  const pool = {
-    connect: async () => ({ query, release: vi.fn() }),
-    query: async () => ({ rows: [] })
-  } as unknown as Pool;
-  return { pool, query, managed, permissions, unavailableFunctions };
+  const connect = vi.fn(async () => ({ query, release: vi.fn() }));
+  const directQuery = vi.fn(async () => ({ rows: [] }));
+  const pool = { connect, query: directQuery } as unknown as Pool;
+  return { pool, query, connect, directQuery, managed, permissions, unavailableFunctions, catalog };
 };
 const apps: ReturnType<typeof buildApp>[] = [];
 const appFor = (
@@ -288,30 +338,33 @@ describe('venue suite through buildApp', () => {
     f.permissions.revoked = true;
     expect((await request()).statusCode).toBe(401);
   });
-  it.each(['0051_venue_qr_attendance.sql', venueSuiteMigrationVersion, venueDebugMigrationVersion])(
-    'supports %s with all new features default off',
-    async (version) => {
-      const app = appFor(fixture(version), {});
-      expect((await app.inject('/health/ready')).statusCode).toBe(200);
-      for (const url of ['/admin/venue-management', '/admin/venue-people'])
-        expect((await app.inject(url)).statusCode).toBe(404);
-      expect(
-        (
-          await app.inject({
-            method: 'POST',
-            url: '/api/line/venue-history',
-            payload: { idToken: 'synthetic' }
-          })
-        ).statusCode
-      ).toBe(404);
-      const page = await app.inject('/line/venue-history');
-      expect(page.statusCode).toBe(503);
-      expect(page.body).not.toContain('<script');
-      expect((await app.inject('/line/venue-checkin?venue=tw-test-one')).body).not.toContain(
-        'id="preview-history"'
-      );
-    }
-  );
+  it.each([
+    '0051_venue_qr_attendance.sql',
+    venueSuiteMigrationVersion,
+    venueDebugMigrationVersion,
+    '0059_telegram_learner_review.sql',
+    venueEntryGuidanceMigrationVersion
+  ])('supports %s with all new features default off', async (version) => {
+    const app = appFor(fixture(version), {});
+    expect((await app.inject('/health/ready')).statusCode).toBe(200);
+    for (const url of ['/admin/venue-management', '/admin/venue-people'])
+      expect((await app.inject(url)).statusCode).toBe(404);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/line/venue-history',
+          payload: { idToken: 'synthetic' }
+        })
+      ).statusCode
+    ).toBe(404);
+    const page = await app.inject('/line/venue-history');
+    expect(page.statusCode).toBe(503);
+    expect(page.body).not.toContain('<script');
+    expect((await app.inject('/line/venue-checkin?venue=tw-test-one')).body).not.toContain(
+      'id="preview-history"'
+    );
+  });
   it.each([
     '0052_venue_personal_history.sql',
     '0053_venue_management.sql',
@@ -320,7 +373,9 @@ describe('venue suite through buildApp', () => {
     '0056_future.sql',
     '0057_future.sql',
     '0058_future.sql',
-    '0059_future.sql'
+    '0059_future.sql',
+    '0060_future.sql',
+    '0061_future.sql'
   ])('does not admit unknown/transition schema %s', async (version) => {
     expect(await checkStartupReadiness(fixture(version).pool)).toMatchObject({
       ready: false,
@@ -334,7 +389,9 @@ describe('venue suite through buildApp', () => {
     '0055_venue_distance_debug.sql',
     '0056_venue_cks_distance_debug.sql',
     '0057_venue_test_scope.sql',
-    venueDebugMigrationVersion
+    venueDebugMigrationVersion,
+    '0059_telegram_learner_review.sql',
+    venueEntryGuidanceMigrationVersion
   ])(
     'keeps independently authorized administration and history operational on %s with debug off',
     async (version) => {
@@ -399,6 +456,163 @@ describe('venue suite through buildApp', () => {
         ready: false,
         reason: 'schema_version_mismatch'
       });
+  });
+
+  it.each(['0059_telegram_learner_review.sql', venueEntryGuidanceMigrationVersion])(
+    'preserves independent capability failures on %s (mock catalog, NOT SQL execution)',
+    async (version) => {
+      const f = fixture(version);
+      const suite = { history: enabled, management: enabled, people: enabled };
+      expect(await checkStartupReadiness(f.pool, true, suite, true)).toMatchObject({ ready: true });
+      const cases = [
+        ['window', 'platform.venue_checkin_window(jsonb,text,timestamptz)'],
+        ['history', 'platform.venue_personal_history(text,text,text,text,bigint)'],
+        ['management', 'admin.venue_management(text,text,uuid,uuid,integer,jsonb,text)'],
+        [
+          'people',
+          'admin.venue_people_read(text,uuid,date,date,uuid,uuid,text,text,text,text,integer,integer,boolean)'
+        ],
+        [
+          'debug',
+          'platform.venue_debug_checkin(text,text,double precision,double precision,bigint,bigint,text)'
+        ],
+        ...(version === venueEntryGuidanceMigrationVersion
+          ? [
+              ['entry', 'platform.venue_entry_availability(text)'],
+              ['entry', 'platform.venue_entry_learner_status(text)'],
+              ['entry', 'platform.venue_entry_schedule_context(jsonb,text,timestamptz)']
+            ]
+          : [])
+      ] as const;
+      for (const [feature, signature] of cases) {
+        f.unavailableFunctions.add(signature);
+        expect(await checkStartupReadiness(f.pool, true, suite, true)).toMatchObject({
+          ready: false,
+          reason: 'venue_feature_not_ready',
+          capability: { feature, ready: false }
+        });
+        f.unavailableFunctions.clear();
+      }
+    }
+  );
+
+  it.each([venueDebugMigrationVersion, '0059_telegram_learner_review.sql'])(
+    'legacy %s accepts two ACL grants without any new role or entry functions (mock evidence)',
+    async (version) => {
+      const f = fixture(version);
+      expect(f.catalog.entryRoleExists).toBe(false);
+      f.catalog.errors.add('entry');
+      expect(
+        await checkStartupReadiness(
+          f.pool,
+          true,
+          { history: enabled, management: enabled, people: enabled },
+          true
+        )
+      ).toMatchObject({ ready: true });
+      expect(f.query.mock.calls.some(([sql]) => sql.includes('WITH entry_functions AS'))).toBe(
+        false
+      );
+      // A third grant is not legitimate on schema58/59, even if that cluster
+      // happens to contain an entry role from a different fixture/database.
+      f.catalog.windowGrantees.add('qigong_venue_entry_reader');
+      f.catalog.entryRoleExists = true;
+      expect(await checkStartupReadiness(f.pool, true)).toMatchObject({
+        ready: false,
+        capability: { feature: 'window', ready: false }
+      });
+    }
+  );
+
+  it.each([
+    'missing entry grant',
+    'extra role grant',
+    'PUBLIC grant',
+    'missing entry role',
+    'partial ledger'
+  ])('schema60 QR rejects %s before entry health (mock window evidence)', async (fault) => {
+    const f = fixture(venueEntryGuidanceMigrationVersion);
+    if (fault === 'missing entry grant')
+      f.catalog.windowGrantees.delete('qigong_venue_entry_reader');
+    if (fault === 'extra role grant') f.catalog.windowGrantees.add('unexpected_role');
+    if (fault === 'PUBLIC grant') f.catalog.windowGrantees.add('PUBLIC');
+    if (fault === 'missing entry role') f.catalog.entryRoleExists = false;
+    if (fault === 'partial ledger') f.catalog.ledgerCount = 59;
+    expect(await checkStartupReadiness(f.pool, true)).toMatchObject({
+      ready: false,
+      reason: 'venue_feature_not_ready',
+      capability: { feature: 'window', ready: false }
+    });
+  });
+
+  it.each([
+    'wrong owner',
+    'wrong SECURITY DEFINER',
+    'wrong search_path',
+    'missing subject scope',
+    'extra function grant',
+    'unsafe owner',
+    'owner membership',
+    'owner table ownership',
+    'schema CREATE',
+    'extra column SELECT',
+    'missing FORCE RLS',
+    'changed policy scope'
+  ])(
+    'schema60 QR fails reported %s entry evidence without leaking diagnostics (NOT a PG mutation)',
+    async () => {
+      const f = fixture(venueEntryGuidanceMigrationVersion);
+      f.catalog.entryValid = false;
+      expect(await checkStartupReadiness(f.pool, true)).toMatchObject({
+        ready: false,
+        reason: 'venue_feature_not_ready',
+        capability: { feature: 'entry', ready: false }
+      });
+    }
+  );
+
+  it('schema60 catalog errors are unavailable and QR-off never probes the entry gate', async () => {
+    const f = fixture(venueEntryGuidanceMigrationVersion);
+    f.catalog.errors.add('entry');
+    expect(await checkStartupReadiness(f.pool, true)).toMatchObject({
+      ready: false,
+      capability: { feature: 'entry', ready: false }
+    });
+    f.query.mockClear();
+    expect(await checkStartupReadiness(f.pool, false, { history: enabled })).toMatchObject({
+      ready: true
+    });
+    expect(f.query.mock.calls.some(([sql]) => sql.includes('WITH entry_functions AS'))).toBe(false);
+  });
+
+  it.each([
+    venueDebugMigrationVersion,
+    '0059_telegram_learner_review.sql',
+    venueEntryGuidanceMigrationVersion
+  ])('default-off build/liveness/preview on %s do not connect or probe', async (version) => {
+    const f = fixture(version);
+    const app = appFor(f, {});
+    await app.ready();
+    expect((await app.inject('/health/live')).statusCode).toBe(200);
+    expect((await app.inject('/venue-checkin?venue=tw-test-one&source=nfc')).statusCode).toBe(200);
+    expect(f.query).not.toHaveBeenCalled();
+    expect(f.connect).not.toHaveBeenCalled();
+    expect(f.directQuery).not.toHaveBeenCalled();
+  });
+
+  it('schema60 readiness does not prematurely wire new guidance routes or execute any learner operations', async () => {
+    const f = fixture(venueEntryGuidanceMigrationVersion);
+    const app = buildApp({ pool: f.pool, line, logger: false, venueQr: enabled });
+    apps.push(app);
+    await app.ready();
+    expect((await app.inject('/health/ready')).statusCode).toBe(200);
+    expect(app.hasRoute({ method: 'GET', url: '/api/venue-entry/availability' })).toBe(false);
+    expect(app.hasRoute({ method: 'POST', url: '/api/line/venue-entry-status' })).toBe(false);
+    for (const [sql] of f.query.mock.calls)
+      expect(sql).not.toMatch(
+        /SELECT\s+platform\.(?:venue_entry_|privacy_usage|refresh_verified_line_profile|begin_privacy_gate)/
+      );
+    expect(line.verifyIdentity).not.toHaveBeenCalled();
   });
 
   it('does not infer history readiness from QR-compatible 0051 or from version alone', async () => {

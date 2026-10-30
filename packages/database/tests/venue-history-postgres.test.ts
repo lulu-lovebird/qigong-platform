@@ -99,7 +99,7 @@ const sqlRuntime = (sql: string, values?: unknown[]) =>
     (client) => client.query(sql, values)
   );
 
-suite('isolated PG16/17 history: 59 migrations + real nonowner RLS', () => {
+suite('isolated PG16/17 history: 60 migrations + real nonowner RLS', () => {
   beforeAll(async () => {
     vi.stubGlobal(
       'fetch',
@@ -159,10 +159,10 @@ suite('isolated PG16/17 history: 59 migrations + real nonowner RLS', () => {
     ).toBe(0);
     const migrations = resolve(repo, 'migrations');
     const files = (await readdir(migrations)).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort();
-    expect(files).toHaveLength(59);
+    expect(files).toHaveLength(60);
     const result = await runMigrations(owner, migrations, 'synthetic-history-only');
     expect(result.applied).toEqual(files);
-    expect(result.currentVersion).toBe('0059_telegram_learner_review.sql');
+    expect(result.currentVersion).toBe('0060_venue_entry_guidance.sql');
     expect((await runMigrations(owner, migrations)).applied).toEqual([]);
     expect((await owner.query('SELECT 1 FROM core.field_attendance')).rowCount).toBe(0);
     expect((await owner.query('SELECT 1 FROM platform.venue_history_context')).rowCount).toBe(0);

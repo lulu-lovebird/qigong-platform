@@ -44,6 +44,8 @@ import { registerVenueHistoryRoutes } from './venue-history.js';
 import {
   checkVenueFeatureReadiness,
   checkVenueWindowReadiness,
+  checkVenueEntryGuidanceReadiness,
+  venueEntryGuidanceMigrationVersion,
   validateVenueSuiteConfig,
   venueSuiteMigrationVersion,
   type VenueSuiteConfig,
@@ -69,7 +71,8 @@ export const apiLogRedaction = Object.freeze({
 
 export const minimumMigrationVersion = '0042_activity_consecutive_drafts.sql';
 // Exact QR schema compatibility does not enable QR or the old NFC routes.
-export const maximumMigrationVersion = '0059_telegram_learner_review.sql';
+export const maximumMigrationVersion = venueEntryGuidanceMigrationVersion;
+const telegramLearnerReviewMigrationVersion = '0059_telegram_learner_review.sql';
 const defaultOffMigrationVersions = new Set([
   minimumMigrationVersion,
   '0043_achievement_rule_versions.sql',
@@ -85,6 +88,7 @@ const defaultOffMigrationVersions = new Set([
   '0056_venue_cks_distance_debug.sql',
   '0057_venue_test_scope.sql',
   venueDebugMigrationVersion,
+  telegramLearnerReviewMigrationVersion,
   maximumMigrationVersion
 ]);
 // HTTP error classes can inherit status/message data (unlike log diagnostics,
@@ -259,6 +263,7 @@ export const checkStartupReadiness = async (
       (venueDebugEnabled
         ? venueQrEnabled &&
           (status.currentVersion === venueDebugMigrationVersion ||
+            status.currentVersion === telegramLearnerReviewMigrationVersion ||
             status.currentVersion === maximumMigrationVersion)
         : enabledFeatures.length > 0
           ? status.currentVersion === venueSuiteMigrationVersion ||
@@ -266,6 +271,7 @@ export const checkStartupReadiness = async (
             status.currentVersion === '0056_venue_cks_distance_debug.sql' ||
             status.currentVersion === '0057_venue_test_scope.sql' ||
             status.currentVersion === venueDebugMigrationVersion ||
+            status.currentVersion === telegramLearnerReviewMigrationVersion ||
             status.currentVersion === maximumMigrationVersion
           : venueQrEnabled
             ? status.currentVersion === venueQrMigrationVersion ||
@@ -274,6 +280,7 @@ export const checkStartupReadiness = async (
               status.currentVersion === '0056_venue_cks_distance_debug.sql' ||
               status.currentVersion === '0057_venue_test_scope.sql' ||
               status.currentVersion === venueDebugMigrationVersion ||
+              status.currentVersion === telegramLearnerReviewMigrationVersion ||
               status.currentVersion === maximumMigrationVersion
             : status.currentVersion !== null &&
               defaultOffMigrationVersions.has(status.currentVersion))
@@ -286,9 +293,17 @@ export const checkStartupReadiness = async (
   if (
     venueQrEnabled &&
     (status.currentVersion === venueDebugMigrationVersion ||
+      status.currentVersion === telegramLearnerReviewMigrationVersion ||
       status.currentVersion === maximumMigrationVersion)
   ) {
     const capability = await checkVenueWindowReadiness(pool);
+    if (!capability.ready)
+      return { ready: false as const, reason: 'venue_feature_not_ready', capability };
+  }
+  // Capability gate only. Guidance routes/renderers are deliberately not wired
+  // until the next reviewed composition step; QR-off remains zero entry probes.
+  if (venueQrEnabled && status.currentVersion === venueEntryGuidanceMigrationVersion) {
+    const capability = await checkVenueEntryGuidanceReadiness(pool);
     if (!capability.ready)
       return { ready: false as const, reason: 'venue_feature_not_ready', capability };
   }

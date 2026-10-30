@@ -9,14 +9,41 @@ import { createIsolatedTestDatabase } from './test-database.js';
 const base = process.env.TEST_DATABASE_URL;
 const suite = base ? describe : describe.skip;
 const directory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../migrations');
+const schema59Version = '0059_telegram_learner_review.sql';
+const schema59Files = (files: readonly string[]) =>
+  files.filter((file) => /^\d{4}_[a-z0-9_]+\.sql$/.test(file) && file <= schema59Version).sort();
+
+describe('Pinned schema59 historical fixture manifest (static, no PostgreSQL)', () => {
+  it('retains the complete schema58 prefix plus exactly 0059, never the latest 0060', async () => {
+    const files = await readdir(directory);
+    const pinned = schema59Files(files);
+    expect(pinned).toHaveLength(59);
+    expect(pinned.at(-1)).toBe(schema59Version);
+    expect(pinned.slice(0, -1)).toEqual(
+      files.filter((file) => file.endsWith('.sql') && file < '0059_').sort()
+    );
+    expect(pinned.slice(0, -1)).toHaveLength(58);
+    expect(pinned.at(-2)).toBe('0058_venue_early_checkin_window.sql');
+    expect(pinned).not.toContain('0060_venue_entry_guidance.sql');
+  });
+});
+
 suite('Schema58→59 preservation and tested same-schema count-only fallback', () => {
   it('defaults old bound learner subscriptions OFF for personal data, preserves business functions, and safely returns to count-only', async () => {
     const db = await createIsolatedTestDatabase(base!);
     const old = await mkdtemp(path.join(tmpdir(), 'tgapply-schema58-'));
     const aclRole = 'tgapply_default_' + randomUUID().replaceAll('-', '');
     let aclCreated = false;
+    let target: string | undefined;
     try {
-      for (const file of await readdir(directory))
+      target = await mkdtemp(path.join(tmpdir(), 'tgapply-schema59-'));
+      const files = await readdir(directory);
+      const pinned = schema59Files(files);
+      expect(pinned).toHaveLength(59);
+      expect(pinned.at(-1)).toBe(schema59Version);
+      for (const file of pinned)
+        await copyFile(path.join(directory, file), path.join(target, file));
+      for (const file of files)
         if (file.endsWith('.sql') && file < '0059_')
           await copyFile(path.join(directory, file), path.join(old, file));
       await runMigrations(db.pool, old, 'tgapply-old');
@@ -60,10 +87,10 @@ suite('Schema58→59 preservation and tested same-schema count-only fallback', (
       await db.pool.query(
         `ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO ${aclRole};ALTER DEFAULT PRIVILEGES GRANT SELECT ON TABLES TO ${aclRole}`
       );
-      expect((await runMigrations(db.pool, directory, 'tgapply-new')).applied).toEqual([
+      expect((await runMigrations(db.pool, target, 'tgapply-new')).applied).toEqual([
         '0059_telegram_learner_review.sql'
       ]);
-      expect((await runMigrations(db.pool, directory, 'tgapply-repeat')).applied).toEqual([]);
+      expect((await runMigrations(db.pool, target, 'tgapply-repeat')).applied).toEqual([]);
       expect(await business()).toEqual(before);
       expect((await db.pool.query('SELECT * FROM platform.learner_privacy_policies')).rows).toEqual(
         policies
@@ -242,6 +269,7 @@ suite('Schema58→59 preservation and tested same-schema count-only fallback', (
       }
       await db.dispose();
       await rm(old, { recursive: true, force: true });
+      if (target) await rm(target, { recursive: true, force: true });
     }
   });
 });

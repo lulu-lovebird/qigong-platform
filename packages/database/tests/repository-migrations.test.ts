@@ -55,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0059_telegram_learner_review.sql'
+      '0060_venue_entry_guidance.sql'
     );
 
     expect(first.applied).toEqual([
@@ -117,13 +117,14 @@ describeWithDatabase('repository migrations', () => {
       '0056_venue_cks_distance_debug.sql',
       '0057_venue_test_scope.sql',
       '0058_venue_early_checkin_window.sql',
-      '0059_telegram_learner_review.sql'
+      '0059_telegram_learner_review.sql',
+      '0060_venue_entry_guidance.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0059_telegram_learner_review.sql',
+      currentVersion: '0060_venue_entry_guidance.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0059_telegram_learner_review.sql',
+      maximumVersion: '0060_venue_entry_guidance.sql',
       ready: true
     });
   });
