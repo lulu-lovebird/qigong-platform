@@ -227,6 +227,7 @@ interface AppDependencies {
   serviceVersion?: string;
   adminAuth?: AdminAuthProvider;
   telegramOnboarding?: TelegramOnboardingConfig;
+  telegramLearnerReviewEnabled?: boolean;
   line?: LineConfig;
   whatsapp?: WhatsAppConfig;
   venueQr?: VenueQrConfig;
@@ -314,6 +315,7 @@ export const buildApp = ({
   serviceVersion = 'development',
   adminAuth,
   telegramOnboarding,
+  telegramLearnerReviewEnabled = false,
   line,
   whatsapp,
   venueQr,
@@ -494,9 +496,23 @@ export const buildApp = ({
   registerExternalJournalRoutes(app, pool);
   registerNfcFeature(app, pool, registerFieldCheckinRoutes);
   if (adminAuth)
-    registerAdminRoutes(app, pool, adminAuth, line?.liffId, enabledInviteTransports, qr, suite);
+    registerAdminRoutes(
+      app,
+      pool,
+      adminAuth,
+      line?.liffId,
+      enabledInviteTransports,
+      qr,
+      suite,
+      telegramLearnerReviewEnabled
+    );
   if (telegramOnboarding)
-    registerTelegramOnboarding(app, pool, telegramOnboarding, enabledInviteTransports.telegram);
+    registerTelegramOnboarding(
+      app,
+      pool,
+      { ...telegramOnboarding, learnerReviewEnabled: telegramLearnerReviewEnabled },
+      enabledInviteTransports.telegram
+    );
   if (line) {
     registerLineOnboarding(
       app,

@@ -27,7 +27,10 @@ const tick = async () => {
   await setImmediate();
   await setImmediate();
 };
-const fixture = (locale: AdminLocale, options: { bound?: boolean; failSave?: boolean } = {}) => {
+const fixture = (
+  locale: AdminLocale,
+  options: { bound?: boolean; failSave?: boolean; superAdmin?: boolean; enabled?: boolean } = {}
+) => {
   const nodes = new Map<string, Element>();
   const element = (): Element => ({
       value: '',
@@ -78,6 +81,8 @@ const fixture = (locale: AdminLocale, options: { bound?: boolean; failSave?: boo
     adminEnabled: false,
     learnerEnabled: false,
     learnerReviewEnabled: false,
+    isSuperAdmin: options.superAdmin ?? true,
+    learnerReviewFeatureEnabled: options.enabled ?? true,
     learnerReviewDisclosure: 'telegram-learner-review-v1',
     locale,
     pendingCount: 2,
@@ -219,6 +224,25 @@ describe('Reviewer notification page runtime and checkbox layout', () => {
         learnerReviewDisclosure: 'telegram-learner-review-v1'
       });
       expect(f.direct.checked).toBe(true);
+    }
+  );
+  it.each([{ superAdmin: false }, { enabled: false }])(
+    'blocks direct opt-in in the actual script while leaving counts usable: %j',
+    async (options) => {
+      const f = fixture('en', options);
+      await tick();
+      expect(f.direct.disabled).toBe(true);
+      expect(f.html).toContain('Global super administrator only');
+      expect(f.html).toContain('Count alerts and WebAdmin are unchanged');
+      f.learner.checked = true;
+      f.direct.checked = true;
+      await f.submit('notify-preferences');
+      const saved = f.fetch.mock.calls.find(
+        ([url]) => typeof url === 'string' && url.endsWith('/preferences')
+      );
+      expect(body(saved?.[1])).toMatchObject({ learnerEnabled: true });
+      expect(body(saved?.[1])).not.toHaveProperty('learnerReviewEnabled');
+      expect(f.direct.checked).toBe(false);
     }
   );
   it('discloses the Telegram transfer before submission on every source platform and locale, without changing legal acceptance records', () => {

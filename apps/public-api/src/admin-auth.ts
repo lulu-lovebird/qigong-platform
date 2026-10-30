@@ -127,7 +127,8 @@ export const registerAdminRoutes = (
   lineLiffId?: string,
   inviteTransports: InviteTransports = {},
   venueQr?: VenueQrConfig,
-  venueSuite: VenueSuiteConfig = {}
+  venueSuite: VenueSuiteConfig = {},
+  learnerReviewEnabled = false
 ) => {
   app.get('/admin/auth/login', async (request, reply) => {
     const state = token();
@@ -563,16 +564,22 @@ export const registerAdminRoutes = (
       );
     });
 
-  registerReviewNotificationRoutes(app, pool, principalFor, (request) => {
-    const value = request.headers['x-csrf-token'],
-      saved = cookies(request)[csrfCookie];
-    return (
-      typeof value === 'string' &&
-      typeof saved === 'string' &&
-      saved.length > 0 &&
-      timingSafeEqual(sha256(value), sha256(saved))
-    );
-  });
+  registerReviewNotificationRoutes(
+    app,
+    pool,
+    principalFor,
+    (request) => {
+      const value = request.headers['x-csrf-token'],
+        saved = cookies(request)[csrfCookie];
+      return (
+        typeof value === 'string' &&
+        typeof saved === 'string' &&
+        saved.length > 0 &&
+        timingSafeEqual(sha256(value), sha256(saved))
+      );
+    },
+    learnerReviewEnabled
+  );
 
   // Credentials never leave this private cookie boundary. Every supported route
   // operation revalidates session + action + region through the controlled runner.
