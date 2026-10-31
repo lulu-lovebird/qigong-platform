@@ -263,7 +263,9 @@ describeWithDatabase('schema61 venue attendance reporting integration (PostgreSQ
           [twRegion]
         )
       ).rejects.toThrow('venue_reporting_unauthenticated');
+    });
 
+    await withRequestContext(pool, 'qigong_api_runtime', { requestId: randomUUID() }, async (c) => {
       await expect(
         c.query(
           "SELECT admin.venue_weekend_attendance_summary($1, $2, '2026-11-01', '2026-10-01', NULL, false)",

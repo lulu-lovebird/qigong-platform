@@ -284,25 +284,28 @@ BEGIN
         LIMIT 1
       ) contact ON TRUE
       WHERE (input_search = '' OR strpos(lower(coalesce(p.preferred_name, '') || ' ' || coalesce(p.legal_name, '')), lower(input_search)) > 0)
-    )
-    SELECT count(*) INTO total_count FROM matched_people;
-
-    SELECT coalesce(jsonb_agg(jsonb_build_object(
-      'personId', person_id,
-      'learnerName', learner_name,
-      'email', email,
-      'phone', phone,
-      'attendanceCount', attendance_count,
-      'attendanceDays', attendance_days,
-      'latestDate', latest_date,
-      'latestFieldCode', latest_field_code,
-      'latestFieldName', latest_field_name
-    ) ORDER BY latest_date DESC, attendance_count DESC, person_id), '[]'::jsonb) INTO result
-    FROM (
+    ), counted AS (
+      SELECT count(*)::integer AS total_count FROM matched_people
+    ), paged AS (
       SELECT * FROM matched_people
       ORDER BY latest_date DESC, attendance_count DESC, person_id
       LIMIT input_limit OFFSET (input_page - 1) * input_limit
-    ) paged;
+    )
+    SELECT
+      (SELECT coalesce(total_count, 0) FROM counted),
+      coalesce(jsonb_agg(jsonb_build_object(
+        'personId', paged.person_id,
+        'learnerName', paged.learner_name,
+        'email', paged.email,
+        'phone', paged.phone,
+        'attendanceCount', paged.attendance_count,
+        'attendanceDays', paged.attendance_days,
+        'latestDate', paged.latest_date,
+        'latestFieldCode', paged.latest_field_code,
+        'latestFieldName', paged.latest_field_name
+      ) ORDER BY paged.latest_date DESC, paged.attendance_count DESC, paged.person_id), '[]'::jsonb)
+    INTO total_count, result
+    FROM paged;
 
     INSERT INTO audit.events(request_id, actor_principal_id, action, target_type, scope_type, scope_id, outcome, metadata)
     VALUES(admin.request_id(), principal, 'venue.attendance_summary', 'people', 'region', input_region, 'success',
@@ -376,14 +379,14 @@ BEGIN
       AND f.region_id = input_region;
 
     SELECT coalesce(jsonb_agg(jsonb_build_object(
-      'attendanceId', a.id,
-      'attendanceDate', a.attendance_date,
-      'checkinAt', a.checkin_at,
-      'timezone', a.attendance_timezone,
-      'checkinMethod', a.checkin_method,
-      'fieldCode', f.code,
-      'fieldName', f.name_zh_tw
-    ) ORDER BY a.attendance_date DESC, a.checkin_at DESC, a.id DESC), '[]'::jsonb) INTO result
+      'attendanceId', sub.id,
+      'attendanceDate', sub.attendance_date,
+      'checkinAt', sub.checkin_at,
+      'timezone', sub.attendance_timezone,
+      'checkinMethod', sub.checkin_method,
+      'fieldCode', sub.code,
+      'fieldName', sub.name_zh_tw
+    ) ORDER BY sub.attendance_date DESC, sub.checkin_at DESC, sub.id DESC), '[]'::jsonb) INTO result
     FROM (
       SELECT a.id, a.attendance_date, a.checkin_at, a.attendance_timezone, a.checkin_method, f.code, f.name_zh_tw
       FROM core.field_attendance a
