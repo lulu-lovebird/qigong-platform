@@ -355,7 +355,8 @@ export const checkVenueFeatureReadiness = async (
               OR (count(*)=58 AND max(version)=$5)
               OR (count(*)=59 AND max(version)='0059_telegram_learner_review.sql')
               OR (count(*)=60 AND max(version)='0060_venue_entry_guidance.sql')
-              OR (count(*)=61 AND max(version)='0061_venue_attendance_reporting.sql') FROM public.schema_migrations)
+              OR (count(*)=61 AND max(version)='0061_venue_attendance_reporting.sql')
+              OR (count(*)=62 AND max(version)='0062_venue_attendance_badges.sql') FROM public.schema_migrations)
             AND (NOT EXISTS(SELECT 1 FROM public.schema_migrations WHERE version=$5) OR ${windowCapabilityPredicate})
             AND (NOT $6 OR EXISTS(SELECT 1 FROM pg_proc g
               WHERE g.oid=to_regprocedure('platform.venue_debug_region_active(uuid)')
