@@ -12,7 +12,8 @@ const venueRoles = [
   'qigong_venue_debug',
   'qigong_venue_debug_region_guard',
   'qigong_venue_entry_reader',
-  'qigong_venue_entry_identity_reader'
+  'qigong_venue_entry_identity_reader',
+  'qigong_venue_reporting_reader'
 ] as const;
 const preexistingOids = new Set<number>();
 
