@@ -8,6 +8,7 @@ import { renderChannelWorkspacePage } from '../src/channel-workspace-pages.js';
 import type { LineConfig } from '../src/line-onboarding.js';
 import {
   registerVenueEntry,
+  isLegacyVenueGuidanceResult,
   type LegacyManagedLookup,
   type VenueGuidanceLookup
 } from '../src/venue-entry.js';
@@ -492,6 +493,13 @@ describe('explicit authoritative public venue guidance (unit HTTP, not NFC/provi
   it.each([
     null,
     {},
+    { mode: 'legacy', extra: 'private-marker' },
+    { mode: 'legacy', status: 503 },
+    { mode: 'guided' },
+    { mode: 'unavailable' },
+    'legacy',
+    ['legacy'],
+    { status: 503, body: { error: 'venue_entry_unavailable' } },
     { status: 200, body: null },
     { status: 410, body: publicAvailability() },
     { status: 200, body: { ...publicAvailability(), extra: 'private-marker' } },
@@ -535,6 +543,55 @@ describe('explicit authoritative public venue guidance (unit HTTP, not NFC/provi
     expectReadOnly(response.body);
     expect(legacy).not.toHaveBeenCalled();
   });
+  it.each([false, true])(
+    'only the exact server legacy sentinel dispatches once, LINE=%s',
+    async (channel) => {
+      const lookup = vi.fn<VenueGuidanceLookup>().mockResolvedValue({ mode: 'legacy' });
+      const legacy = vi.fn<LegacyManagedLookup>().mockResolvedValue({
+        code: publicCode,
+        name: 'Legacy & name',
+        active: true
+      });
+      const response = await standalone(lookup, legacy).inject(
+        publicUrl + '&lang=en' + (channel ? '&channel=line' : '')
+      );
+      expect(response.statusCode).toBe(channel ? 303 : 200);
+      expect(lookup).toHaveBeenCalledExactlyOnceWith(expect.any(String), publicCode);
+      expect(legacy).toHaveBeenCalledExactlyOnceWith(lookup.mock.calls[0]![0], publicCode);
+      if (channel)
+        expect(response.headers.location).toBe(
+          `https://liff.line.me/mock-liff/venue-checkin?venue=${publicCode}&source=link&lang=en`
+        );
+      else expect(response.body).toContain('Legacy &amp; name');
+    }
+  );
+  it('the sentinel without a managed reader retains unconfigured legacy text', async () => {
+    const isolated = Fastify({ logger: false });
+    apps.push(isolated);
+    const lookup = vi.fn<VenueGuidanceLookup>().mockResolvedValue({ mode: 'legacy' });
+    registerVenueEntry(isolated, 'mock-liff', undefined, lookup);
+    const response = await isolated.inject(publicUrl + '&lang=en');
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('No trusted venue lookup is available');
+    expect(lookup).toHaveBeenCalledExactlyOnceWith(expect.any(String), publicCode);
+  });
+  it('the legacy guard rejects arrays, inherited/accessor modes and all extra own keys', () => {
+    const getter = vi.fn(() => 'legacy');
+    const inherited: unknown = Object.create({ mode: 'legacy' });
+    const accessor: unknown = Object.defineProperty({}, 'mode', { get: getter });
+    const hidden = Object.defineProperty({ mode: 'legacy' }, 'private', { value: true });
+    for (const raw of [
+      inherited,
+      accessor,
+      hidden,
+      { mode: 'legacy', [Symbol('extra')]: true },
+      [],
+      null
+    ])
+      expect(isLegacyVenueGuidanceResult(raw)).toBe(false);
+    expect(getter).not.toHaveBeenCalled();
+    expect(isLegacyVenueGuidanceResult({ mode: 'legacy' })).toBe(true);
+  });
   it('a throwing authoritative lookup never reads the legacy adapter or reflects the exception', async () => {
     const lookup = vi.fn<VenueGuidanceLookup>().mockRejectedValue(Error('private-marker'));
     const legacy = vi
@@ -561,6 +618,7 @@ describe('explicit authoritative public venue guidance (unit HTTP, not NFC/provi
     publicUrl + '&redirect=https%3A%2F%2Fevil.example',
     publicUrl + '&test=1',
     publicUrl + '&mode=distance_debug',
+    publicUrl + '&mode=legacy',
     '/venue-checkin?venue=us-practice-hall%0A',
     '/venue-checkin?venue=%3Cscript%3Eprivate-marker%3C%2Fscript%3E'
   ])('invalid parameters read neither adapter: %s', async (url) => {

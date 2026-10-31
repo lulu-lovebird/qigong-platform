@@ -22,7 +22,13 @@ import {
 } from './practice-notes.js';
 import { lineApplicationPage } from './line-application-page.js';
 import { renderChannelWorkspacePage } from './channel-workspace-pages.js';
-import { renderVenuePreview, venuePreviewRequest } from './line-venue-checkin-page.js';
+import {
+  renderVenuePreview,
+  venuePreviewRequest,
+  validateVenueGuidanceResult,
+  type VenuePreviewGuidance
+} from './line-venue-checkin-page.js';
+import { isLegacyVenueGuidanceResult, type VenueGuidanceLookup } from './venue-entry.js';
 import type { VenueDebugVenueCode } from './venue-debug.js';
 import { renderLineVenueHistoryPage, venueHistoryRequest } from './line-venue-history-page.js';
 import { registerChannelWorkspace } from './channel-workspace.js';
@@ -69,7 +75,8 @@ export const registerLineOnboarding = (
   config: LineConfig,
   venueCheckinEnabled = false,
   venueHistoryEnabled = false,
-  venueDebug?: { readonly venueCode: VenueDebugVenueCode; readonly expiresAt: string }
+  venueDebug?: { readonly venueCode: VenueDebugVenueCode; readonly expiresAt: string },
+  guidanceLookup?: VenueGuidanceLookup
 ) => {
   const liffBase = `https://liff.line.me/${encodeURIComponent(config.liffId)}`;
   const replyHelp = createHelpReplyGuard();
@@ -139,29 +146,61 @@ export const registerLineOnboarding = (
         )
         .type('text/html; charset=utf-8')
         .send(render(resolveLocale(request.query, request.headers.cookie)));
-  const previewPage = (request: FastifyRequest, reply: Parameters<ReturnType<typeof page>>[1]) => {
+  const previewPage = async (request: FastifyRequest, reply: FastifyReply) => {
     const preview = venuePreviewRequest(request.url, request.headers.cookie);
+    let guidance: VenuePreviewGuidance | undefined;
+    if (
+      venueCheckinEnabled === true &&
+      preview.kind === 'preview' &&
+      guidanceLookup !== undefined
+    ) {
+      let raw: unknown;
+      try {
+        raw = await guidanceLookup(request.id, preview.entry.venue);
+      } catch {
+        raw = { status: 503, body: { error: 'venue_entry_unavailable' } };
+      }
+      if (!isLegacyVenueGuidanceResult(raw)) {
+        const result = validateVenueGuidanceResult(raw, preview.entry.venue);
+        const url = new URL(request.url, 'https://preview.invalid');
+        guidance = {
+          result,
+          isPrimaryBootstrap: url.pathname === '/line/' && url.searchParams.has('liff.state')
+        };
+        reply.code(result.status);
+      }
+    }
+    const previewArgs = [
+      config.liffId,
+      preview.kind === 'preview' ? preview.entry : null,
+      venueCheckinEnabled ? 'checkin' : 'preview',
+      venueHistoryEnabled,
+      venueDebug && Date.parse(venueDebug.expiresAt) > Date.now() ? venueDebug.venueCode : undefined
+    ] as const;
+    const guidedOpen =
+      guidance?.result.status === 200 &&
+      guidance.result.body.availability === 'open' &&
+      guidance.isPrimaryBootstrap !== true;
     return reply
       .header('cache-control', 'no-store')
       .header('referrer-policy', 'no-referrer')
       .header('x-robots-tag', 'noindex, nofollow')
       .header('x-content-type-options', 'nosniff')
-      .header('permissions-policy', 'geolocation=(self)')
+      .header(
+        'permissions-policy',
+        guidance === undefined
+          ? 'geolocation=(self)'
+          : `geolocation=${guidedOpen ? '(self)' : '()'}, camera=(), microphone=()`
+      )
       .header(
         'content-security-policy',
-        `default-src 'none'; script-src 'unsafe-inline' https://static.line-scdn.net; style-src 'unsafe-inline'; connect-src ${venueCheckinEnabled ? "'self' " : ''}https://api.line.me; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`
+        `default-src 'none'; script-src 'unsafe-inline' https://static.line-scdn.net; style-src 'unsafe-inline'; connect-src ${guidance !== undefined || venueCheckinEnabled ? "'self' " : ''}https://api.line.me; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`
       )
       .type('text/html; charset=utf-8')
       .send(
-        renderVenuePreview(
-          config.liffId,
-          preview.kind === 'preview' ? preview.entry : null,
-          venueCheckinEnabled ? 'checkin' : 'preview',
-          venueHistoryEnabled,
-          venueDebug && Date.parse(venueDebug.expiresAt) > Date.now()
-            ? venueDebug.venueCode
-            : undefined
-        )
+        guidance === undefined
+          ? renderVenuePreview(...previewArgs)
+          : renderVenuePreview(...previewArgs, guidance)
       );
   };
   const historyPage = (request: FastifyRequest, reply: FastifyReply) => {

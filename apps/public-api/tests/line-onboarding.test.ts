@@ -3,11 +3,21 @@ import { Script } from 'node:vm';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import Fastify, { type FastifyInstance } from 'fastify';
 import { runMigrations, withRequestContext, type Pool } from '@qigong/database';
 import { buildApp } from '../src/app.js';
 import { lineApplicationPage } from '../src/line-application-page.js';
 import { lineCheckinPage } from '../src/line-checkin-page.js';
+import { registerLineOnboarding, type LineConfig } from '../src/line-onboarding.js';
+import { renderVenuePreview, venuePreviewRequest } from '../src/line-venue-checkin-page.js';
+import { renderChannelWorkspacePage } from '../src/channel-workspace-pages.js';
+import type { VenueGuidanceLookup } from '../src/venue-entry.js';
+import type {
+  VenueEntryAvailabilityDto,
+  VenueEntryAvailabilityResult,
+  VenueGuidanceLookupResult
+} from '../src/venue-entry-guidance.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
@@ -915,5 +925,360 @@ describeWithDatabase('LINE onboarding and checkin', () => {
       await app.close();
       await pool.query("UPDATE platform.learner_privacy_policies SET state='draft'");
     }
+  });
+});
+
+// Synthetic HTTP registration tests: no SDK execution, provider traffic, SQL or physical NFC.
+describe('LINE server-owned venue guidance adapter', () => {
+  const apps: FastifyInstance[] = [];
+  const forbidden = vi.fn(async () => {
+    throw new Error('Unexpected provider, identity or database I/O');
+  });
+  const config: LineConfig = {
+    channelSecret: 'mock-secret',
+    channelAccessToken: 'mock-access-token',
+    loginChannelId: 'mock-login-channel',
+    liffId: 'mock-liff',
+    verifyIdentity: forbidden,
+    verifyIdToken: forbidden,
+    verifyFriendship: forbidden,
+    reply: forbidden
+  };
+  const venue = 'us-practice-hall';
+  const session = {
+    opensAt: '2026-10-30T15:45:00Z',
+    startsAt: '2026-10-30T16:15:00Z',
+    endsAt: '2026-10-31T16:00:00Z'
+  };
+  const availability = (
+    state: VenueEntryAvailabilityDto['availability'] = 'open'
+  ): VenueEntryAvailabilityDto => ({
+    version: 1,
+    availability: state,
+    venue:
+      state === 'not_found'
+        ? null
+        : { code: venue, name: 'Original 場地 & name', timezone: 'Asia/Taipei' },
+    observedAt:
+      state === 'before_open'
+        ? '2026-10-30T15:30:00Z'
+        : state === 'ended'
+          ? '2026-10-31T17:00:00Z'
+          : '2026-10-30T16:00:00Z',
+    relevantSession: ['open', 'before_open', 'ended'].includes(state) ? session : null,
+    nextSession: null
+  });
+  const resultFor = (
+    state: VenueEntryAvailabilityDto['availability'] = 'open'
+  ): VenueEntryAvailabilityResult =>
+    state === 'unavailable'
+      ? { status: 503, body: { error: 'venue_entry_unavailable' } }
+      : {
+          status: state === 'not_found' ? 404 : state === 'disabled' ? 410 : 200,
+          body: availability(state)
+        };
+  const fixture = (
+    lookup?: VenueGuidanceLookup,
+    enabled = true,
+    history = false,
+    debug?: Parameters<typeof registerLineOnboarding>[5]
+  ) => {
+    const app = Fastify({ logger: false });
+    apps.push(app);
+    registerLineOnboarding(
+      app,
+      { connect: forbidden, query: forbidden } as unknown as Pool,
+      config,
+      enabled,
+      history,
+      debug,
+      lookup
+    );
+    return app;
+  };
+  const urlFor = (context: 'direct' | 'primary' | 'residual', lang = 'en') => {
+    const query = `venue=${venue}&source=nfc&lang=${lang}`;
+    return context === 'direct'
+      ? `/line/venue-checkin?${query}`
+      : (context === 'primary' ? '/line/' : '/line/venue-checkin') +
+          '?liff.state=' +
+          encodeURIComponent('/venue-checkin?' + query) +
+          '&code=mock-callback-secret';
+  };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', forbidden);
+  });
+  afterEach(async () => {
+    await Promise.all(apps.splice(0).map((app) => app.close()));
+    expect(forbidden).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+  it.each(
+    (['direct', 'primary', 'residual'] as const).flatMap((context) =>
+      (['zh_TW', 'zh_CN', 'en'] as const).flatMap((lang) =>
+        (
+          [
+            'open',
+            'before_open',
+            'ended',
+            'not_activity_day',
+            'disabled',
+            'not_found',
+            'unavailable'
+          ] as const
+        ).map((state) => ({ context, lang, state }))
+      )
+    )
+  )('calendar-only result: $context / $lang / $state', async ({ context, lang, state }) => {
+    const result = resultFor(state);
+    const lookup = vi.fn<VenueGuidanceLookup>().mockResolvedValue(result);
+    const response = await fixture(lookup).inject({
+      url: urlFor(context, lang),
+      headers: {
+        host: 'evil.example',
+        'x-forwarded-host': 'evil.example',
+        'x-forwarded-proto': 'http'
+      }
+    });
+    const primary = context === 'primary';
+    const open = state === 'open';
+    expect(response.statusCode).toBe(result.status);
+    expect(lookup).toHaveBeenCalledExactlyOnceWith(expect.any(String), venue);
+    expect(lookup.mock.calls[0]).toHaveLength(2);
+    expect(response.headers).toMatchObject({
+      'cache-control': 'no-store',
+      'referrer-policy': 'no-referrer',
+      'x-robots-tag': 'noindex, nofollow',
+      'x-content-type-options': 'nosniff',
+      'permissions-policy': `geolocation=${open && !primary ? '(self)' : '()'}, camera=(), microphone=()`,
+      'content-security-policy':
+        "default-src 'none'; script-src 'unsafe-inline' https://static.line-scdn.net; style-src 'unsafe-inline'; connect-src 'self' https://api.line.me; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    });
+    expect(response.headers.location).toBeUndefined();
+    expect(response.headers['set-cookie']).toBeUndefined();
+    expect(response.body).not.toMatch(
+      /evil\.example|mock-callback-secret|preview-test|preview-debug-token/
+    );
+    expect(response.body).toContain(
+      'Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting'
+    );
+    if (primary && state !== 'unavailable') {
+      expect(response.body).toContain('withLoginOnExternalBrowser:false');
+      expect(response.body.match(/liff\.init\(/g)).toHaveLength(1);
+      expect(response.body).not.toMatch(
+        /getIDToken|liff\.login|fetch\(|navigator\.|<button|<select|JSON\./
+      );
+    } else if (!open) {
+      expect(response.body).not.toMatch(
+        /<script|<button|<input|<select|fetch\(|getIDToken|navigator\./
+      );
+    } else {
+      expect(response.body).toContain('id="guided-calendar"');
+      expect(response.body).toContain('id="guided-checkin"');
+      expect(response.body).toContain('withLoginOnExternalBrowser:false');
+      expect(response.body.match(/liff\.init\(/g)).toHaveLength(1);
+      expect(response.body).toContain('getIDToken');
+      expect(response.body).toContain('/api/line/venue-entry-status');
+    }
+    if (!['not_found', 'unavailable'].includes(state)) {
+      expect(response.body).toContain('Original 場地 &amp; name');
+      expect(response.body).toContain('Asia/Taipei');
+    }
+  });
+  it.each(
+    [
+      null,
+      {},
+      'legacy',
+      { mode: 'guided' },
+      { mode: 'unavailable' },
+      { mode: 'legacy', extra: 'private-marker' },
+      { mode: 'legacy', status: 503 },
+      { status: 400, body: { error: 'invalid_venue_entry_request' } },
+      { status: 503, body: { error: 'venue_entry_unavailable' } },
+      { status: 503, body: { error: 'private-marker' } },
+      { status: 200, body: { ...availability(), extra: 'private-marker' } },
+      {
+        status: 200,
+        body: {
+          ...availability(),
+          venue: { code: 'other-hall', name: 'private-marker', timezone: 'UTC' }
+        }
+      },
+      { status: 410, body: availability() },
+      { status: 200, body: availability('unavailable') }
+    ].flatMap((raw) => (['direct', 'primary'] as const).map((context) => ({ raw, context })))
+  )('malformed or unavailable callback is never legacy: %#', async ({ raw, context }) => {
+    const lookup = vi.fn<VenueGuidanceLookup>().mockResolvedValue(raw as VenueGuidanceLookupResult);
+    const response = await fixture(lookup).inject(urlFor(context));
+    expect(response.statusCode).toBe(503);
+    expect(lookup).toHaveBeenCalledExactlyOnceWith(expect.any(String), venue);
+    expect(response.headers['permissions-policy']).toBe('geolocation=(), camera=(), microphone=()');
+    expect(response.headers.location).toBeUndefined();
+    expect(response.body).toContain('Venue lookup unavailable');
+    expect(response.body).not.toMatch(
+      /<script|<button|private-marker|preview-test|mock-callback-secret/
+    );
+  });
+  it.each(['direct', 'primary'] as const)(
+    'throwing callback stays bounded: %s',
+    async (context) => {
+      const lookup = vi.fn<VenueGuidanceLookup>().mockRejectedValue(new Error('private-marker'));
+      const response = await fixture(lookup).inject(urlFor(context));
+      expect(response.statusCode).toBe(503);
+      expect(lookup).toHaveBeenCalledExactlyOnceWith(expect.any(String), venue);
+      expect(response.body).not.toMatch(/private-marker|<script|preview-test/);
+      expect(response.headers['permissions-policy']).toBe(
+        'geolocation=(), camera=(), microphone=()'
+      );
+      expect(response.headers.location).toBeUndefined();
+    }
+  );
+  const invalidStates = [
+    '/venue-checkin',
+    '/venue-checkin?venue=bad',
+    `/venue-checkin?venue=${venue}&venue=${venue}`,
+    `/venue-checkin?venue=${venue}&source=nfc&source=qr`,
+    `/venue-checkin?venue=${venue}&mode=legacy`,
+    `/venue-checkin?venue=${venue}#private-marker`,
+    '/venue-checkin/extra?venue=' + venue,
+    '/venue-checkin?venue=%3Cscript%3Eprivate-marker',
+    '/venue-checkin?venue=' + 'a'.repeat(65)
+  ];
+  it.each([
+    '/line/venue-checkin',
+    ...invalidStates.map((state) => '/line/' + '?liff.state=' + encodeURIComponent(state)),
+    ...invalidStates.map((state) => '/line/venue-checkin?liff.state=' + encodeURIComponent(state)),
+    `/line/venue-checkin?venue=${venue}&mode=legacy`,
+    `/line/venue-checkin?venue=${venue}&venue=${venue}`,
+    urlFor('primary') + '&liff.state=' + encodeURIComponent('/venue-checkin?venue=' + venue),
+    urlFor('primary') + '&code=duplicate',
+    '/line/venue-checkin?liff.state=' +
+      encodeURIComponent('//evil.example/venue-checkin?venue=' + venue)
+  ])('invalid preview is 400 without callback or SDK: %s', async (url) => {
+    const lookup = vi.fn<VenueGuidanceLookup>();
+    const response = await fixture(lookup).inject(url);
+    expect(response.statusCode).toBe(400);
+    expect(lookup).not.toHaveBeenCalled();
+    expect(response.headers.location).toBeUndefined();
+    expect(response.body).not.toMatch(/<script|mock-callback-secret|private-marker|evil\.example/);
+  });
+  it.each(['/line/', '/line/checkin', '/line/?liff.state=%2Fapply%23private-marker'])(
+    'ordinary workspace stays unchanged: %s',
+    async (url) => {
+      const lookup = vi.fn<VenueGuidanceLookup>();
+      const response = await fixture(lookup).inject(url);
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe(
+        renderChannelWorkspacePage({ platform: 'line', liffId: config.liffId }, 'checkin', 'zh_TW')
+      );
+      expect(lookup).not.toHaveBeenCalled();
+    }
+  );
+  it('application and independent venue history never use guidance', async () => {
+    const lookup = vi.fn<VenueGuidanceLookup>();
+    const app = fixture(lookup, true, true);
+    const apply = await app.inject('/line/apply?lang=en');
+    expect(apply.statusCode).toBe(200);
+    expect(apply.body).toBe(lineApplicationPage(config.liffId, 'en'));
+    const direct = await app.inject('/line/venue-history?lang=en');
+    const primary = await app.inject(
+      '/line/?liff.state=' + encodeURIComponent('/venue-history?lang=en')
+    );
+    expect(direct.statusCode).toBe(200);
+    expect(primary.statusCode).toBe(200);
+    expect(primary.body).toBe(direct.body);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+  it.each(['absent', 'sentinel', 'qr-off'] as const)(
+    'legacy rendering is byte-for-byte unchanged: %s',
+    async (mode) => {
+      const lookup =
+        mode === 'absent'
+          ? undefined
+          : vi.fn<VenueGuidanceLookup>().mockResolvedValue({ mode: 'legacy' });
+      const enabled = mode !== 'qr-off';
+      const app = fixture(lookup, enabled, true);
+      for (const context of ['direct', 'primary'] as const) {
+        const url = urlFor(context);
+        const preview = venuePreviewRequest(url);
+        if (preview.kind !== 'preview') throw new Error('Invalid synthetic fixture');
+        const response = await app.inject(url);
+        expect(response.statusCode).toBe(200);
+        expect(response.body).toBe(
+          renderVenuePreview(config.liffId, preview.entry, enabled ? 'checkin' : 'preview', true)
+        );
+        expect(response.headers['permissions-policy']).toBe('geolocation=(self)');
+        expect(response.headers.location).toBeUndefined();
+        expect(response.body).not.toContain('guided-calendar');
+      }
+      if (mode === 'sentinel') expect(lookup).toHaveBeenCalledTimes(2);
+      else if (lookup) expect(lookup).not.toHaveBeenCalled();
+    }
+  );
+  it('QR off never calls even a throwing guided reader', async () => {
+    const lookup = vi.fn<VenueGuidanceLookup>().mockRejectedValue(Error('Must never execute'));
+    const response = await fixture(lookup, false).inject(urlFor('direct'));
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['permissions-policy']).toBe('geolocation=(self)');
+    expect(response.body).not.toContain('/api/line/venue-checkin');
+    expect(lookup).not.toHaveBeenCalled();
+  });
+  it.each(['2000-01-01T00:00:00Z', '2099-01-01T00:00:00Z'])(
+    'legacy sentinel preserves server debug TTL: %s',
+    async (expiresAt) => {
+      const lookup = vi.fn<VenueGuidanceLookup>().mockResolvedValue({ mode: 'legacy' });
+      const response = await fixture(lookup, true, false, {
+        venueCode: 'tw-location-test',
+        expiresAt
+      }).inject('/line/venue-checkin?venue=tw-location-test&lang=en');
+      expect(response.statusCode).toBe(200);
+      expect(response.body.includes('id="preview-debug-token"')).toBe(expiresAt.startsWith('2099'));
+      expect(response.headers['permissions-policy']).toBe('geolocation=(self)');
+      expect(lookup).toHaveBeenCalledExactlyOnceWith(expect.any(String), 'tw-location-test');
+    }
+  );
+  it('canonical disabled sentinel stays 410 without GPS or debug controls', async () => {
+    const result: VenueEntryAvailabilityResult = {
+      status: 410,
+      body: {
+        ...availability('disabled'),
+        venue: { code: 'tw-location-test', name: 'Canonical test & name', timezone: 'UTC' }
+      }
+    };
+    const lookup = vi.fn<VenueGuidanceLookup>().mockResolvedValue(result);
+    const response = await fixture(lookup, true, false, {
+      venueCode: 'tw-location-test',
+      expiresAt: '2099-01-01T00:00:00Z'
+    }).inject('/line/venue-checkin?venue=tw-location-test&lang=en');
+    expect(response.statusCode).toBe(410);
+    expect(response.body).toContain('Canonical test &amp; name');
+    expect(response.body).not.toMatch(/<script|preview-debug-token|<button|navigator/);
+    expect(response.headers['permissions-policy']).toBe('geolocation=(), camera=(), microphone=()');
+    expect(lookup).toHaveBeenCalledExactlyOnceWith(expect.any(String), 'tw-location-test');
+  });
+  it('proper-name injection is escaped and cookie locale requires no preferences I/O', async () => {
+    const lookup = vi.fn<VenueGuidanceLookup>().mockResolvedValue({
+      status: 200,
+      body: {
+        ...availability('before_open'),
+        venue: {
+          code: venue,
+          name: '</script><script>private-marker()</script>',
+          timezone: 'UTC'
+        }
+      }
+    });
+    const response = await fixture(lookup).inject({
+      url: '/line/venue-checkin?venue=' + venue,
+      headers: { cookie: '__Host-qigong-learner-locale=en' }
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('<html lang="en">');
+    expect(response.body).toContain('&lt;/script&gt;&lt;script&gt;private-marker()&lt;/script&gt;');
+    expect(response.body).not.toContain('<script');
+    expect(response.headers['set-cookie']).toBeUndefined();
+    expect(lookup).toHaveBeenCalledExactlyOnceWith(expect.any(String), venue);
   });
 });

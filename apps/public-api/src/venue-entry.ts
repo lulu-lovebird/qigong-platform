@@ -5,7 +5,7 @@ import {
   venuePreviewUrl,
   type VenuePreviewEntry
 } from './line-venue-checkin-page.js';
-import { venueEntryCodeSchema, type VenueEntryAvailabilityResult } from './venue-entry-guidance.js';
+import { venueEntryCodeSchema, type VenueGuidanceLookupResult } from './venue-entry-guidance.js';
 import { htmlLocale, isLocale, resolveLocale, type Locale } from './ui-localization.js';
 
 interface VenueEntry extends VenuePreviewEntry {
@@ -102,11 +102,24 @@ export type ManagedVenueLookup = (
   code: string
 ) => Promise<ManagedVenueEntry | null>;
 export type LegacyManagedLookup = ManagedVenueLookup;
-/** Explicit opt-in, authoritative public DTO lookup. No legacy fallback on failure. */
+/** Server-only dispatch: only the exact legacy sentinel permits the original adapter. */
 export type VenueGuidanceLookup = (
   requestId: string,
   code: string
-) => Promise<VenueEntryAvailabilityResult>;
+) => Promise<VenueGuidanceLookupResult>;
+/** Never interpret DTO fields, browser input or malformed results as legacy mode. */
+export const isLegacyVenueGuidanceResult = (
+  value: unknown
+): value is { readonly mode: 'legacy' } => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  try {
+    const keys = Reflect.ownKeys(value);
+    const mode = Object.getOwnPropertyDescriptor(value, 'mode');
+    return keys.length === 1 && keys[0] === 'mode' && mode?.value === 'legacy';
+  } catch {
+    return false;
+  }
+};
 const renderEntry = (
   entry: VenueEntry | null,
   lineAvailable: boolean,
@@ -201,23 +214,25 @@ export const registerVenueEntry = (
           .code(400)
           .type('text/html; charset=utf-8')
           .send(renderEntry(null, false, 'zh_TW'));
-      let result: VenueEntryAvailabilityResult;
+      let result: unknown;
       try {
         result = await guidanceLookup(request.id, entry.venue);
       } catch {
         result = { status: 503, body: { error: 'venue_entry_unavailable' } };
       }
-      const view = venueGuidancePresentation(result, entry.venue, entry.lang);
-      if (view.open && lineAvailable && entry.channel === 'line') {
-        const suffix = venuePreviewUrl(entry).slice('/line'.length);
+      if (!isLegacyVenueGuidanceResult(result)) {
+        const view = venueGuidancePresentation(result, entry.venue, entry.lang);
+        if (view.open && lineAvailable && entry.channel === 'line') {
+          const suffix = venuePreviewUrl(entry).slice('/line'.length);
+          return reply
+            .code(303)
+            .redirect(`https://liff.line.me/${encodeURIComponent(liffId)}` + suffix);
+        }
         return reply
-          .code(303)
-          .redirect(`https://liff.line.me/${encodeURIComponent(liffId)}` + suffix);
+          .code(view.open && entry.channel === 'line' && !lineAvailable ? 503 : view.result.status)
+          .type('text/html; charset=utf-8')
+          .send(renderGuidedEntry(entry, lineAvailable, view));
       }
-      return reply
-        .code(view.open && entry.channel === 'line' && !lineAvailable ? 503 : view.result.status)
-        .type('text/html; charset=utf-8')
-        .send(renderGuidedEntry(entry, lineAvailable, view));
     }
     let managed: ManagedVenueEntry | null | undefined;
     let lookupFailed = false;
