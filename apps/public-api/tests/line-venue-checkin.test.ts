@@ -8,9 +8,1024 @@ import type { LineConfig } from '../src/line-onboarding.js';
 import { renderChannelWorkspacePage } from '../src/channel-workspace-pages.js';
 import {
   renderVenuePreview,
+  formatVenueEntrySession,
+  venueGuidancePresentation,
+  validateVenueGuidanceResult,
+  type VenuePreviewGuidance,
   venuePreviewRequest,
   venuePreviewUrl
 } from '../src/line-venue-checkin-page.js';
+
+import type {
+  VenueEntryAvailabilityDto,
+  VenueEntryAvailabilityResult,
+  VenueEntrySelfStatusDto
+} from '../src/venue-entry-guidance.js';
+
+const guidedCode = 'us-practice-hall';
+const guidedSession = {
+  startsAt: '2026-10-31T03:45:00Z',
+  endsAt: '2026-10-31T05:00:00Z',
+  opensAt: '2026-10-31T03:15:00Z'
+};
+const guidedAvailability = (
+  state: VenueEntryAvailabilityDto['availability'] = 'open'
+): VenueEntryAvailabilityDto => ({
+  version: 1,
+  availability: state,
+  venue:
+    state === 'not_found'
+      ? null
+      : { code: guidedCode, name: 'Original 場地 <b> & name', timezone: 'America/New_York' },
+  observedAt: '2026-10-31T04:00:00Z',
+  relevantSession: ['open', 'before_open', 'ended'].includes(state) ? guidedSession : null,
+  nextSession: null
+});
+const guidedResult = (
+  state: VenueEntryAvailabilityDto['availability'] = 'open'
+): VenueEntryAvailabilityResult =>
+  state === 'unavailable'
+    ? { status: 503, body: { error: 'venue_entry_unavailable' } }
+    : {
+        status: state === 'disabled' ? 410 : state === 'not_found' ? 404 : 200,
+        body: guidedAvailability(state)
+      };
+const guidedHtml = (
+  options: {
+    guidance?: VenuePreviewGuidance;
+    lang?: 'en' | 'zh_TW' | 'zh_CN';
+    code?: string;
+    liffId?: string;
+  } = {}
+) =>
+  renderVenuePreview(
+    options.liffId ?? 'mock-liff',
+    { venue: options.code ?? guidedCode, source: 'nfc', lang: options.lang ?? 'en' },
+    'checkin',
+    true,
+    undefined,
+    options.guidance ?? { result: guidedResult() }
+  );
+const jsonResponse = (data: unknown, status = 200) =>
+  new Response(JSON.stringify(data), { status });
+/** Standalone opt-in VM: never assume legacy lineLoginScript or hit real SDK/network. */
+const guidedBrowser = (
+  html = guidedHtml(),
+  options: {
+    loggedIn?: boolean;
+    self?: VenueEntrySelfStatusDto;
+    fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+    init?: () => Promise<void>;
+    geolocation?: boolean;
+  } = {}
+) => {
+  const nodes = new Map<
+    string,
+    {
+      textContent: string;
+      disabled: boolean;
+      hidden: boolean;
+      value: string;
+      attributes: Record<string, string>;
+      setAttribute: (name: string, value: string) => void;
+      onclick?: () => Promise<void>;
+      onchange?: () => void;
+    }
+  >();
+  const get = (id: string) => {
+    let node = nodes.get(id);
+    if (!node) {
+      const tag = new RegExp('<[^>]+id="' + id + '"[^>]*>').exec(html)?.[0];
+      if (!tag) throw Error('Missing synthetic element: ' + id);
+      node = {
+        textContent: '',
+        disabled: tag.includes(' disabled'),
+        hidden: tag.includes(' hidden'),
+        value: 'en',
+        attributes: {},
+        setAttribute(name, value) {
+          this.attributes[name] = value;
+        }
+      };
+      nodes.set(id, node);
+    }
+    return node;
+  };
+  const liff = {
+    init: vi.fn(options.init ?? (async () => {})),
+    isLoggedIn: vi.fn(() => options.loggedIn ?? true),
+    getIDToken: vi.fn(() => 'synthetic-guided-memory-token'),
+    login: vi.fn(),
+    getProfile: vi.fn(),
+    sendMessages: vi.fn()
+  };
+  const fetch = vi.fn(
+    options.fetch ??
+      (async (url: string) => {
+        if (url === '/api/line/venue-entry-status')
+          return jsonResponse(options.self ?? { version: 1, status: 'approved', privacy: 'clear' });
+        if (url === '/api/venue-entry/availability?venue=' + guidedCode)
+          return jsonResponse(guidedAvailability());
+        throw new Error('Unmatched synthetic fetch: ' + url);
+      })
+  );
+  const geo =
+    vi.fn<
+      (
+        success: (position: { coords: { latitude: number; longitude: number } }) => void,
+        error: (error: { code: number }) => void,
+        settings: unknown
+      ) => void
+    >();
+  const storage = {
+    getItem: vi.fn(() => {
+      throw new Error('Storage forbidden');
+    }),
+    setItem: vi.fn(() => {
+      throw new Error('Storage forbidden');
+    })
+  };
+  const log = vi.fn(() => {
+    throw new Error('Logging forbidden');
+  });
+  const handlers = new Map<string, () => void>();
+  const location = {
+    href:
+      'https://app.test/line/venue-checkin?venue=' +
+      guidedCode +
+      '&source=nfc&lang=en&code=private-callback#private-fragment',
+    origin: 'https://app.test',
+    replace: vi.fn()
+  };
+  const history = { replaceState: vi.fn() };
+  const document = { getElementById: get, cookie: '' };
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+  if (script)
+    new Script(script).runInNewContext({
+      URL,
+      URLSearchParams,
+      Response,
+      document,
+      location,
+      history,
+      liff,
+      fetch,
+      navigator: options.geolocation === false ? {} : { geolocation: { getCurrentPosition: geo } },
+      localStorage: storage,
+      sessionStorage: storage,
+      console: { log, warn: log, error: log },
+      addEventListener: (name: string, callback: () => void) => handlers.set(name, callback)
+    });
+  return { get, liff, fetch, geo, storage, log, handlers, location, history, document };
+};
+const guidedTick = () => setImmediate();
+const guidedClick = (ui: ReturnType<typeof guidedBrowser>) => ui.get('guided-checkin').onclick?.();
+
+// All guidance tests below are unit/VM probes, NOT phone/NFC/provider acceptance.
+describe('server-owned opt-in venue guidance', () => {
+  it.each([
+    'before_open',
+    'ended',
+    'not_activity_day',
+    'disabled',
+    'not_found',
+    'unavailable'
+  ] as const)('closed %s is entirely static, including when history/debug are enabled', (state) => {
+    const html = guidedHtml({ guidance: { result: guidedResult(state) } });
+    expect(html).not.toMatch(
+      /<(?:a|button|input|select|script)\b|sdk\.js|navigator|fetch\(|getIDToken|lineLoginScript/
+    );
+    expect(html).toContain('Bean, Bird &amp; Badminton Tech Consulting');
+    if (state !== 'not_found' && state !== 'unavailable')
+      expect(html).toContain('Original 場地 &lt;b&gt; &amp; name');
+  });
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'formats full local %s dates rather than phone dates, without translating proper names',
+    (lang) => {
+      const time = formatVenueEntrySession(guidedSession, 'America/New_York', lang);
+      expect(time).not.toBeNull();
+      const formatter = new Intl.DateTimeFormat(
+        lang === 'zh_TW' ? 'zh-Hant' : lang === 'zh_CN' ? 'zh-Hans' : 'en',
+        {
+          timeZone: 'America/New_York',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hourCycle: 'h23'
+        }
+      );
+      expect(time?.opensAt).toBe(formatter.format(new Date(guidedSession.opensAt)));
+      expect(time?.startsAt).toBe(formatter.format(new Date(guidedSession.startsAt)));
+      expect(time?.endsAt).toBe(formatter.format(new Date(guidedSession.endsAt)));
+      const html = guidedHtml({ lang, guidance: { result: guidedResult('before_open') } });
+      expect(html).toContain(time!.opensAt);
+      expect(html).toContain(time!.endsAt);
+      expect(html).toContain('America/New_York');
+      expect(html).toContain('Original 場地 &lt;b&gt; &amp; name');
+      expect(html).not.toContain('midnight');
+    }
+  );
+  it('shows next session only when supplied, with unknown rather than fabricated times', () => {
+    const next = {
+      startsAt: '2026-11-02T04:15:00Z',
+      opensAt: '2026-11-02T03:45:00Z',
+      endsAt: '2026-11-02T05:30:00Z'
+    };
+    const body = { ...guidedAvailability('not_activity_day'), nextSession: next };
+    const html = guidedHtml({ guidance: { result: { status: 200, body } } });
+    expect(html).toContain('Next practice');
+    expect(html).toContain(formatVenueEntrySession(next, 'America/New_York', 'en')!.startsAt);
+    expect(guidedHtml({ guidance: { result: guidedResult('not_activity_day') } })).toContain(
+      'Next session unknown'
+    );
+    expect(formatVenueEntrySession(guidedSession, 'invalid/timezone', 'en')).toBeNull();
+    expect(formatVenueEntrySession({ ...guidedSession, endsAt: 'bad' }, 'UTC', 'en')).toBeNull();
+  });
+  it.each([
+    null,
+    {},
+    { status: 200, body: null },
+    { status: 410, body: guidedAvailability() },
+    { status: 200, body: { ...guidedAvailability(), extra: 'private' } },
+    {
+      status: 200,
+      body: {
+        ...guidedAvailability(),
+        venue: { code: 'other-hall', name: 'Other', timezone: 'UTC' }
+      }
+    },
+    {
+      status: 200,
+      body: {
+        ...guidedAvailability(),
+        venue: { code: guidedCode, name: 'Name', timezone: 'bad/zone' }
+      }
+    },
+    { status: 200, body: { ...guidedAvailability(), relevantSession: null } },
+    { status: 400, body: { error: 'invalid_venue_entry_request' } },
+    { status: 503, body: { error: 'leaked-provider-error' } }
+  ])('malformed or inconsistent server guidance fails closed: %#', (result) => {
+    const html = guidedHtml({ guidance: { result: result as VenueEntryAvailabilityResult } });
+    expect(html).not.toMatch(/<script|<a\b|<button|<select|leaked-provider/);
+    expect(html).toContain('Venue lookup unavailable');
+  });
+  it('invalid entries have no SDK, and public test venue has no guided bypass', () => {
+    expect(
+      renderVenuePreview('mock-liff', null, 'checkin', true, undefined, {
+        result: guidedResult(),
+        isPrimaryBootstrap: true
+      })
+    ).not.toContain('<script');
+    expect(guidedHtml({ code: '<script>bad</script>' })).not.toContain('<script');
+    const result: VenueEntryAvailabilityResult = {
+      status: 200,
+      body: {
+        ...guidedAvailability(),
+        venue: { code: 'tw-location-test', name: 'Test', timezone: 'UTC' }
+      }
+    };
+    const html = renderVenuePreview(
+      'mock-liff',
+      { venue: 'tw-location-test', lang: 'en' },
+      'checkin',
+      true,
+      'tw-location-test',
+      { result }
+    );
+    expect(html).not.toMatch(/<script|<button|<input|<a\b/);
+    expect(html).toContain('Venue lookup unavailable');
+    expect(validateVenueGuidanceResult(result, 'tw-location-test')).toEqual({
+      status: 503,
+      body: { error: 'venue_entry_unavailable' }
+    });
+    const primary = guidedHtml({
+      code: 'tw-location-test',
+      guidance: { result, isPrimaryBootstrap: true }
+    });
+    expect(primary).toContain('Venue lookup unavailable');
+    expect(primary).not.toMatch(/<script|<button|<input|<a\b|Check-in is open/);
+  });
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'preserves the canonical disabled sentinel name and reason in %s without actions',
+    (lang) => {
+      const result: VenueEntryAvailabilityResult = {
+        status: 410,
+        body: {
+          ...guidedAvailability('disabled'),
+          venue: { code: 'tw-location-test', name: 'Canonical test & name', timezone: 'UTC' }
+        }
+      };
+      const view = venueGuidancePresentation(result, 'tw-location-test', lang);
+      expect(view.result).toEqual(result);
+      expect(view.open).toBe(false);
+      const html = guidedHtml({ code: 'tw-location-test', lang, guidance: { result } });
+      expect(html).toContain('Canonical test &amp; name');
+      expect(html).toContain(
+        lang === 'en' ? 'Venue disabled' : lang === 'zh_TW' ? '場地已停用' : '场地已停用'
+      );
+      expect(html).not.toMatch(/<(?:script|button|input|select|a)\b|Check-in is open/);
+    }
+  );
+  it.each([
+    'before_open',
+    'ended',
+    'not_activity_day',
+    'disabled',
+    'not_found',
+    'unavailable'
+  ] as const)(
+    'closed primary %s initializes only when canonical guidance is available',
+    async (state) => {
+      const ui = guidedBrowser(
+        guidedHtml({ guidance: { result: guidedResult(state), isPrimaryBootstrap: true } })
+      );
+      await guidedTick();
+      expect(ui.liff.init).toHaveBeenCalledTimes(state === 'unavailable' ? 0 : 1);
+      if (state !== 'unavailable')
+        expect(ui.liff.init).toHaveBeenCalledWith({
+          liffId: 'mock-liff',
+          withLoginOnExternalBrowser: false
+        });
+      for (const forbidden of [
+        ui.fetch,
+        ui.geo,
+        ui.liff.getIDToken,
+        ui.liff.login,
+        ui.location.replace
+      ])
+        expect(forbidden).not.toHaveBeenCalled();
+    }
+  );
+  it('primary performs init only, leaving all navigation to official SDK', async () => {
+    const ui = guidedBrowser(
+      guidedHtml({ guidance: { result: guidedResult(), isPrimaryBootstrap: true } })
+    );
+    await guidedTick();
+    expect(ui.liff.init).toHaveBeenCalledExactlyOnceWith({
+      liffId: 'mock-liff',
+      withLoginOnExternalBrowser: false
+    });
+    for (const forbidden of [
+      ui.liff.isLoggedIn,
+      ui.liff.login,
+      ui.liff.getIDToken,
+      ui.liff.getProfile,
+      ui.liff.sendMessages,
+      ui.fetch,
+      ui.geo,
+      ui.history.replaceState,
+      ui.location.replace
+    ])
+      expect(forbidden).not.toHaveBeenCalled();
+  });
+  it('escapes proper names in HTML; inline configuration uses scriptJson, never raw DTOs', () => {
+    const body = {
+      ...guidedAvailability(),
+      venue: {
+        code: guidedCode,
+        name: '</script><script>attack()</script> & \u2028\u2029',
+        timezone: 'UTC'
+      }
+    };
+    const html = guidedHtml({ guidance: { result: { status: 200, body } } });
+    expect(html).toContain('&lt;/script&gt;');
+    expect(html).not.toContain('</script><script>attack');
+    expect(html).not.toContain('2026-10-31T04:00:00Z');
+    expect(guidedHtml({ liffId: '</script><script>attack()</script>' })).not.toContain('<script');
+    expect(venueGuidancePresentation({ status: 200, body }, guidedCode, 'en').open).toBe(true);
+  });
+});
+
+describe('guided open controller: synthetic SDK/fetch/GPS only', () => {
+  it.each([
+    { version: 1, status: 'needs_application', privacy: null },
+    { version: 1, status: 'pending', privacy: null },
+    { version: 1, status: 'blocked', privacy: null },
+    { version: 1, status: 'approved', privacy: 'required' }
+  ] as const)('never locates for $status / $privacy', async (self) => {
+    const ui = guidedBrowser(undefined, { self });
+    await guidedTick();
+    await guidedClick(ui);
+    expect(ui.geo).not.toHaveBeenCalled();
+    expect(ui.get('guided-checkin').disabled).toBe(true);
+    expect(ui.get('guided-chat').hidden).toBe(
+      self.status === 'pending' || self.status === 'blocked'
+    );
+    if (self.status === 'needs_application')
+      expect(ui.get('guided-status').textContent).toContain('manual approval');
+    if (self.status === 'pending' || self.status === 'blocked')
+      expect(ui.get('guided-status').textContent).toContain('Do not reapply');
+    if (self.privacy === 'required') expect(ui.get('guided-status').textContent).toContain('隱私');
+    expect(ui.liff.sendMessages).not.toHaveBeenCalled();
+    expect(ui.liff.getProfile).not.toHaveBeenCalled();
+  });
+  it.each([401, 503, 201])(
+    'HTTP %s is a verification error, never a new-user classification',
+    async (status) => {
+      const ui = guidedBrowser(undefined, {
+        fetch: async () =>
+          jsonResponse({ version: 1, status: 'needs_application', privacy: null }, status)
+      });
+      await guidedTick();
+      expect(ui.get('guided-status').textContent).toContain('could not be verified');
+      expect(ui.get('guided-chat').hidden).toBe(true);
+      await guidedClick(ui);
+      expect(ui.geo).not.toHaveBeenCalled();
+    }
+  );
+  it.each([
+    null,
+    { version: 1, status: 'approved' },
+    { version: 1, status: 'approved', privacy: null },
+    { version: 1, status: 'pending', privacy: 'clear' },
+    { version: 2, status: 'approved', privacy: 'clear' },
+    { version: 1, status: 'approved', privacy: 'clear', personId: 'private' }
+  ])('rejects malformed private status: %#', async (data) => {
+    const ui = guidedBrowser(undefined, { fetch: async () => jsonResponse(data) });
+    await guidedTick();
+    expect(ui.get('guided-checkin').disabled).toBe(true);
+    expect(ui.get('guided-chat').hidden).toBe(true);
+    expect(ui.geo).not.toHaveBeenCalled();
+  });
+  it('logged-out open secondary offers only deliberate login, rechecking DB availability on click', async () => {
+    const ui = guidedBrowser(undefined, { loggedIn: false });
+    await guidedTick();
+    expect(ui.liff.init).toHaveBeenCalledWith({
+      liffId: 'mock-liff',
+      withLoginOnExternalBrowser: false
+    });
+    expect(ui.liff.login).not.toHaveBeenCalled();
+    expect(ui.liff.getIDToken).not.toHaveBeenCalled();
+    expect(ui.fetch).not.toHaveBeenCalled();
+    await ui.get('guided-login').onclick?.();
+    expect(ui.liff.login).toHaveBeenCalledExactlyOnceWith({
+      redirectUri: 'https://app.test/line/venue-checkin?venue=' + guidedCode + '&source=nfc&lang=en'
+    });
+    expect(ui.fetch).toHaveBeenCalledOnce();
+    expect(ui.geo).not.toHaveBeenCalled();
+    expect(ui.history.replaceState).not.toHaveBeenCalled();
+  });
+  it('approved clear is passive until a click, using only the bounded self-status endpoint', async () => {
+    const ui = guidedBrowser();
+    await guidedTick();
+    expect(ui.get('guided-checkin').disabled).toBe(false);
+    expect(ui.geo).not.toHaveBeenCalled();
+    expect(ui.fetch).toHaveBeenCalledExactlyOnceWith(
+      '/api/line/venue-entry-status',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+        headers: { 'content-type': 'application/json', 'x-venue-entry': '1' },
+        body: JSON.stringify({ idToken: 'synthetic-guided-memory-token' })
+      })
+    );
+    expect(ui.document.cookie).toBe('');
+    expect(ui.location.replace).not.toHaveBeenCalled();
+    expect(ui.history.replaceState).not.toHaveBeenCalled();
+    expect(ui.get('guided-receipt').hidden).toBe(true);
+  });
+  it.each(['before_open', 'ended', 'not_activity_day', 'disabled', 'not_found'] as const)(
+    'cached approved status cannot bypass server calendar %s or a forged local clock',
+    async (state) => {
+      const ui = guidedBrowser(undefined, {
+        fetch: async (url) => {
+          if (url === '/api/line/venue-entry-status')
+            return jsonResponse({ version: 1, status: 'approved', privacy: 'clear' });
+          if (url.startsWith('/api/venue-entry/availability?'))
+            return jsonResponse(
+              guidedAvailability(state),
+              state === 'disabled' ? 410 : state === 'not_found' ? 404 : 200
+            );
+          throw Error('Unexpected fetch');
+        }
+      });
+      await guidedTick();
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(0);
+      try {
+        await guidedClick(ui);
+        expect(ui.geo).not.toHaveBeenCalled();
+        expect(ui.fetch).toHaveBeenCalledTimes(2);
+        expect(ui.get('guided-checkin').hidden).toBe(true);
+        expect(ui.get('guided-language').hidden).toBe(true);
+        expect(ui.get('guided-chat').hidden).toBe(true);
+        for (const id of [
+          'guided-calendar',
+          'guided-language-label',
+          'guided-login',
+          'guided-retry',
+          'guided-receipt'
+        ])
+          expect(ui.get(id).hidden).toBe(true);
+        expect(ui.location.replace).toHaveBeenCalledExactlyOnceWith(
+          '/line/venue-checkin?venue=' + guidedCode + '&source=nfc&lang=en'
+        );
+        expect(ui.get('guided-language').disabled).toBe(true);
+        expect(ui.get('guided-retry').disabled).toBe(true);
+      } finally {
+        clock.mockRestore();
+      }
+    }
+  );
+  it.each(['before_open', 'ended', 'not_activity_day', 'disabled', 'not_found'] as const)(
+    'hides the stale open calendar before failed navigation for %s and stays read-only',
+    async (state) => {
+      const html = guidedHtml();
+      expect(html).toMatch(
+        /<section id="guided-calendar">[\s\S]*Check-in is open[\s\S]*<\/section>/
+      );
+      const ui = guidedBrowser(html);
+      await guidedTick();
+      const hidden = [
+        'guided-calendar',
+        'guided-language-label',
+        'guided-language',
+        'guided-checkin',
+        'guided-chat',
+        'guided-login',
+        'guided-retry',
+        'guided-receipt'
+      ];
+      ui.location.replace.mockImplementation((target: string) => {
+        expect(target).toBe('/line/venue-checkin?venue=' + guidedCode + '&source=nfc&lang=en');
+        for (const id of hidden) expect(ui.get(id).hidden).toBe(true);
+        throw Error('Synthetic navigation failure');
+      });
+      ui.fetch.mockImplementation(async () =>
+        jsonResponse(
+          guidedAvailability(state),
+          state === 'disabled' ? 410 : state === 'not_found' ? 404 : 200
+        )
+      );
+      await guidedClick(ui);
+      expect(ui.location.replace).toHaveBeenCalledOnce();
+      for (const id of hidden) expect(ui.get(id).hidden).toBe(true);
+      expect(ui.get('guided-status').textContent).toBe(
+        {
+          before_open: 'Check-in has not opened',
+          ended: 'This practice has ended',
+          not_activity_day: 'Not a practice day at this venue',
+          disabled: 'Venue disabled',
+          not_found: 'Venue not found'
+        }[state]
+      );
+      await guidedClick(ui);
+      await ui.get('guided-retry').onclick?.();
+      await ui.get('guided-login').onclick?.();
+      ui.get('guided-language').value = 'zh_CN';
+      ui.get('guided-language').onchange?.();
+      expect(ui.fetch).toHaveBeenCalledTimes(2);
+      expect(ui.location.replace).toHaveBeenCalledOnce();
+      expect(ui.geo).not.toHaveBeenCalled();
+      expect(ui.liff.login).not.toHaveBeenCalled();
+      expect(ui.document.cookie).toBe('');
+    }
+  );
+  it.each(['pending', 'blocked', 'privacy', 'rotation'] as const)(
+    'every attempt rejects changed learner state / credential: %s',
+    async (change) => {
+      let calls = 0;
+      const ui = guidedBrowser(undefined, {
+        fetch: async (url) => {
+          if (url.startsWith('/api/venue-entry/availability?'))
+            return jsonResponse(guidedAvailability());
+          if (url === '/api/line/venue-entry-status') {
+            calls++;
+            if (calls > 1 && change === 'rotation') rotate?.();
+            return jsonResponse(
+              calls === 1 || change === 'rotation'
+                ? { version: 1, status: 'approved', privacy: 'clear' }
+                : change === 'privacy'
+                  ? { version: 1, status: 'approved', privacy: 'required' }
+                  : { version: 1, status: change, privacy: null }
+            );
+          }
+          throw Error('Unexpected fetch');
+        }
+      });
+      const rotate = () => ui.liff.getIDToken.mockReturnValue('rotated-credential');
+      await guidedTick();
+      await guidedClick(ui);
+      expect(ui.geo).not.toHaveBeenCalled();
+      expect(ui.get('guided-checkin').disabled).toBe(true);
+      expect(ui.fetch.mock.calls.some(([url]) => url === '/api/line/venue-checkin')).toBe(false);
+      expect(ui.get('guided-status').textContent).not.toContain('may already be recorded');
+      if (change === 'rotation')
+        expect(ui.get('guided-status').textContent).toContain('could not be verified');
+    }
+  );
+  it.each([
+    'binding',
+    'timezone',
+    'extra',
+    'bad-session',
+    'normalized-date',
+    'normalized-observed',
+    'hour-24',
+    '503'
+  ] as const)('revalidation rejects malformed availability: %s', async (failure) => {
+    const body = guidedAvailability();
+    const malformed =
+      failure === 'binding'
+        ? { ...body, venue: { ...body.venue, code: 'other-hall' } }
+        : failure === 'timezone'
+          ? { ...body, venue: { ...body.venue, timezone: 'bad/zone' } }
+          : failure === 'extra'
+            ? { ...body, person: 'private' }
+            : failure === 'normalized-date'
+              ? {
+                  ...body,
+                  relevantSession: {
+                    opensAt: '2026-02-30T02:00:00Z',
+                    startsAt: '2026-02-30T03:00:00Z',
+                    endsAt: '2026-02-30T04:00:00Z'
+                  }
+                }
+              : failure === 'normalized-observed'
+                ? { ...body, observedAt: '2026-02-30T00:00:00Z' }
+                : failure === 'hour-24'
+                  ? { ...body, observedAt: '2026-10-30T24:00:00Z' }
+                  : { ...body, relevantSession: { ...guidedSession, endsAt: 'bad' } };
+    const ui = guidedBrowser(undefined, {
+      fetch: async (url) => {
+        if (url === '/api/line/venue-entry-status')
+          return jsonResponse({ version: 1, status: 'approved', privacy: 'clear' });
+        if (url.startsWith('/api/venue-entry/availability?'))
+          return jsonResponse(malformed, failure === '503' ? 503 : 200);
+        throw Error('Unexpected fetch');
+      }
+    });
+    await guidedTick();
+    await guidedClick(ui);
+    expect(ui.geo).not.toHaveBeenCalled();
+    expect(ui.get('guided-checkin').disabled).toBe(true);
+  });
+  it('locks every attempt, rechecks calendar then fresh self-status, and confirms only the formal receipt', async () => {
+    const ui = guidedBrowser();
+    await guidedTick();
+    ui.fetch.mockImplementation(async (url) => {
+      if (url.startsWith('/api/venue-entry/availability?'))
+        return jsonResponse(guidedAvailability());
+      if (url === '/api/line/venue-entry-status')
+        return jsonResponse({ version: 1, status: 'approved', privacy: 'clear' });
+      if (url === '/api/line/venue-checkin')
+        return jsonResponse({
+          ok: true,
+          venue: { code: guidedCode, name: 'Receipt venue', timezone: 'America/New_York' },
+          checkedInAt: '2026-10-31T04:01:00Z'
+        });
+      throw Error('Unexpected fetch');
+    });
+    const attempt = guidedClick(ui);
+    await guidedClick(ui);
+    await guidedTick();
+    expect(ui.geo).toHaveBeenCalledOnce();
+    expect(ui.get('guided-checkin').attributes['aria-busy']).toBe('true');
+    ui.get('guided-language').value = 'zh_TW';
+    ui.get('guided-language').onchange?.();
+    expect(ui.location.replace).not.toHaveBeenCalled();
+    expect(ui.document.cookie).toBe('');
+    await guidedClick(ui);
+    expect(ui.geo).toHaveBeenCalledOnce();
+    expect(ui.fetch.mock.calls.map(([url]) => url)).toEqual([
+      '/api/line/venue-entry-status',
+      '/api/venue-entry/availability?venue=' + guidedCode,
+      '/api/line/venue-entry-status'
+    ]);
+    ui.geo.mock.calls[0]![0]({ coords: { latitude: 12.345, longitude: -67.89 } });
+    await attempt;
+    expect(ui.fetch).toHaveBeenLastCalledWith(
+      '/api/line/venue-checkin',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+        headers: { 'content-type': 'application/json', 'x-venue-checkin': '1' },
+        body: JSON.stringify({
+          idToken: 'synthetic-guided-memory-token',
+          venue: guidedCode,
+          latitude: 12.345,
+          longitude: -67.89
+        })
+      })
+    );
+    expect(ui.get('guided-status').textContent).toContain('Attendance recorded');
+    expect(ui.get('guided-receipt').hidden).toBe(false);
+    expect(ui.get('guided-checkin').disabled).toBe(true);
+    for (const forbidden of [
+      ui.storage.getItem,
+      ui.storage.setItem,
+      ui.log,
+      ui.liff.getProfile,
+      ui.liff.sendMessages
+    ])
+      expect(forbidden).not.toHaveBeenCalled();
+    expect(ui.document.cookie).toBe('');
+    expect(ui.location.href).not.toMatch(/12\.345|67\.89|memory-token/);
+  });
+  it.each(['rotate', 'pagehide'] as const)(
+    'credential %s during GPS aborts before POST',
+    async (change) => {
+      const ui = guidedBrowser();
+      await guidedTick();
+      const attempt = guidedClick(ui);
+      await guidedTick();
+      if (change === 'rotate') ui.liff.getIDToken.mockReturnValue('rotated-after-gps');
+      else ui.handlers.get('pagehide')?.();
+      ui.geo.mock.calls[0]![0]({ coords: { latitude: 1, longitude: 2 } });
+      await attempt;
+      expect(ui.fetch.mock.calls.some(([url]) => url === '/api/line/venue-checkin')).toBe(false);
+      expect(ui.get('guided-receipt').hidden).toBe(true);
+      if (change === 'rotate') {
+        expect(ui.get('guided-status').textContent).toContain('could not be verified');
+        expect(ui.get('guided-status').textContent).not.toContain('may already be recorded');
+        expect(ui.fetch).toHaveBeenCalledTimes(3);
+      }
+      if (change === 'pagehide') {
+        expect(ui.get('guided-language').disabled).toBe(true);
+        await guidedClick(ui);
+        expect(ui.geo).toHaveBeenCalledOnce();
+      }
+    }
+  );
+  it.each(
+    (['zh_TW', 'zh_CN', 'en'] as const).flatMap((lang) =>
+      (
+        ['denied', 'timeout', 'unavailable', 'unsupported', 'sync-throw', 'unknown-code'] as const
+      ).map((failure) => ({ lang, failure }))
+    )
+  )(
+    'pre-write GPS $failure in $lang is never an uncertain attendance result',
+    async ({ lang, failure }) => {
+      const copy = {
+        zh_TW: {
+          denied: '您未允許定位',
+          timeout: '定位逾時',
+          unavailable: '目前無法取得定位',
+          unsupported: '此瀏覽器不支援定位',
+          uncertain: '可能已記錄'
+        },
+        zh_CN: {
+          denied: '您未允许定位',
+          timeout: '定位超时',
+          unavailable: '目前无法取得定位',
+          unsupported: '此浏览器不支持定位',
+          uncertain: '可能已记录'
+        },
+        en: {
+          denied: 'Location permission denied',
+          timeout: 'Location timed out',
+          unavailable: 'Location unavailable',
+          unsupported: 'This browser does not support location',
+          uncertain: 'may already be recorded'
+        }
+      }[lang];
+      const ui = guidedBrowser(guidedHtml({ lang }), { geolocation: failure !== 'unsupported' });
+      await guidedTick();
+      if (failure === 'sync-throw')
+        ui.geo.mockImplementation(() => {
+          throw Error('private-error-marker');
+        });
+      else
+        ui.geo.mockImplementation((_success, reject) =>
+          reject({
+            code:
+              failure === 'denied'
+                ? 1
+                : failure === 'timeout'
+                  ? 3
+                  : failure === 'unavailable'
+                    ? 2
+                    : 99
+          })
+        );
+      await guidedClick(ui);
+      expect(ui.get('guided-status').textContent).toContain(
+        copy[failure === 'sync-throw' || failure === 'unknown-code' ? 'unavailable' : failure]
+      );
+      expect(ui.get('guided-status').textContent).not.toContain(copy.uncertain);
+      expect(ui.get('guided-status').textContent).not.toContain('private-error-marker');
+      expect(ui.get('guided-receipt').hidden).toBe(true);
+      expect(ui.fetch.mock.calls.map(([url]) => url)).toEqual([
+        '/api/line/venue-entry-status',
+        '/api/venue-entry/availability?venue=' + guidedCode,
+        '/api/line/venue-entry-status'
+      ]);
+      expect(ui.geo).toHaveBeenCalledTimes(failure === 'unsupported' ? 0 : 1);
+      expect(ui.storage.setItem).not.toHaveBeenCalled();
+      expect(ui.log).not.toHaveBeenCalled();
+    }
+  );
+  it.each([
+    'availability',
+    'self-status',
+    'credential-before-geo',
+    'credential-after-geo'
+  ] as const)('pre-write %s failure never claims attendance might be recorded', async (failure) => {
+    const ui = guidedBrowser();
+    await guidedTick();
+    ui.fetch.mockImplementation(async (url) => {
+      if (url.startsWith('/api/venue-entry/availability?')) {
+        if (failure === 'availability') throw Error('private-error-marker');
+        return jsonResponse(guidedAvailability());
+      }
+      if (url === '/api/line/venue-entry-status') {
+        if (failure === 'self-status') throw Error('private-error-marker');
+        if (failure === 'credential-before-geo')
+          ui.liff.getIDToken.mockReturnValue('rotated-before-geo');
+        return jsonResponse({ version: 1, status: 'approved', privacy: 'clear' });
+      }
+      throw Error('Write forbidden');
+    });
+    const attempt = guidedClick(ui);
+    if (failure === 'credential-after-geo') {
+      await guidedTick();
+      ui.liff.getIDToken.mockReturnValue('rotated-after-geo');
+      ui.geo.mock.calls[0]![0]({ coords: { latitude: 1, longitude: 2 } });
+    }
+    await attempt;
+    expect(ui.get('guided-status').textContent).toContain('could not be verified');
+    expect(ui.get('guided-status').textContent).not.toMatch(
+      /may already be recorded|private-error-marker/
+    );
+    expect(ui.get('guided-receipt').hidden).toBe(true);
+    expect(ui.geo).toHaveBeenCalledTimes(failure === 'credential-after-geo' ? 1 : 0);
+    expect(ui.fetch).toHaveBeenCalledTimes(failure === 'availability' ? 2 : 3);
+    expect(ui.fetch.mock.calls.some(([url]) => url === '/api/line/venue-checkin')).toBe(false);
+  });
+  it.each(
+    (['zh_TW', 'zh_CN', 'en'] as const).flatMap((lang) =>
+      (['transport', 'json'] as const).map((failure) => ({ lang, failure }))
+    )
+  )(
+    'after transport invocation $failure in $lang stays uncertain with idempotency copy',
+    async ({ lang, failure }) => {
+      const ui = guidedBrowser(guidedHtml({ lang }));
+      await guidedTick();
+      ui.fetch.mockImplementation(async (url) => {
+        if (url.startsWith('/api/venue-entry/availability?'))
+          return jsonResponse(guidedAvailability());
+        if (url === '/api/line/venue-entry-status')
+          return jsonResponse({ version: 1, status: 'approved', privacy: 'clear' });
+        if (url === '/api/line/venue-checkin') {
+          if (failure === 'transport') throw Error('private-error-marker');
+          return new Response('invalid-json', { status: 200 });
+        }
+        throw Error('Unexpected fetch');
+      });
+      const attempt = guidedClick(ui);
+      await guidedTick();
+      ui.geo.mock.calls[0]![0]({ coords: { latitude: 1, longitude: 2 } });
+      await attempt;
+      const copy = {
+        zh_TW: ['可能已記錄', '不會重複計次'],
+        zh_CN: ['可能已记录', '不会重复计次'],
+        en: ['may already be recorded', 'will not count twice']
+      }[lang];
+      for (const text of copy) expect(ui.get('guided-status').textContent).toContain(text);
+      expect(ui.get('guided-status').textContent).not.toContain('private-error-marker');
+      expect(ui.get('guided-receipt').hidden).toBe(true);
+      expect(ui.fetch).toHaveBeenCalledTimes(4);
+      expect(ui.fetch.mock.calls.filter(([url]) => url === '/api/line/venue-checkin')).toHaveLength(
+        1
+      );
+      expect(ui.geo).toHaveBeenCalledOnce();
+    }
+  );
+  it.each([
+    null,
+    { ok: true },
+    { ok: true, venue: { name: 'Receipt', timezone: 'UTC' }, checkedInAt: 'bad' },
+    {
+      ok: true,
+      venue: { name: 'Receipt', timezone: 'UTC' },
+      checkedInAt: '2026-02-30T00:00:00Z'
+    },
+    {
+      ok: true,
+      venue: { name: 'Receipt', timezone: 'UTC' },
+      checkedInAt: '2026-10-30T24:00:00Z'
+    },
+    {
+      ok: true,
+      isTest: true,
+      verificationMode: 'distance_debug',
+      venue: { name: 'Receipt', timezone: 'UTC' },
+      checkedInAt: '2026-10-31T04:00:00Z'
+    },
+    {
+      ok: true,
+      isTest: false,
+      venue: { name: 'Receipt', timezone: 'UTC' },
+      checkedInAt: '2026-10-31T04:00:00Z'
+    },
+    {
+      ok: true,
+      venue: { name: 'Receipt', timezone: 'bad/zone' },
+      checkedInAt: '2026-10-31T04:00:00Z'
+    },
+    {
+      ok: true,
+      venue: { code: 'other-hall', name: 'Receipt', timezone: 'UTC' },
+      checkedInAt: '2026-10-31T04:00:00Z'
+    }
+  ])('malformed/debug receipt never reveals success: %#', async (data) => {
+    const ui = guidedBrowser();
+    await guidedTick();
+    ui.fetch.mockImplementation(async (url) =>
+      url === '/api/line/venue-checkin'
+        ? jsonResponse(data)
+        : url === '/api/line/venue-entry-status'
+          ? jsonResponse({ version: 1, status: 'approved', privacy: 'clear' })
+          : url === '/api/venue-entry/availability?venue=' + guidedCode
+            ? jsonResponse(guidedAvailability())
+            : Promise.reject(Error('Unmatched fetch'))
+    );
+    const attempt = guidedClick(ui);
+    await guidedTick();
+    ui.geo.mock.calls[0]![0]({ coords: { latitude: 1, longitude: 2 } });
+    await attempt;
+    expect(ui.get('guided-status').textContent).toContain('may already be recorded');
+    expect(ui.get('guided-receipt').hidden).toBe(true);
+    expect(ui.get('guided-checkin').disabled).toBe(true);
+  });
+  it('unknown write 502 is uncertain, with safe revalidation before every retry', async () => {
+    const ui = guidedBrowser();
+    await guidedTick();
+    ui.fetch.mockImplementation(async (url) =>
+      url === '/api/line/venue-checkin'
+        ? jsonResponse({}, 502)
+        : url === '/api/line/venue-entry-status'
+          ? jsonResponse({ version: 1, status: 'approved', privacy: 'clear' })
+          : url === '/api/venue-entry/availability?venue=' + guidedCode
+            ? jsonResponse(guidedAvailability())
+            : Promise.reject(Error('Unmatched fetch'))
+    );
+    const attempt = guidedClick(ui);
+    await guidedTick();
+    ui.geo.mock.calls[0]![0]({ coords: { latitude: 1, longitude: 2 } });
+    await attempt;
+    expect(ui.get('guided-status').textContent).toContain('will not count twice');
+    expect(ui.get('guided-receipt').hidden).toBe(true);
+    await ui.get('guided-retry').onclick?.();
+    const second = guidedClick(ui);
+    await guidedTick();
+    expect(ui.geo).toHaveBeenCalledTimes(2);
+    ui.geo.mock.calls[1]![1]({ code: 1 });
+    await second;
+    expect(
+      ui.fetch.mock.calls.filter(([url]) => url.startsWith('/api/venue-entry/availability?'))
+    ).toHaveLength(3);
+  });
+  it('outside_window refreshes read-only state without another GPS request', async () => {
+    let availabilityReads = 0;
+    const ui = guidedBrowser(undefined, {
+      fetch: async (url) => {
+        if (url === '/api/line/venue-entry-status')
+          return jsonResponse({ version: 1, status: 'approved', privacy: 'clear' });
+        if (url.startsWith('/api/venue-entry/availability?'))
+          return jsonResponse(guidedAvailability(++availabilityReads === 1 ? 'open' : 'ended'));
+        if (url === '/api/line/venue-checkin')
+          return jsonResponse({ error: 'outside_window' }, 422);
+        throw Error('Unmatched fetch');
+      }
+    });
+    await guidedTick();
+    const attempt = guidedClick(ui);
+    await guidedTick();
+    ui.geo.mock.calls[0]![0]({ coords: { latitude: 1, longitude: 2 } });
+    await attempt;
+    expect(ui.get('guided-checkin').hidden).toBe(true);
+    expect(ui.get('guided-language').hidden).toBe(true);
+    expect(ui.get('guided-status').textContent).toContain('ended');
+    expect(ui.get('guided-calendar').hidden).toBe(true);
+    expect(ui.get('guided-language-label').hidden).toBe(true);
+    expect(ui.get('guided-receipt').hidden).toBe(true);
+    expect(ui.get('guided-retry').hidden).toBe(true);
+    expect(ui.location.replace).toHaveBeenCalledExactlyOnceWith(
+      '/line/venue-checkin?venue=' + guidedCode + '&source=nfc&lang=en'
+    );
+    expect(ui.geo).toHaveBeenCalledOnce();
+    expect(availabilityReads).toBe(2);
+  });
+  it('language choice is presentation-only navigation with no preference POST', async () => {
+    const ui = guidedBrowser();
+    await guidedTick();
+    ui.get('guided-language').value = 'zh_CN';
+    ui.get('guided-language').onchange?.();
+    expect(ui.location.replace).toHaveBeenCalledExactlyOnceWith(
+      '/line/venue-checkin?venue=' + guidedCode + '&source=nfc&lang=zh_CN'
+    );
+    expect(ui.document.cookie).toContain('__Host-qigong-learner-locale=zh_CN');
+    expect(ui.fetch).toHaveBeenCalledOnce();
+    expect(ui.geo).not.toHaveBeenCalled();
+  });
+});
 
 describe('live schedule language without public venue metadata', () => {
   it.each([

@@ -1,11 +1,21 @@
 import { setImmediate } from 'node:timers/promises';
 import { Script } from 'node:vm';
 import type { Pool } from '@qigong/database';
-import type { FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { renderChannelWorkspacePage } from '../src/channel-workspace-pages.js';
 import type { LineConfig } from '../src/line-onboarding.js';
+import {
+  registerVenueEntry,
+  type LegacyManagedLookup,
+  type VenueGuidanceLookup
+} from '../src/venue-entry.js';
+import { formatVenueEntrySession } from '../src/line-venue-checkin-page.js';
+import type {
+  VenueEntryAvailabilityDto,
+  VenueEntryAvailabilityResult
+} from '../src/venue-entry-guidance.js';
 
 const query = vi.fn(async () => {
   throw new Error('DB forbidden');
@@ -292,6 +302,389 @@ describe('buildApp shared venue entry', () => {
       expect(response.body).toBe(
         renderChannelWorkspacePage({ platform: 'line', liffId: line.liffId }, 'checkin', 'zh_TW')
       );
+    }
+  );
+});
+
+// Explicit standalone composition only: buildApp remains default-off and unwired.
+const publicCode = 'us-practice-hall';
+const publicSession = {
+  opensAt: '2026-10-30T15:45:00Z',
+  startsAt: '2026-10-30T16:15:00Z',
+  endsAt: '2026-10-31T16:00:00Z'
+};
+const publicAvailability = (
+  availability: VenueEntryAvailabilityDto['availability'] = 'open'
+): VenueEntryAvailabilityDto => ({
+  version: 1,
+  availability,
+  venue:
+    availability === 'not_found'
+      ? null
+      : { code: publicCode, name: 'Original 場地 & name', timezone: 'Asia/Taipei' },
+  observedAt: '2026-10-30T16:00:00Z',
+  relevantSession: ['open', 'before_open', 'ended'].includes(availability) ? publicSession : null,
+  nextSession: null
+});
+const publicResult = (
+  state: VenueEntryAvailabilityDto['availability'] = 'open'
+): VenueEntryAvailabilityResult =>
+  state === 'unavailable'
+    ? { status: 503, body: { error: 'venue_entry_unavailable' } }
+    : {
+        status: state === 'not_found' ? 404 : state === 'disabled' ? 410 : 200,
+        body: publicAvailability(state)
+      };
+const publicUrl = '/venue-checkin?venue=' + publicCode;
+const expectReadOnly = (html: string) => {
+  expect(html).not.toMatch(
+    /<(?:a|button|input|select|script|form)\b|sdk\.js|navigator\.|fetch\(|getIDToken|\/line\/(?:checkin|venue-history)|__Host-qigong|idToken|latitude|longitude/
+  );
+  expect(html).toContain('Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting');
+};
+
+describe('explicit authoritative public venue guidance (unit HTTP, not NFC/provider acceptance)', () => {
+  const apps: FastifyInstance[] = [];
+  const standalone = (
+    guidance: VenueGuidanceLookup | undefined,
+    legacy: LegacyManagedLookup = vi.fn(async () => {
+      throw Error('Legacy fallback forbidden');
+    }),
+    liffId = 'mock-liff'
+  ) => {
+    const isolated = Fastify({ logger: false });
+    apps.push(isolated);
+    registerVenueEntry(isolated, liffId, legacy, guidance);
+    return isolated;
+  };
+  afterEach(async () => {
+    await Promise.all(apps.splice(0).map((isolated) => isolated.close()));
+  });
+  it.each(
+    ['nfc', 'qr', 'link'].flatMap((source) =>
+      ['zh_TW', 'zh_CN', 'en'].map((lang) => ({ source, lang }))
+    )
+  )(
+    'only DB open permits the fixed official LINE redirect: $source / $lang',
+    async ({ source, lang }) => {
+      const lookup = vi.fn<VenueGuidanceLookup>().mockResolvedValue(publicResult());
+      const legacy = vi.fn<LegacyManagedLookup>().mockResolvedValue(null);
+      const isolated = standalone(lookup, legacy);
+      const canonical = `${publicUrl}&source=${source}&lang=${lang}`;
+      const page = await isolated.inject(canonical);
+      expect(page.statusCode).toBe(200);
+      expect(page.body.match(/<a /g)).toHaveLength(1);
+      expect(page.body).toContain('Original 場地 &amp; name');
+      const expectedChoice = canonical + '&channel=line';
+      expect(lineLink(page.body)).toBe(expectedChoice);
+      const chosen = await isolated.inject({
+        url: expectedChoice,
+        headers: {
+          host: 'evil.example',
+          'x-forwarded-host': 'evil.example',
+          'x-forwarded-proto': 'http'
+        }
+      });
+      expect(chosen.statusCode).toBe(303);
+      expect(chosen.headers.location).toBe(
+        `https://liff.line.me/mock-liff/venue-checkin?venue=${publicCode}&source=${source}&lang=${lang}`
+      );
+      expect(lookup).toHaveBeenCalledTimes(2);
+      for (const call of lookup.mock.calls) expect(call).toEqual([expect.any(String), publicCode]);
+      expect(legacy).not.toHaveBeenCalled();
+      expect(page.headers).toMatchObject({
+        'cache-control': 'no-store',
+        'referrer-policy': 'no-referrer',
+        'permissions-policy': 'geolocation=(), camera=(), microphone=()',
+        'x-robots-tag': 'noindex, nofollow'
+      });
+      expect(chosen.headers['cache-control']).toBe('no-store');
+      expect(page.body).not.toMatch(/<script|<form|navigator|fetch\(|idToken|evil\.example/);
+      if (lang === 'en') {
+        expect(page.body).toContain('NFC tag first');
+        expect(page.body).toContain('scan QR');
+        expect(page.body).toContain('not invitations or proof of presence');
+      }
+    }
+  );
+  it.each(
+    (
+      ['before_open', 'ended', 'not_activity_day', 'disabled', 'not_found', 'unavailable'] as const
+    ).flatMap((state) => ['', '&channel=line'].map((channel) => ({ state, channel })))
+  )(
+    'closed $state is read-only even with explicit LINE selection $channel',
+    async ({ state, channel }) => {
+      const lookup = vi.fn<VenueGuidanceLookup>().mockResolvedValue(publicResult(state));
+      const legacy = vi
+        .fn<LegacyManagedLookup>()
+        .mockResolvedValue({ code: publicCode, name: 'Must not be used', active: true });
+      const response = await standalone(lookup, legacy).inject(
+        publicUrl + '&source=nfc&lang=en' + channel
+      );
+      expect(response.statusCode).toBe(
+        state === 'disabled'
+          ? 410
+          : state === 'not_found'
+            ? 404
+            : state === 'unavailable'
+              ? 503
+              : 200
+      );
+      expect(response.headers.location).toBeUndefined();
+      expectReadOnly(response.body);
+      expect(response.body).not.toMatch(
+        /Must not be used|Continue with LINE|Telegram|unknown or disabled/
+      );
+      expect(lookup).toHaveBeenCalledExactlyOnceWith(expect.any(String), publicCode);
+      expect(legacy).not.toHaveBeenCalled();
+    }
+  );
+  it.each(['zh_TW', 'zh_CN', 'en'] as const)(
+    'renders full venue-local opening/start/end dates and next session in %s',
+    async (lang) => {
+      const next = {
+        opensAt: '2026-11-01T15:45:00Z',
+        startsAt: '2026-11-01T16:15:00Z',
+        endsAt: '2026-11-02T16:00:00Z'
+      };
+      const body = { ...publicAvailability('before_open'), nextSession: next };
+      const lookup = vi.fn<VenueGuidanceLookup>().mockResolvedValue({ status: 200, body });
+      const response = await standalone(lookup).inject(publicUrl + '&lang=' + lang);
+      expect(response.statusCode).toBe(200);
+      const formatter = new Intl.DateTimeFormat(
+        lang === 'zh_TW' ? 'zh-Hant' : lang === 'zh_CN' ? 'zh-Hans' : 'en',
+        {
+          timeZone: 'Asia/Taipei',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hourCycle: 'h23'
+        }
+      );
+      for (const session of [publicSession, next]) {
+        const formatted = formatVenueEntrySession(session, 'Asia/Taipei', lang);
+        for (const key of ['opensAt', 'startsAt', 'endsAt'] as const) {
+          expect(formatted?.[key]).toBe(formatter.format(new Date(session[key])));
+          expect(response.body).toContain(formatted![key]);
+        }
+      }
+      expect(response.body).toContain('Original 場地 &amp; name');
+      expect(response.body).toContain('Asia/Taipei');
+      expect(response.body).not.toMatch(/30 minutes|30分鐘|30分钟|midnight/);
+      expectReadOnly(response.body);
+    }
+  );
+  it('shows unknown next session without inventing times, and locale cookies require no preference read', async () => {
+    const lookup = vi.fn<VenueGuidanceLookup>().mockResolvedValue(publicResult('not_activity_day'));
+    const response = await standalone(lookup).inject({
+      url: publicUrl,
+      headers: { cookie: '__Host-qigong-learner-locale=en' }
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('<html lang="en">');
+    expect(response.body).toContain('Next session unknown');
+    expect(response.body).not.toContain('<dl>');
+    expectReadOnly(response.body);
+  });
+  it.each([
+    null,
+    {},
+    { status: 200, body: null },
+    { status: 410, body: publicAvailability() },
+    { status: 200, body: { ...publicAvailability(), extra: 'private-marker' } },
+    {
+      status: 200,
+      body: {
+        ...publicAvailability(),
+        venue: { code: 'other-hall', name: 'private-marker', timezone: 'UTC' }
+      }
+    },
+    {
+      status: 200,
+      body: {
+        ...publicAvailability(),
+        venue: { code: publicCode, name: 'private-marker', timezone: 'bad/zone' }
+      }
+    },
+    {
+      status: 200,
+      body: {
+        ...publicAvailability(),
+        relevantSession: { ...publicSession, startsAt: '2026-02-30T00:00:00Z' }
+      }
+    },
+    { status: 200, body: { ...publicAvailability(), relevantSession: null } },
+    { status: 200, body: { ...publicAvailability('unavailable') } },
+    { status: 400, body: { error: 'invalid_venue_entry_request' } },
+    { status: 503, body: { error: 'private-marker' } }
+  ])('malformed or unbound guidance fails closed without legacy fallback: %#', async (result) => {
+    const lookup = vi
+      .fn<VenueGuidanceLookup>()
+      .mockResolvedValue(result as VenueEntryAvailabilityResult);
+    const legacy = vi
+      .fn<LegacyManagedLookup>()
+      .mockResolvedValue({ code: publicCode, name: 'private-marker', active: true });
+    const response = await standalone(lookup, legacy).inject(publicUrl + '&lang=en&channel=line');
+    expect(response.statusCode).toBe(503);
+    expect(response.headers.location).toBeUndefined();
+    expect(response.body).toContain('Venue lookup unavailable');
+    expect(response.body).not.toContain('private-marker');
+    expectReadOnly(response.body);
+    expect(legacy).not.toHaveBeenCalled();
+  });
+  it('a throwing authoritative lookup never reads the legacy adapter or reflects the exception', async () => {
+    const lookup = vi.fn<VenueGuidanceLookup>().mockRejectedValue(Error('private-marker'));
+    const legacy = vi
+      .fn<LegacyManagedLookup>()
+      .mockResolvedValue({ code: publicCode, name: 'private-marker', active: true });
+    const response = await standalone(lookup, legacy).inject(publicUrl + '&channel=line&lang=en');
+    expect(response.statusCode).toBe(503);
+    expect(response.headers.location).toBeUndefined();
+    expect(response.body).not.toContain('private-marker');
+    expectReadOnly(response.body);
+    expect(legacy).not.toHaveBeenCalled();
+  });
+  it.each([
+    '/venue-checkin',
+    publicUrl + '&venue=' + publicCode,
+    publicUrl + '&source=qr&source=nfc',
+    publicUrl + '&lang=en&lang=zh_TW',
+    publicUrl + '&channel=line&channel=line',
+    publicUrl + '&channel=telegram',
+    publicUrl + '&lang=%FF',
+    publicUrl + '&idToken=private-marker',
+    publicUrl + '&latitude=12.345',
+    publicUrl + '&liff.state=%2Fapply',
+    publicUrl + '&redirect=https%3A%2F%2Fevil.example',
+    publicUrl + '&test=1',
+    publicUrl + '&mode=distance_debug',
+    '/venue-checkin?venue=us-practice-hall%0A',
+    '/venue-checkin?venue=%3Cscript%3Eprivate-marker%3C%2Fscript%3E'
+  ])('invalid parameters read neither adapter: %s', async (url) => {
+    const lookup = vi.fn<VenueGuidanceLookup>();
+    const legacy = vi.fn<LegacyManagedLookup>();
+    const response = await standalone(lookup, legacy).inject(url);
+    expect(response.statusCode).toBe(400);
+    expect(response.headers.location).toBeUndefined();
+    expectReadOnly(response.body);
+    expect(response.body).not.toMatch(/private-marker|evil\.example|12\.345/);
+    expect(lookup).not.toHaveBeenCalled();
+    expect(legacy).not.toHaveBeenCalled();
+  });
+  it.each(['', '//evil.example', '</script><script>private-marker()</script>', 'a'.repeat(101)])(
+    'open venue still requires a safe configured LIFF ID: %s',
+    async (liffId) => {
+      const lookup = vi.fn<VenueGuidanceLookup>().mockResolvedValue(publicResult());
+      const isolated = standalone(lookup, undefined, liffId);
+      for (const [suffix, status] of [
+        ['', 200],
+        ['&channel=line', 503]
+      ] as const) {
+        const response = await isolated.inject(publicUrl + '&lang=en' + suffix);
+        expect(response.statusCode).toBe(status);
+        expect(response.headers.location).toBeUndefined();
+        expect(response.body).toContain('LINE entry is not configured');
+        expect(response.body).not.toMatch(/<a\b|<script|private-marker|evil\.example/);
+      }
+    }
+  );
+  it('escapes all public proper-name markup without translating names or injecting script data', async () => {
+    const body = {
+      ...publicAvailability('before_open'),
+      venue: {
+        code: publicCode,
+        name: '</script><script>private-marker()</script> & " \' \u2028\u2029',
+        timezone: 'UTC'
+      }
+    };
+    const lookup = vi.fn<VenueGuidanceLookup>().mockResolvedValue({ status: 200, body });
+    const response = await standalone(lookup).inject(publicUrl + '&lang=en');
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain(
+      '&lt;/script&gt;&lt;script&gt;private-marker()&lt;/script&gt; &amp; &quot; &#39;'
+    );
+    expectReadOnly(response.body);
+    expect(response.body).not.toContain('</script><script>');
+  });
+  it.each(
+    (['zh_TW', 'zh_CN', 'en'] as const).flatMap((lang) =>
+      ['', '&channel=line'].map((channel) => ({ lang, channel }))
+    )
+  )(
+    'preserves canonical disabled sentinel name and 410 in $lang with selection $channel',
+    async ({ lang, channel }) => {
+      const result: VenueEntryAvailabilityResult = {
+        status: 410,
+        body: {
+          ...publicAvailability('disabled'),
+          venue: { code: 'tw-location-test', name: 'Canonical test & name', timezone: 'UTC' }
+        }
+      };
+      const lookup = vi.fn<VenueGuidanceLookup>().mockResolvedValue(result);
+      const legacy = vi.fn<LegacyManagedLookup>().mockResolvedValue({
+        code: 'tw-location-test',
+        name: 'Forbidden legacy name',
+        active: true
+      });
+      const response = await standalone(lookup, legacy).inject(
+        base + '&source=nfc&lang=' + lang + channel
+      );
+      expect(response.statusCode).toBe(410);
+      expect(response.headers.location).toBeUndefined();
+      expect(response.body).toContain('Canonical test &amp; name');
+      expect(response.body).toContain('<code>tw-location-test</code>');
+      expect(response.body).toContain(
+        lang === 'en' ? 'Venue disabled' : lang === 'zh_TW' ? '場地已停用' : '场地已停用'
+      );
+      expect(response.body).not.toMatch(
+        /Forbidden legacy name|Venue lookup unavailable|場地查詢暫不可用|场地查询暂不可用|Check-in is open|目前開放簽到|目前开放签到/
+      );
+      expectReadOnly(response.body);
+      expect(lookup).toHaveBeenCalledExactlyOnceWith(expect.any(String), 'tw-location-test');
+      expect(legacy).not.toHaveBeenCalled();
+    }
+  );
+  it('never turns the legacy test sentinel into guided formal attendance or a debug route', async () => {
+    const body = {
+      ...publicAvailability(),
+      venue: { code: 'tw-location-test', name: 'Test', timezone: 'UTC' }
+    };
+    const lookup = vi.fn<VenueGuidanceLookup>().mockResolvedValue({ status: 200, body });
+    const response = await standalone(lookup).inject(base + '&channel=line&lang=en');
+    expect(response.statusCode).toBe(503);
+    expect(response.headers.location).toBeUndefined();
+    expectReadOnly(response.body);
+  });
+  it.each(['active', 'missing', 'disabled', 'throw', 'binding'] as const)(
+    'the third argument retains the legacy managed lookup contract: %s',
+    async (state) => {
+      const legacy = vi.fn<LegacyManagedLookup>().mockImplementation(async () => {
+        if (state === 'throw') throw Error('private-marker');
+        if (state === 'missing') return null;
+        return {
+          code: state === 'binding' ? 'other-hall' : publicCode,
+          name: 'Legacy & name',
+          active: state !== 'disabled'
+        };
+      });
+      const response = await standalone(undefined, legacy).inject(
+        publicUrl + '&channel=line&lang=en'
+      );
+      expect(response.statusCode).toBe(
+        state === 'active' ? 303 : state === 'missing' ? 404 : state === 'disabled' ? 410 : 503
+      );
+      expect(legacy).toHaveBeenCalledExactlyOnceWith(expect.any(String), publicCode);
+      if (state === 'active')
+        expect(response.headers.location).toContain(
+          'https://liff.line.me/mock-liff/venue-checkin?'
+        );
+      else {
+        expect(response.headers.location).toBeUndefined();
+        expect(response.body).not.toContain('private-marker');
+      }
     }
   );
 });

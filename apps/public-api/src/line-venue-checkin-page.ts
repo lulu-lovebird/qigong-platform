@@ -1,4 +1,12 @@
+import { z } from 'zod';
 import { lineLoginScript } from './application-page.js';
+import {
+  venueEntryAvailabilitySchema,
+  venueEntryCodeSchema,
+  venueEntrySessionSchema,
+  type VenueEntryAvailabilityResult,
+  type VenueEntrySession
+} from './venue-entry-guidance.js';
 import type { VenueDebugVenueCode } from './venue-debug.js';
 import {
   htmlLocale,
@@ -279,13 +287,361 @@ const debugTexts = {
   }
 } as const;
 
+/** Opt-in server context. Route selection is not identity or attendance authority.
+ * B2 must supply isPrimaryBootstrap only after validating the exact primary route. */
+export interface VenuePreviewGuidance {
+  readonly result: VenueEntryAvailabilityResult;
+  readonly isPrimaryBootstrap?: boolean;
+}
+const guidanceResultSchema = z.union([
+  z.strictObject({
+    status: z.union([z.literal(200), z.literal(404), z.literal(410)]),
+    body: venueEntryAvailabilitySchema
+  }),
+  z.strictObject({
+    status: z.literal(400),
+    body: z.strictObject({ error: z.literal('invalid_venue_entry_request') })
+  }),
+  z.strictObject({
+    status: z.literal(503),
+    body: z.strictObject({ error: z.literal('venue_entry_unavailable') })
+  })
+]);
+/** Malformed adapters, inconsistent statuses and cross-venue DTOs never fall back. */
+export const validateVenueGuidanceResult = (
+  result: unknown,
+  code: string
+): VenueEntryAvailabilityResult => {
+  const parsed = guidanceResultSchema.safeParse(result);
+  if (parsed.success && parsed.data.status !== 400) {
+    const value = parsed.data;
+    if (value.status === 503) return value;
+    const expected =
+      value.body.availability === 'not_found'
+        ? 404
+        : value.body.availability === 'disabled'
+          ? 410
+          : value.body.availability === 'unavailable'
+            ? 503
+            : 200;
+    if (
+      value.status === expected &&
+      (!value.body.venue || value.body.venue.code === code) &&
+      // Canonical disabled/missing results remain truthful; this sentinel is never formal-open.
+      !(code === 'tw-location-test' && value.body.availability === 'open')
+    )
+      return value;
+  }
+  return { status: 503, body: { error: 'venue_entry_unavailable' } };
+};
+/** Full venue-local dates, including previous-day opening / next-day ending.
+ * Never use the phone timezone or a local clock to decide availability. */
+export const formatVenueEntrySession = (
+  session: VenueEntrySession,
+  timezone: string,
+  locale: Locale
+): { startsAt: string; endsAt: string; opensAt: string } | null => {
+  try {
+    const parsed = venueEntrySessionSchema.parse(session);
+    const formatter = new Intl.DateTimeFormat(htmlLocale(locale), {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23'
+    });
+    return {
+      startsAt: formatter.format(new Date(parsed.startsAt)),
+      endsAt: formatter.format(new Date(parsed.endsAt)),
+      opensAt: formatter.format(new Date(parsed.opensAt))
+    };
+  } catch {
+    return null;
+  }
+};
+const guidanceTexts = {
+  zh_TW: {
+    title: '團練場入口',
+    open: '目前開放簽到',
+    before_open: '尚未開放簽到',
+    ended: '本次團練已結束',
+    not_activity_day: '今天不是此場地的團練日',
+    disabled: '場地已停用',
+    not_found: '場地不存在',
+    unavailable: '場地查詢暫不可用，請稍後再試。',
+    start: '團練開始',
+    end: '團練結束',
+    opens: '開放簽到',
+    next: '下一次團練',
+    unknownNext: '下次時段尚無資料',
+    source: '請優先輕觸現場 NFC 標籤；無法感應時掃描 QR。連結及來源標記不是身份、在場或邀請證明。',
+    login: '登入 LINE',
+    retry: '重新驗證',
+    loading: '正在確認資格，尚未記錄出席。',
+    error: '無法確認資格，請重新驗證；這不表示需要重新申請。',
+    needs_application:
+      '請回 LINE 私聊手動輸入「加入」，填寫私人表單，等待人工核准後再輕觸 NFC 或掃描 QR。',
+    pending: '申請審核中，請等待人工核准後再輕觸或掃描；不要重複申請。',
+    blocked: '目前無法簽到，請聯絡管理員；不要重複申請。',
+    required: '請回 LINE 私聊手動輸入「隱私」，完成既有同意流程後再輕觸或掃描。',
+    chat: '開啟 LINE 私聊',
+    privacy: '只有按下簽到按鈕才取得本次位置並傳送後端驗證；不儲存原始 GPS。',
+    closed: '場地狀態已改變，請重新輕觸 NFC 或掃描 QR 查看最新時段。'
+  },
+  zh_CN: {
+    title: '团练场入口',
+    open: '目前开放签到',
+    before_open: '尚未开放签到',
+    ended: '本次团练已结束',
+    not_activity_day: '今天不是此场地的团练日',
+    disabled: '场地已停用',
+    not_found: '场地不存在',
+    unavailable: '场地查询暂不可用，请稍后再试。',
+    start: '团练开始',
+    end: '团练结束',
+    opens: '开放签到',
+    next: '下一次团练',
+    unknownNext: '下次时段尚无资料',
+    source: '请优先轻触现场 NFC 标签；无法感应时扫描 QR。链接及来源标记不是身份、在场或邀请证明。',
+    login: '登录 LINE',
+    retry: '重新验证',
+    loading: '正在确认资格，尚未记录出席。',
+    error: '无法确认资格，请重新验证；这不表示需要重新申请。',
+    needs_application:
+      '请回 LINE 私聊手动输入「加入」，填写私人表单，等待人工核准后再轻触 NFC 或扫描 QR。',
+    pending: '申请审核中，请等待人工核准后再轻触或扫描；不要重复申请。',
+    blocked: '目前无法签到，请联系管理员；不要重复申请。',
+    required: '请回 LINE 私聊手动输入「隱私」，完成既有同意流程后再轻触或扫描。',
+    chat: '打开 LINE 私聊',
+    privacy: '只有按下签到按钮才获取本次位置并传送后端验证；不存储原始 GPS。',
+    closed: '场地状态已改变，请重新轻触 NFC 或扫描 QR 查看最新时段。'
+  },
+  en: {
+    title: 'Venue entry',
+    open: 'Check-in is open',
+    before_open: 'Check-in has not opened',
+    ended: 'This practice has ended',
+    not_activity_day: 'Not a practice day at this venue',
+    disabled: 'Venue disabled',
+    not_found: 'Venue not found',
+    unavailable: 'Venue lookup unavailable. Please retry later.',
+    start: 'Practice starts',
+    end: 'Practice ends',
+    opens: 'Check-in opens',
+    next: 'Next practice',
+    unknownNext: 'Next session unknown',
+    source:
+      'Tap the on-site NFC tag first; scan the QR code if tapping is unavailable. Links and source labels are not proof of identity, presence or an invitation.',
+    login: 'Log in to LINE',
+    retry: 'Verify again',
+    loading: 'Checking eligibility. Attendance has NOT been recorded.',
+    error:
+      'Eligibility could not be verified. Retry; this does not mean you need a new application.',
+    needs_application:
+      'In private LINE chat, manually send 「加入」, fill in the private form and wait for manual approval. Then tap NFC or scan QR again.',
+    pending:
+      'Application pending. Wait for manual approval, then tap or scan again. Do not reapply.',
+    blocked: 'Check-in is blocked. Contact the administrator. Do not reapply.',
+    required:
+      'In private LINE chat, manually send 「隱私」 and complete the existing privacy flow. Then tap or scan again.',
+    chat: 'Open private LINE chat',
+    privacy:
+      'Only pressing check-in requests this attempt’s location and sends it for server validation. Raw GPS is not stored.',
+    closed: 'Venue availability changed. Tap NFC or scan QR again for the latest schedule.'
+  }
+} as const;
+/** Shared anonymous presentation. Only bounded public fields reach the markup. */
+export const venueGuidancePresentation = (result: unknown, code: string, locale: Locale) => {
+  let validated = validateVenueGuidanceResult(result, code);
+  const t = guidanceTexts[locale];
+  const cards = (session: VenueEntrySession, timezone: string): string | null => {
+    const time = formatVenueEntrySession(session, timezone, locale);
+    return time
+      ? `<dl><dt>${t.start}</dt><dd>${escapeHtml(time.startsAt)}</dd><dt>${t.end}</dt><dd>${escapeHtml(time.endsAt)}</dd><dt>${t.opens}</dt><dd>${escapeHtml(time.opensAt)}</dd></dl>`
+      : null;
+  };
+  let details = '';
+  if (validated.status !== 503 && validated.status !== 400 && validated.body.venue) {
+    const body = validated.body;
+    const zone = body.venue!.timezone;
+    const relevant = body.relevantSession ? cards(body.relevantSession, zone) : '';
+    const next = body.nextSession ? cards(body.nextSession, zone) : '';
+    if (relevant === null || next === null)
+      validated = { status: 503, body: { error: 'venue_entry_unavailable' } };
+    else
+      details = `<p>${escapeHtml(body.venue!.name)} — <code>${escapeHtml(code)}</code></p><p>${escapeHtml(zone)}</p>${relevant}${next ? `<h2>${t.next}</h2>${next}` : body.availability === 'disabled' ? '' : `<p>${t.unknownNext}</p>`}`;
+  }
+  const availability =
+    validated.status === 503 || validated.status === 400
+      ? 'unavailable'
+      : validated.body.availability;
+  return {
+    result: validated,
+    open: availability === 'open',
+    markup: `<h1>${t.title}</h1><p role="status">${t[availability]}</p>${details}`
+  };
+};
+const guidanceDocument = (lang: Locale, body: string, script = '') =>
+  `<!doctype html><html lang="${htmlLocale(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><title>${guidanceTexts[lang].title}</title><style>body{font:1.2rem/1.65 system-ui,sans-serif;max-width:36rem;margin:auto;padding:1rem;color:#172b24;background:#f3f7f3}button,a,select{font:inherit;min-height:48px;margin:.5rem 0}button,a{display:block}button{padding:.75rem}dd{margin-bottom:.5rem}p,dd,a{overflow-wrap:anywhere}[hidden]{display:none!important}:focus-visible{outline:3px solid #ad5100}footer{font-size:.8rem;margin-top:2rem}</style></head><body><main>${body}</main><footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer>${script}</body></html>`;
+const renderGuidedVenuePreview = (
+  liffId: string,
+  entry: VenuePreviewEntry | null,
+  historyEnabled: boolean,
+  guidance: VenuePreviewGuidance
+): string => {
+  const lang = entry && isLocale(entry.lang) ? entry.lang : 'zh_TW';
+  const t = guidanceTexts[lang];
+  if (
+    !entry ||
+    !venueEntryCodeSchema.safeParse(entry.venue).success ||
+    !isLocale(entry.lang) ||
+    (entry.source !== undefined && !['nfc', 'qr', 'link'].includes(entry.source))
+  )
+    return guidanceDocument(lang, `<h1>${t.title}</h1><p>${texts[lang].invalid}</p>`);
+  const view = venueGuidancePresentation(guidance.result, entry.venue, lang);
+  if (
+    view.result.status === 503 ||
+    view.result.status === 400 ||
+    !/^[A-Za-z0-9-]{1,100}$/.test(liffId)
+  )
+    return guidanceDocument(lang, view.markup.replace(t.open, t.unavailable));
+  const sdk = '<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>';
+  if (guidance.isPrimaryBootstrap === true)
+    return guidanceDocument(
+      lang,
+      view.markup,
+      `${sdk}<script>liff.init({liffId:${scriptJson(liffId)},withLoginOnExternalBrowser:false}).catch(()=>{});</script>`
+    );
+  if (!view.open) return guidanceDocument(lang, view.markup);
+  const canonical = venuePreviewUrl(entry);
+  const ui = {
+    ...texts[lang],
+    ...checkinTexts[lang],
+    ...t,
+    gpsUnavailable: texts[lang].unavailable,
+    uncertain: checkinTexts[lang].retry
+  };
+  return guidanceDocument(
+    lang,
+    `<section id="guided-calendar">${view.markup}</section><p>${t.source}</p><p>${t.privacy}</p><p id="guided-status" role="status" aria-live="polite">${t.loading}</p><button id="guided-login" type="button" hidden>${t.login}</button><button id="guided-retry" type="button" hidden>${t.retry}</button><a id="guided-chat" href="https://line.me/R/oaMessage/%40556fjenc" referrerpolicy="no-referrer" hidden>${t.chat}</a><button id="guided-checkin" type="button" disabled aria-busy="false">${ui.button}</button><label id="guided-language-label" for="guided-language">${ui.language}</label><select id="guided-language">${languageOptions(lang)}</select><div id="guided-receipt" hidden>${historyEnabled ? `<a href="/line/venue-history?lang=${lang}">${ui.history}</a>` : ''}<a href="/line/checkin?lang=${lang}">${ui.daily}</a></div>`,
+    `${sdk}<script>
+(()=>{
+const ui=${scriptJson(ui)},code=${scriptJson(entry.venue)},canonical=${scriptJson(canonical)},locale=${scriptJson(lang)};
+const status=document.getElementById('guided-status'),button=document.getElementById('guided-checkin'),login=document.getElementById('guided-login'),retry=document.getElementById('guided-retry'),chat=document.getElementById('guided-chat'),language=document.getElementById('guided-language'),receipt=document.getElementById('guided-receipt'),calendar=document.getElementById('guided-calendar'),languageLabel=document.getElementById('guided-language-label');
+let token='',busy=true,eligible=false,completed=false,alive=true,calendarOpen=true;
+const controls=()=>{button.disabled=!alive||busy||!eligible||completed||!calendarOpen;button.setAttribute('aria-busy',String(busy));language.disabled=!alive||busy||!calendarOpen;login.disabled=!alive||busy||!calendarOpen;retry.disabled=!alive||busy||!calendarOpen;};
+const strict=(value,keys)=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key));
+const text=(value,max)=>typeof value==='string'&&value.length>0&&value.length<=max&&value.trim().length>0&&!/[\\x00-\\x1f\\x7f]/.test(value);
+const stamp=value=>typeof value==='string'&&value.length<=64&&/^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|[+-](?:[01]\\d|2[0-3]):[0-5]\\d)$/.test(value)&&Number.isFinite(Date.parse(value))&&new Date(value.slice(0,10)+'T00:00:00Z').toISOString().slice(0,10)===value.slice(0,10);
+const zone=value=>{try{if(!text(value,100))return false;new Intl.DateTimeFormat('en',{timeZone:value});return true;}catch{return false;}};
+const session=value=>strict(value,['startsAt','endsAt','opensAt'])&&stamp(value.startsAt)&&stamp(value.endsAt)&&stamp(value.opensAt)&&Date.parse(value.endsAt)>Date.parse(value.startsAt)&&Date.parse(value.opensAt)<Date.parse(value.startsAt);
+const availability=value=>{
+ if(!strict(value,['version','availability','venue','observedAt','relevantSession','nextSession'])||value.version!==1||!stamp(value.observedAt)||!['open','before_open','ended','not_activity_day','disabled','not_found','unavailable'].includes(value.availability))throw Error('availability');
+ const venue=value.venue;
+ if(venue!==null&&(!strict(venue,['code','name','timezone'])||venue.code!==code||!text(venue.name,120)||!zone(venue.timezone)))throw Error('binding');
+ if(value.relevantSession!==null&&!session(value.relevantSession)||value.nextSession!==null&&(!session(value.nextSession)||Date.parse(value.nextSession.opensAt)<=Date.parse(value.observedAt)))throw Error('session');
+ if(['open','before_open','ended'].includes(value.availability)&&(!venue||!value.relevantSession)||value.availability==='not_activity_day'&&(!venue||value.relevantSession!==null)||value.availability==='disabled'&&(!venue||value.relevantSession!==null||value.nextSession!==null)||value.availability==='not_found'&&(venue!==null||value.relevantSession!==null||value.nextSession!==null)||value.availability==='unavailable'&&(value.relevantSession!==null||value.nextSession!==null))throw Error('state');
+ return value;
+};
+const credential=()=>{const current=liff.isLoggedIn()?liff.getIDToken():'';if(!text(current,4096))throw Error('credential');return current;};
+const same=attempt=>{if(!alive||credential()!==attempt)throw Error('credential changed');};
+const options={cache:'no-store',credentials:'omit',redirect:'error'};
+const selfStatus=async attempt=>{
+ const response=await fetch('/api/line/venue-entry-status',{...options,method:'POST',headers:{'content-type':'application/json','x-venue-entry':'1'},body:JSON.stringify({idToken:attempt})});
+ if(response.status!==200)throw Error('status');
+ const data=await response.json();same(attempt);
+ if(!strict(data,['version','status','privacy'])||data.version!==1||!['needs_application','pending','approved','blocked'].includes(data.status)||(data.status==='approved'?!['clear','required'].includes(data.privacy):data.privacy!==null))throw Error('status');
+ return data;
+};
+const showStatus=data=>{eligible=data.status==='approved'&&data.privacy==='clear';chat.hidden=!(data.status==='needs_application'||data.status==='approved'&&data.privacy==='required');status.textContent=eligible?ui.ready:data.status==='approved'?ui.required:ui[data.status];retry.hidden=eligible;};
+const failure=message=>{token='';eligible=false;chat.hidden=true;retry.hidden=false;status.textContent=message;};
+const closeCalendar=message=>{calendarOpen=false;token='';eligible=false;calendar.hidden=true;chat.hidden=true;login.hidden=true;retry.hidden=true;button.hidden=true;language.hidden=true;languageLabel.hidden=true;receipt.hidden=true;status.textContent=message;controls();};
+// Server-owned relative path only: never reuse callback, query-host or liff.state navigation.
+const refreshCalendarDocument=()=>{try{location.replace(canonical);}catch{/* Remain read-only if navigation is unavailable. */}};
+const refreshAvailability=async()=>{
+ const response=await fetch('/api/venue-entry/availability?venue='+encodeURIComponent(code),{...options,method:'GET'});
+ if(![200,404,410].includes(response.status))throw Error('availability');
+ const data=availability(await response.json());
+ const expected=data.availability==='not_found'?404:data.availability==='disabled'?410:data.availability==='unavailable'?503:200;
+ if(response.status!==expected)throw Error('availability');
+ if(!alive)throw Error('hidden');
+ if(data.availability!=='open'){closeCalendar(ui[data.availability]);refreshCalendarDocument();return false;}
+ return true;
+};
+const verify=async()=>{
+ if(busy||!alive||!calendarOpen||completed)return;
+ busy=true;eligible=false;chat.hidden=true;controls();
+ try{if(!await refreshAvailability())return;const attempt=credential();token=attempt;showStatus(await selfStatus(attempt));}
+ catch{if(alive)failure(ui.error);}finally{busy=false;controls();}
+};
+globalThis.addEventListener('pagehide',()=>{alive=false;token='';eligible=false;busy=true;chat.hidden=true;receipt.hidden=true;controls();});
+language.onchange=()=>{
+ const next=language.value;if(busy||!alive||!calendarOpen||!['zh_TW','zh_CN','en'].includes(next)||next===locale){language.value=locale;return;}
+ busy=true;token='';eligible=false;controls();document.cookie='__Host-qigong-learner-locale='+next+'; Path=/; Max-Age=31536000; Secure; SameSite=Lax';
+ const target=new URL(canonical,location.href);target.searchParams.set('lang',next);location.replace(target.pathname+target.search);
+};
+login.onclick=async()=>{
+ if(busy||!alive||!calendarOpen)return;busy=true;controls();
+ try{if(!await refreshAvailability())return;liff.login({redirectUri:new URL(canonical,location.origin).href});}
+ catch{if(alive)failure(ui.error);}finally{busy=false;controls();}
+};
+retry.onclick=verify;
+button.onclick=async()=>{
+ if(busy||!alive||!calendarOpen||!eligible||completed)return;
+ busy=true;eligible=false;retry.hidden=true;chat.hidden=true;controls();status.textContent=ui.loading;
+ let attempt='',writeAttempted=false,preWriteError=ui.error;
+ try{
+  if(!await refreshAvailability())return;
+  attempt=credential();token=attempt;const state=await selfStatus(attempt);showStatus(state);same(attempt);
+  if(!eligible)return;
+  status.textContent=ui.locating;preWriteError=ui.gpsUnavailable;
+  const position=await new Promise((resolve,reject)=>{
+   if(!navigator.geolocation){preWriteError=ui.unsupported;reject();return;}
+   try{navigator.geolocation.getCurrentPosition(resolve,error=>{
+    let code;try{if(error!==null&&typeof error==='object')code=error.code;}catch{/* Only known geolocation codes affect copy. */}
+    preWriteError=code===1?ui.denied:code===3?ui.timeout:ui.gpsUnavailable;reject();
+   },{enableHighAccuracy:false,timeout:10000,maximumAge:0});}catch{preWriteError=ui.gpsUnavailable;reject();}
+  });
+  preWriteError=ui.error;same(attempt);status.textContent=ui.sending;
+  const request={...options,method:'POST',headers:{'content-type':'application/json','x-venue-checkin':'1'},body:JSON.stringify({idToken:token,venue:code,latitude:position.coords.latitude,longitude:position.coords.longitude})};
+  // Marks transport invocation, not proof that bytes reached the server.
+  writeAttempted=true;
+  const response=await fetch('/api/line/venue-checkin',request);
+  if(!alive)return;
+  if(response.status!==200){
+   let data=null;try{data=await response.json();}catch{/* Unknown write outcome remains uncertain. */}
+   if(data?.error==='outside_window'){closeCalendar(ui.closed);try{if(await refreshAvailability())refreshCalendarDocument();}catch{refreshCalendarDocument();}return;}
+   failure(response.status>=500?ui.uncertain:response.status===401?ui.error:data?.error==='outside_radius'?ui.outside_radius:ui.rejected);return;
+  }
+  const data=await response.json();same(attempt);
+  if(!data||data.ok!==true||Object.hasOwn(data,'isTest')||Object.hasOwn(data,'verificationMode')||!data.venue||!text(data.venue.name,120)||!zone(data.venue.timezone)||!stamp(data.checkedInAt)||(data.venue.code!==undefined&&data.venue.code!==code))throw Error('receipt');
+  const time=new Intl.DateTimeFormat(${scriptJson(htmlLocale(lang))},{timeZone:data.venue.timezone,dateStyle:'full',timeStyle:'short'}).format(new Date(data.checkedInAt));
+  status.textContent=ui.success+' — '+data.venue.name+' / '+time+' ('+data.venue.timezone+')';completed=true;token='';receipt.hidden=false;button.textContent=ui.completedButton;
+ }catch{if(alive)failure(writeAttempted?ui.uncertain:preWriteError);}finally{attempt='';token='';busy=false;controls();}
+};
+(async()=>{try{
+ await liff.init({liffId:${scriptJson(liffId)},withLoginOnExternalBrowser:false});if(!alive)return;
+ if(!liff.isLoggedIn()){busy=false;login.hidden=false;status.textContent=ui.login;controls();return;}
+ token=credential();showStatus(await selfStatus(token));
+}catch{if(alive)failure(ui.error);}finally{if(alive){busy=false;controls();}}})();
+})();
+</script>`
+  );
+};
+
 export const renderVenuePreview = (
   liffId: string,
   entry: VenuePreviewEntry | null,
   mode: 'preview' | 'checkin' = 'preview',
   historyEnabled = false,
-  debugVenue?: VenueDebugVenueCode
+  debugVenue?: VenueDebugVenueCode,
+  guidance?: VenuePreviewGuidance
 ): string => {
+  if (guidance !== undefined)
+    return renderGuidedVenuePreview(liffId, entry, historyEnabled, guidance);
   const lang = entry?.lang ?? 'zh_TW';
   const live = mode === 'checkin';
   const debugAvailable = live && debugVenue !== undefined && entry?.venue === debugVenue;
