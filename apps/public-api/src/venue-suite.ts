@@ -18,6 +18,10 @@ const windowCapabilityPredicate = `EXISTS(
                   WHEN count(*)=60 AND max(version)='0060_venue_entry_guidance.sql'
                     AND bool_or(version='0058_venue_early_checkin_window.sql')
                     AND bool_or(version='0059_telegram_learner_review.sql') THEN 3
+                  WHEN count(*)=61 AND max(version)='0061_venue_attendance_reporting.sql'
+                    AND bool_or(version='0058_venue_early_checkin_window.sql')
+                    AND bool_or(version='0059_telegram_learner_review.sql')
+                    AND bool_or(version='0060_venue_entry_guidance.sql') THEN 3
                   ELSE 0 END AS expected_grantees FROM public.schema_migrations
               ) window_ledger
               WHERE h.oid=to_regprocedure('platform.venue_checkin_window(jsonb,text,timestamptz)')
