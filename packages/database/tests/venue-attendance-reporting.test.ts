@@ -125,12 +125,31 @@ describeWithDatabase('schema61 venue attendance reporting integration (PostgreSQ
 
     const client = await pool.connect();
     try {
-      // 1. Regions
-      const r = await client.query<{ id: string }>(
-        "INSERT INTO core.regions(code, region_type, name_zh_tw, name_en) VALUES ('tw-rep', 'country', '台灣', 'Taiwan'), ('sg-rep', 'country', '新加坡', 'Singapore') RETURNING id"
+      // 1. Regions (Valid operational -> country -> global hierarchy)
+      const g = await client.query<{ id: string }>(
+        "INSERT INTO core.regions(code, region_type, name_zh_tw, name_en) VALUES ('global-rep', 'global', '全球', 'Global') RETURNING id"
       );
-      twRegion = r.rows[0]!.id;
-      sgRegion = r.rows[1]!.id;
+      const globalId = g.rows[0]!.id;
+
+      const c1 = await client.query<{ id: string }>(
+        "INSERT INTO core.regions(parent_region_id, code, region_type, name_zh_tw, name_en) VALUES ($1, 'tw-country-rep', 'country', '台灣', 'Taiwan') RETURNING id",
+        [globalId]
+      );
+      const c2 = await client.query<{ id: string }>(
+        "INSERT INTO core.regions(parent_region_id, code, region_type, name_zh_tw, name_en) VALUES ($1, 'sg-country-rep', 'country', '新加坡', 'Singapore') RETURNING id",
+        [globalId]
+      );
+
+      const r1 = await client.query<{ id: string }>(
+        "INSERT INTO core.regions(parent_region_id, code, region_type, name_zh_tw, name_en) VALUES ($1, 'tw-rep', 'operational', '台北', 'Taipei') RETURNING id",
+        [c1.rows[0]!.id]
+      );
+      const r2 = await client.query<{ id: string }>(
+        "INSERT INTO core.regions(parent_region_id, code, region_type, name_zh_tw, name_en) VALUES ($1, 'sg-rep', 'operational', '新加坡市區', 'Singapore City') RETURNING id",
+        [c2.rows[0]!.id]
+      );
+      twRegion = r1.rows[0]!.id;
+      sgRegion = r2.rows[0]!.id;
 
       // 2. Fields
       const f1 = await client.query<{ id: string }>(
