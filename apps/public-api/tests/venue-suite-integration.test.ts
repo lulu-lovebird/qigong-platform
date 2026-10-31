@@ -402,6 +402,20 @@ describe('venue suite through buildApp', () => {
         (await app.inject({ url: '/admin/api/venue-suite', headers: { cookie } })).json()
       ).toEqual({ management: true, people: true });
       expect(
+        (await app.inject({ url: '/admin/api/venue-suite/regions', headers: { cookie } })).json()
+      ).toEqual({
+        regions: [
+          {
+            id: personId,
+            displayName: '<Synthetic region>',
+            countryName: 'Synthetic country',
+            code: 'synthetic-region',
+            canRead: true,
+            canManage: false
+          }
+        ]
+      });
+      expect(
         (
           await app.inject({
             method: 'POST',
@@ -937,7 +951,8 @@ describe('venue suite through buildApp', () => {
     for (const url of [
       '/admin/venue-management',
       '/admin/venue-people',
-      '/admin/api/venue-suite'
+      '/admin/api/venue-suite',
+      '/admin/api/venue-suite/regions'
     ]) {
       expect((await app.inject(url)).statusCode).toBe(401);
       expect(

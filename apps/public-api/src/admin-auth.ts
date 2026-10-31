@@ -12,7 +12,10 @@ import { registerVenuePeopleRoutes } from './venue-people-routes.js';
 import { createVenuePeopleService } from './venue-people-service.js';
 import { registerVenueReportingRoutes } from './venue-reporting-routes.js';
 import { createVenueReportingService } from './venue-reporting-service.js';
-import { readVenueAdminCapabilities } from './venue-admin-capabilities.js';
+import {
+  readVenueAdminCapabilities,
+  readVenueManagementRegions
+} from './venue-admin-capabilities.js';
 import { z } from 'zod';
 import { accessCookie, registerAdminAccessRoutes } from './admin-access.js';
 import { renderReviewPage } from './admin-pages.js';
@@ -662,6 +665,26 @@ export const registerAdminRoutes = (
         return reply
           .code(unauthorized ? 401 : 503)
           .send({ error: unauthorized ? 'unauthenticated' : 'venue_capabilities_unavailable' });
+      }
+    });
+    app.get('/admin/api/venue-suite/regions', async (request, reply) => {
+      reply.header('cache-control', 'no-store').header('referrer-policy', 'no-referrer');
+      const session = venueSessionFor(request);
+      if (!session) return reply.code(401).send({ error: 'unauthenticated' });
+      if (!z.object({}).strict().safeParse(request.query).success)
+        return reply.code(400).send({ error: 'invalid_query' });
+      try {
+        return await readVenueManagementRegions(
+          pool,
+          request.id,
+          session,
+          resolveAdminLocale({}, request.headers.cookie)
+        );
+      } catch (error) {
+        const unauthorized = error instanceof Error && error.message === 'unauthenticated';
+        return reply
+          .code(unauthorized ? 401 : 503)
+          .send({ error: unauthorized ? 'unauthenticated' : 'venue_regions_unavailable' });
       }
     });
     app.post(
