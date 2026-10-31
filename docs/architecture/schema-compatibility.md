@@ -1,3 +1,68 @@
+# Schema 60／場地指引版本契約：未部署／接線中
+
+## 最新來源檢查點與歷史文字限定
+
+本節是 NFC-primary、QR-secondary 的來源契約及發布關卡，不是新功能正式部署紀錄。**下方原始全文完整保留；其所有「Current production」「current46」「now deployed」等語句只描述各自歷史檢查點，不代表最新環境、後續發布時狀態或新的回復授權。** 歷史 47／89-table helpers、舊 flags 與舊備份也不能直接重用。
+
+- A `3179e0fe3eadd5edd783e115bd5c2a7bf13b056a` 已提交／推送，對應已核對的 555 項來源樹；API／DB guidance 函式與 capability gate 已實作，**legacy UI 仍在，新 routes 尚未接線**。
+- [Exact-A GitHub CI 41121515700，attempt 1](https://github.com/lulu-lovebird/qigong-platform/actions/runs/41121515700)：SUCCESS，3852 pass／0 fail／89 skip；79 項 native／歷史測試另於本機實測，10 項未實作 placeholders 未驗證。
+- Linux 本機 3931 pass／0 fail，另有 10 項未驗證 placeholders，不是零 skip。104 項新增 DB guidance cases 納入完整測試；151 項 PG metadata tamper＋4 項 healthy source namespace 修正案例通過。
+- 原 journal cap100／150 失敗及 NoExec11 保留；私有暫存環境執行修正與第 27 個來源檔 deterministic journal 測試細化，不是 SQL migration。journal PG12／12 含負零／正一斷言通過但成功無 raw trace；原 clock／Node／auth 根因未解。
+- B1 的分離 UI 工作樹回報 4 來源檔／833 unit、VM 通過，尚待來源審查、無 app wiring；B2 legacy sentinel／single verify／request-mode guard 待實作。此工作樹沒有 B renderer 來源，B 行為僅為待驗收規範。
+- 最後實際正式環境唯讀觀測 **2026-10-30T14:34:31Z**：API `f9cb2215…`／schema59 健康、source／dist max59。這不是發文時現況宣告，切換前必須新鮮重查。
+- 當時 realtime `407f2f9…` 的核心 11 檔同 f9，但 minute59 review routing 有差異；不得假設 API／workers 同版或盲退。尚無新功能正式操作、FINAL backup／restore 或實機 NFC 驗收證據。
+
+## 精確版本與 capability 契約
+
+A minimum 為 `0042_activity_consecutive_drafts.sql`，maximum 為 `0060_venue_entry_guidance.sql`。宣告範圍只是外層條件，**不是數字區間放行**；依 [`app.ts`](../../apps/public-api/src/app.ts) 的 default-off 完整檔名 allowlist：
+
+```text
+0042_activity_consecutive_drafts.sql
+0043_achievement_rule_versions.sql
+0044_achievement_publication_candidates.sql
+0045_versioned_achievement_runtime.sql
+0046_achievement_evaluation_and_readers.sql
+0047_channel_invitations.sql
+0048_practice_fields_and_nfc_attendance.sql
+0049_nfc_attendance_security_quarantine.sql
+0051_venue_qr_attendance.sql
+0054_venue_people_read.sql
+0055_venue_distance_debug.sql
+0056_venue_cks_distance_debug.sql
+0057_venue_test_scope.sql
+0058_venue_early_checkin_window.sql
+0059_telegram_learner_review.sql
+0060_venue_entry_guidance.sql
+```
+
+- 0050、0052、0053、未知未來名稱／同號異名及 partial ledger 均不得當成 ready 或 fallback；migration checksum／完整性與 runtime role preflight 仍必須通過。
+- QR legacy 僅在精確 51、54、55、56、57、58、59 ready 且相應 capability 有效時可用。QR-on60 還必須通過 entry gate；其他 suite／debug 功能仍有各自 gate。
+- [`venue-suite.ts`](../../apps/public-api/src/venue-suite.ts) 的 window gate：58／59 pure helper 恰有兩個 nonowner EXECUTE grantees（`qigong_venue_qr_writer`／`qigong_venue_debug`）；60 恰有三個，新增 `qigong_venue_entry_reader`，**不是 SQL PUBLIC grant**。owner、stable／invoker、固定 search_path、禁止 API／worker 直呼等條件不放寬。
+- 60 entry gate 分離公開 metadata／本人身分 reader owners；角色無 login／membership／bypass、無 DML／額外欄位讀取，函式 owner／ACL／search_path／row_security／private subject GUC scope 必須匹配。
+- 五張既有場地／身分輸入表維持 ENABLE＋FORCE RLS；`core.regions` 原有 RLS OFF 刻意保留，僅四欄 SELECT（id／parent_region_id／region_type／active）與指定 reader policy，不宣稱六表一律 FORCE RLS。
+- migrations 0001–0059 與既有 ledger 不可變；0060 SHA-256 為 `310728037e0aee5333a84800c5a5d2f7766f35524fdb9d3867e6b1ebcbc88621`；不得改歷史來源、重寫 checksums 或新增 journal migration 來掩蓋未解 incident。
+- A 的 gate 不會註冊新路由。B 計畫僅在 QR＋LINE 有效且 verified60 entry capability 通過時啟用新 guide；server-only legacy sentinel 不是 HTTP 身分旗標，精確型別待組裝審查。
+- 預設 OFF、未配置 management 時，純 preview／liveness 零 DB；management-only 保留舊 lookup。程式預設不代表目前正式 flags 值，也不授權啟用舊 NFC writer。
+
+## A59 → 60 → B60 的必要發布與回復關卡
+
+1. 先保存不可變、經測試的 A `3179e0f…` 與 exact-SHA CI 證據；A／B 各自預建 frozen artifact、source／dependencies manifest，完成 CI／native 與 59／60 相容測試。此處沒有最終 B SHA／產物／部署日期。
+2. 重新核對實際正式 schema59、所有 checksums、0060 預期來源、新 roles 尚不存在，以及 API／各 worker 的實際 artifacts／routing；f9 max59、較舊 `190…` max58 均不能在 60 後回退。
+3. maintenance fence 下 drain／STOP 所有 writers：API、realtime、minute worker／timer 及盤點出的其他 writer；禁止自動重啟／暗中寫入。
+4. 停寫後取得新鮮 FINAL DB＋GLOBAL roles＋runtime／units／env／config，以 authenticated AES-GCM 加密 offhost，金鑰分開受保護。驗證解密／hash 並在私有 PG16 **實際還原此次 FINAL backup**，不是列表／舊 clone。
+5. 核對完整當前 table／security／ledger／business hashes；一次 apply60、repeat0，保留 rows／consents／events／leases／時間與 flags。先 A59／A60 validation，再經審查 B60；全部 health／invariants 通過才恢復流量。
+6. 若曾恢復寫入，下次 cutover 必須新 FINAL backup＋actual restore；只有可證明無中間 business writes 的單一連續停寫窗，A59→60→A60→B60 才可共用同一份 FINAL backup。
+7. 60 後 B 故障只允許 code-only rollback 到已測試 A，保留 schema60、目前 credentials／config、所有新 writes／jobs／audit；不退 f9／190、不 downmigration、不盲覆舊 env／DB snapshot。真實 RPO0 另需 PITR／WAL／已驗證後續寫入策略，本頁未完成此保證。
+8. 保留全部實際 flags／六項 WA provider 值的受保護比對證據，不公開值或 hashes；不從 default false 推定實際 false。缺 WA invitation phone 不可停用既有 WA；原49 background legacy、mandatory privacy、audit 不變，部署不授權 achievement operator／TG learner review／舊 NFC writer activation。
+
+完整繁中操作、公開 NDEF／QR、唯讀 calendar、純 LINE verify／資格／必要隱私與 fresh GPS-before-write 契約，見 [場地入口指引](../operations/venue-entry-guidance.md)。公開 URL／source 不是身分、出席或邀請；既有私人邀請與人工「加入」／「隱私」流程保持原狀。
+
+**已完成**：A 來源／完整 QA／CI（上述限制仍在）。**待完成**：B1 review、B2 wiring、最終 B QA／CI／artifact integrity、新鮮 FINAL encrypted backup＋actual restore、正式部署／回復證據及人員實機 LIFF／provider／NFC／QR 驗收；不得用 VM 測試或正式學員／簽到／provider 測試發送代替驗收。驗證失敗保存第一原因並停止，歷史來源修復預算不是操作豁免。
+
+實際執行者在上述關卡後才補正式紀錄；法律／資料安全角色由營運方填列，不把開發者自動當服務營運者。保留公司署名，不改授權或 `UNLICENSED` metadata；不宣稱 WordPress／OIDC／保留政策／AI privilege 已完成。
+
+---
+
 # Schema Compatibility Release Contract
 
 ## Venue local integration candidate (not deployed)
