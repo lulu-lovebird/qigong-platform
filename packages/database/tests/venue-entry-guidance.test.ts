@@ -252,6 +252,7 @@ describeWithDatabase(
     let pool: Pool;
     let dispose: (() => Promise<void>) | undefined;
     let previousDirectory: string | undefined;
+    let targetDirectory: string | undefined;
     let region: string;
     let principal: string;
     const subjects = new Map<string, string>();
@@ -384,9 +385,17 @@ describeWithDatabase(
       pool = database.pool;
       dispose = () => database.dispose();
       previousDirectory = await mkdtemp(path.join(tmpdir(), 'qigong-venue-guidance-db-'));
-      for (const name of await readdir(migrations))
-        if (/^\d{4}_.+\.sql$/.test(name) && name < '0060_')
-          await copyFile(path.join(migrations, name), path.join(previousDirectory, name));
+      targetDirectory = await mkdtemp(path.join(tmpdir(), 'qigong-venue-guidance-target-'));
+      for (const name of await readdir(migrations)) {
+        if (/^\d{4}_.+\.sql$/.test(name)) {
+          if (name < '0060_') {
+            await copyFile(path.join(migrations, name), path.join(previousDirectory, name));
+          }
+          if (name <= migrationName) {
+            await copyFile(path.join(migrations, name), path.join(targetDirectory, name));
+          }
+        }
+      }
       await runMigrations(pool, previousDirectory, 'venue-entry-before');
       region = (
         await pool.query<{ id: string }>(
@@ -479,7 +488,7 @@ describeWithDatabase(
       await pool.query(
         'ALTER DEFAULT PRIVILEGES IN SCHEMA platform GRANT EXECUTE ON FUNCTIONS TO qigong_worker_runtime'
       );
-      applied = (await runMigrations(pool, migrations, 'venue-entry-after')).applied;
+      applied = (await runMigrations(pool, targetDirectory, 'venue-entry-after')).applied;
       await pool.query(
         'ALTER DEFAULT PRIVILEGES IN SCHEMA platform REVOKE EXECUTE ON FUNCTIONS FROM qigong_worker_runtime'
       );
@@ -490,6 +499,7 @@ describeWithDatabase(
     afterAll(async () => {
       if (dispose) await dispose();
       if (previousDirectory) await rm(previousDirectory, { recursive: true, force: true });
+      if (targetDirectory) await rm(targetDirectory, { recursive: true, force: true });
     });
 
     it('upgrades 59 -> 60 idempotently without changing business rows, old functions or raw ACLs', async () => {
@@ -497,7 +507,9 @@ describeWithDatabase(
       expect(upgradeAfter).toEqual(upgradeBefore);
       expect(oldAclAfter).toEqual(oldAclBefore);
       expect(rawAclAfter).toEqual(rawAclBefore);
-      expect((await runMigrations(pool, migrations, 'venue-entry-repeat')).applied).toEqual([]);
+      expect((await runMigrations(pool, targetDirectory, 'venue-entry-repeat')).applied).toEqual(
+        []
+      );
     });
     it.each([
       ['2026-10-26T08:29:59.999+08:00', 'before_open'],
