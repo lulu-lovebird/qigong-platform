@@ -55,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0061_venue_attendance_reporting.sql'
+      '0062_venue_attendance_badges.sql'
     );
 
     expect(first.applied).toEqual([
@@ -119,13 +119,14 @@ describeWithDatabase('repository migrations', () => {
       '0058_venue_early_checkin_window.sql',
       '0059_telegram_learner_review.sql',
       '0060_venue_entry_guidance.sql',
-      '0061_venue_attendance_reporting.sql'
+      '0061_venue_attendance_reporting.sql',
+      '0062_venue_attendance_badges.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0061_venue_attendance_reporting.sql',
+      currentVersion: '0062_venue_attendance_badges.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0061_venue_attendance_reporting.sql',
+      maximumVersion: '0062_venue_attendance_badges.sql',
       ready: true
     });
   });

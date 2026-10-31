@@ -22,6 +22,11 @@ const windowCapabilityPredicate = `EXISTS(
                     AND bool_or(version='0058_venue_early_checkin_window.sql')
                     AND bool_or(version='0059_telegram_learner_review.sql')
                     AND bool_or(version='0060_venue_entry_guidance.sql') THEN 3
+                  WHEN count(*)=62 AND max(version)='0062_venue_attendance_badges.sql'
+                    AND bool_or(version='0058_venue_early_checkin_window.sql')
+                    AND bool_or(version='0059_telegram_learner_review.sql')
+                    AND bool_or(version='0060_venue_entry_guidance.sql')
+                    AND bool_or(version='0061_venue_attendance_reporting.sql') THEN 3
                   ELSE 0 END AS expected_grantees FROM public.schema_migrations
               ) window_ledger
               WHERE h.oid=to_regprocedure('platform.venue_checkin_window(jsonb,text,timestamptz)')
@@ -195,7 +200,8 @@ export const checkVenueEntryGuidanceReadiness = async (pool: Pool) => {
           SELECT * FROM pg_roles WHERE rolname=ANY($2::text[])
         ) SELECT
           (SELECT ((count(*)=60 AND max(version)=$6)
-                OR (count(*)=61 AND max(version)='0061_venue_attendance_reporting.sql'))
+                OR (count(*)=61 AND max(version)='0061_venue_attendance_reporting.sql')
+                OR (count(*)=62 AND max(version)='0062_venue_attendance_badges.sql'))
             AND bool_or(version=$7) AND bool_or(version=$8) FROM public.schema_migrations)
           AND ${windowCapabilityPredicate}
           AND (SELECT count(*)=cardinality($2::text[]) AND bool_and(

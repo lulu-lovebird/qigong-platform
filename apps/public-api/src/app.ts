@@ -78,7 +78,8 @@ export const apiLogRedaction = Object.freeze({
 
 export const minimumMigrationVersion = '0042_activity_consecutive_drafts.sql';
 // Exact QR schema compatibility does not enable QR or the old NFC routes.
-export const maximumMigrationVersion = venueReportingMigrationVersion;
+export const venueAttendanceBadgesMigrationVersion = '0062_venue_attendance_badges.sql';
+export const maximumMigrationVersion = venueAttendanceBadgesMigrationVersion;
 const telegramLearnerReviewMigrationVersion = '0059_telegram_learner_review.sql';
 const defaultOffMigrationVersions = new Set([
   minimumMigrationVersion,
@@ -274,13 +275,15 @@ export const createVenueEntryModeResolver =
         status.currentVersion !== venueDebugMigrationVersion &&
         status.currentVersion !== telegramLearnerReviewMigrationVersion &&
         status.currentVersion !== venueEntryGuidanceMigrationVersion &&
-        status.currentVersion !== venueReportingMigrationVersion
+        status.currentVersion !== venueReportingMigrationVersion &&
+        status.currentVersion !== maximumMigrationVersion
       )
         return 'unavailable';
       if ((await checkVenueWindowReadiness(pool)).ready !== true) return 'unavailable';
       if (
         status.currentVersion !== venueEntryGuidanceMigrationVersion &&
-        status.currentVersion !== venueReportingMigrationVersion
+        status.currentVersion !== venueReportingMigrationVersion &&
+        status.currentVersion !== maximumMigrationVersion
       )
         return 'legacy';
       return (await checkVenueEntryGuidanceReadiness(pool)).ready === true
@@ -350,6 +353,7 @@ export const checkStartupReadiness = async (
     (status.currentVersion === venueDebugMigrationVersion ||
       status.currentVersion === telegramLearnerReviewMigrationVersion ||
       status.currentVersion === venueEntryGuidanceMigrationVersion ||
+      status.currentVersion === venueReportingMigrationVersion ||
       status.currentVersion === maximumMigrationVersion)
   ) {
     const capability = await checkVenueWindowReadiness(pool);
@@ -361,6 +365,7 @@ export const checkStartupReadiness = async (
   if (
     venueQrEnabled &&
     (status.currentVersion === venueEntryGuidanceMigrationVersion ||
+      status.currentVersion === venueReportingMigrationVersion ||
       status.currentVersion === maximumMigrationVersion)
   ) {
     const capability = await checkVenueEntryGuidanceReadiness(pool);

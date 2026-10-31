@@ -60,7 +60,8 @@ const createPoolMock = (
         if (feature === evidence.throws) throw new Error('Private catalog diagnostics');
         const modern =
           version === '0060_venue_entry_guidance.sql' ||
-          version === '0061_venue_attendance_reporting.sql';
+          version === '0061_venue_attendance_reporting.sql' ||
+          version === '0062_venue_attendance_badges.sql';
         const historical =
           version === '0058_venue_early_checkin_window.sql' ||
           version === '0059_telegram_learner_review.sql';
@@ -867,15 +868,16 @@ describe('health endpoints', () => {
     }
   );
 
-  it('keeps the reviewed schema61 maximum explicit without enabling Telegram review', () => {
-    expect(maximumMigrationVersion).toBe('0061_venue_attendance_reporting.sql');
+  it('keeps the reviewed schema62 maximum explicit without enabling Telegram review', () => {
+    expect(maximumMigrationVersion).toBe('0062_venue_attendance_badges.sql');
   });
 
   it.each([
     '0058_venue_early_checkin_window.sql',
     '0059_telegram_learner_review.sql',
     '0060_venue_entry_guidance.sql',
-    '0061_venue_attendance_reporting.sql'
+    '0061_venue_attendance_reporting.sql',
+    '0062_venue_attendance_badges.sql'
   ])(
     'default-off build, liveness and ordinary public preview use zero DB on %s',
     async (version) => {
@@ -912,7 +914,9 @@ describe('health endpoints', () => {
         .filter((sql) => sql.includes(' AS ready'));
       expect(probes.filter((sql) => sql.startsWith('SELECT EXISTS('))).toHaveLength(1);
       expect(probes.filter((sql) => sql.includes('WITH entry_functions AS'))).toHaveLength(
-        version.startsWith('0060_') || version.startsWith('0061_') ? 1 : 0
+        version.startsWith('0060_') || version.startsWith('0061_') || version.startsWith('0062_')
+          ? 1
+          : 0
       );
       expectNoNfcAccess(mock);
     }
