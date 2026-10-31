@@ -74,7 +74,7 @@
 
 - 新指引僅在 QR＋LINE 配置有效且 schema 60 entry capability 通過時啟用；不是部署後無條件取代 legacy。
 - B2 必須保留 server-only legacy sentinel、單次純 verify 及 request-mode guard；精確型別仍待實作審查，不能將 sentinel 當成客戶端 HTTP 身分旗標。
-- GUID primary 由 SDK init 接管：init 回 false 即停止後續工作，讓 SDK 負責導向，不自行重複 login／導航。
+- Guided primary 僅呼叫 `liff.init({ liffId, withLoginOnExternalBrowser: false })`，不再執行登入、讀取 Token 或定位；官方導向由 SDK 負責。`false` 是初始化選項，不是 init 的回傳值。
 - closed secondary 不載入／啟動 SDK，不登入、不改偏好、不查私人資格、不定位。
 - open UI 在定位之前先查資格及必要隱私；pending 不再申請，blocked 導向管理員，required 指示回私訊「隱私」。
 - **每一次 GPS 按鈕嘗試**，都要重新讀取 DB calendar 確認 open、重新取得 approved＋clear；資格查詢與定位／寫入流程使用同一份 credential。
