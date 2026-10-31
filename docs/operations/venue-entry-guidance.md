@@ -38,7 +38,7 @@
 
 - 唯一權威是 DB 的場地啟用狀態、IANA timezone、活動日及實際 class start／end；以課程開始前 30 分鐘（含）開放，課程結束（不含）關閉。
 - 保留 `0058` 既有 DST／24 小時制時間運算，不以瀏覽器時鐘、硬編碼 7–9 點或額外「午夜」UX 規則覆蓋。
-- 顯示完整當地日期、時區、開始／結束／開放時間；`relevantSession`／`nextSession` 為 null 表示未知，不推算或捏造下一堂。
+- 顯示完整當地日期、時區、開始／結束／開放時間；`relevantSession` 為 null 表示此次沒有對應場次，`nextSession` 為 null 表示有限查找範圍內未取得可用下一場次，不捏造時段。
 - `not_activity_day`、`before_open`、`ended`、`disabled`、`not_found`、`unavailable` 均是**場地入口唯讀**：無可點擊登入、申請、定位、語言切換、每日練習或歷史控制。
 - 關閉入口不影響原 LINE「加入」、線上練習及既有個人／歷史入口；這些獨立流程仍可照常使用。
 
