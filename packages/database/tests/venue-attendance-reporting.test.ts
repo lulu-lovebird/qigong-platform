@@ -227,10 +227,10 @@ describeWithDatabase('schema61 venue attendance reporting integration (PostgreSQ
       );
 
       await client.query(
-        `INSERT INTO identity.onboarding_applications(platform, external_subject_id, person_id, learner_name, website_email, phone_e164, status, decided_at)
-         VALUES ('line', 'U_LINE_1', $1, '陳小明', 'ming_a@example.com', '+886912345678', 'approved', clock_timestamp()),
-                ('whatsapp', '+886911222333', $2, '陳小明', 'ming_b@example.com', '+886987654321', 'approved', clock_timestamp())`,
-        [person1, person2]
+        `INSERT INTO identity.onboarding_applications(platform, external_subject_id, person_id, requested_region_id, decided_by_principal_id, decided_at, display_name, learner_name, website_email, phone_e164, status)
+         VALUES ('line', 'U_LINE_1', $1, $3, $4, clock_timestamp(), '小明A', '陳小明', 'ming_a@example.com', '+886912345678', 'approved'),
+                ('whatsapp', '+886911222333', $2, $3, $4, clock_timestamp(), '小明B', '陳小明', 'ming_b@example.com', '+886987654321', 'approved')`,
+        [person1, person2, twRegion, principalId]
       );
 
       // 5. Attendance records
