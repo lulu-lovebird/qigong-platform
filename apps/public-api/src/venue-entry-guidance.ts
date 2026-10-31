@@ -151,11 +151,43 @@ export type VenueEntryAvailabilityResult =
   | { readonly status: 200 | 404 | 410; readonly body: VenueEntryAvailabilityDto }
   | { readonly status: 400; readonly body: ReturnType<typeof invalidRequest> }
   | { readonly status: 503; readonly body: ReturnType<typeof unavailable> };
+/** Server-owned composition only; never accept a mode from browser input. */
+export type VenueEntryMode = 'legacy' | 'guided' | 'unavailable';
+export type VenueEntryModeResolver = (requestId: string) => Promise<VenueEntryMode>;
+export interface VenueEntryGuidanceOptions {
+  readonly resolveMode?: VenueEntryModeResolver;
+}
+/** Trusted HTML dispatch only; the legacy sentinel is never an HTTP JSON body. */
+export type VenueGuidanceLookupResult = VenueEntryAvailabilityResult | { readonly mode: 'legacy' };
 export type VenueEntrySelfStatusResult =
   | { readonly status: 200; readonly body: VenueEntrySelfStatusDto }
   | { readonly status: 400; readonly body: ReturnType<typeof invalidRequest> }
   | { readonly status: 401; readonly body: { readonly error: 'invalid_line_identity' } }
-  | { readonly status: 503; readonly body: ReturnType<typeof unavailable> };
+  | { readonly status: 404 | 503; readonly body: ReturnType<typeof unavailable> };
+
+/** No resolver preserves standalone behavior. Unexpected runtime values fail closed. */
+const modeRejection = async (
+  requestId: string,
+  options: VenueEntryGuidanceOptions | undefined
+): Promise<{
+  readonly status: 404 | 503;
+  readonly body: ReturnType<typeof unavailable>;
+} | null> => {
+  if (!options?.resolveMode) return null;
+  try {
+    switch (await options.resolveMode(requestId)) {
+      case 'guided':
+        return null;
+      case 'legacy':
+        return { status: 404, body: unavailable() };
+      case 'unavailable':
+      default:
+        return { status: 503, body: unavailable() };
+    }
+  } catch {
+    return { status: 503, body: unavailable() };
+  }
+};
 
 /** Lazy construction: no connection, schema probe or default-off readiness claim.
  * 503 is deliberately a fixed error, not a DTO with an invented observedAt. */
@@ -196,7 +228,11 @@ export type VenueEntryLineConfig = Pick<LineConfig, 'loginChannelId' | 'verifyId
 /** Pure token verification only: never reuse onboarding's nickname-refresh wrapper
  * or the approved-only write resolver (which cannot distinguish pending/unknown).
  * clear means no current necessary gate, not proof of historic consent. */
-export const createVenueEntrySelfStatus = (pool: Pool, line: VenueEntryLineConfig) => {
+export const createVenueEntrySelfStatus = (
+  pool: Pool,
+  line: VenueEntryLineConfig,
+  options?: VenueEntryGuidanceOptions
+) => {
   const channelId = z.string().trim().min(1).max(100).parse(line.loginChannelId);
   // Deliberately ignore legacy verifyIdToken, even if a full LineConfig is supplied.
   const verify = line.verifyIdentity ?? ((token: string) => verifyLineIdentity(token, channelId));
@@ -211,6 +247,8 @@ export const createVenueEntrySelfStatus = (pool: Pool, line: VenueEntryLineConfi
       // Provider/network rejection is an authentication retry, never needs_application.
       return { status: 401, body: { error: 'invalid_line_identity' } };
     }
+    const rejection = await modeRejection(requestId, options);
+    if (rejection) return rejection;
     try {
       const body = await withRequestContext(
         pool,
@@ -280,11 +318,12 @@ export const registerVenueEntryGuidanceRoutes = (
   app: FastifyInstance,
   pool: Pool,
   line: VenueEntryLineConfig,
-  publicOrigin: string
+  publicOrigin: string,
+  options?: VenueEntryGuidanceOptions
 ): void => {
   const origin = trustedVenueOrigin(publicOrigin);
   const lookup = createVenueEntryAvailability(pool);
-  const selfStatus = createVenueEntrySelfStatus(pool, line);
+  const selfStatus = createVenueEntrySelfStatus(pool, line, options);
   app.get(
     '/api/venue-entry/availability',
     {
@@ -298,6 +337,8 @@ export const registerVenueEntryGuidanceRoutes = (
     async (request, reply) => {
       const code = availabilityCode(request.url);
       if (code === null) return reply.code(400).send(invalidRequest());
+      const rejection = await modeRejection(request.id, options);
+      if (rejection) return reply.code(rejection.status).send(rejection.body);
       const result = await lookup(request.id, code);
       return reply.code(result.status).send(result.body);
     }
