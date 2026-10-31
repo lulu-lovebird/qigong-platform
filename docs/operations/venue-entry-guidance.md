@@ -8,8 +8,8 @@
 - A 的 [GitHub CI 41121515700，attempt 1](https://github.com/lulu-lovebird/qigong-platform/actions/runs/41121515700) 成功：3852 pass、0 fail、89 skip。其中 79 項 native／歷史測試未配置於 CI，另在本機實際測試；10 項原有未實作 placeholders 仍未驗證，不是零 skip。
 - Linux 本機紀錄為 3931 pass、0 fail，另有上述 10 項未驗證 placeholders。新增 104 項 DB guidance cases 已納入完整測試；PG 的 151 項 metadata tamper 與 4 項 healthy source namespace 修正案例通過。
 - 原始完整 QA 的 journal cap 100／150 失敗及 NoExec 11 均保留。僅私有暫存環境修正執行問題及第 27 個來源檔的 deterministic journal 測試細化；沒有 SQL journal migration。journal PG 12／12 通過，含負例零／正例一斷言，但成功時沒有 raw trace；原始 clock／Node／auth incident 根因仍未解。
-- B1：4 個 UI 來源檔、833 項 unit／VM 測試通過的分離工作樹回報；來源待審、尚無 app wiring。本工作樹沒有 B renderer 分支，以下 B 行為為規範，不是整合驗證。
-- B2：legacy sentinel、single verify、request-mode guard 的組裝尚待實作與審查；不得虛構 B SHA、CI、部署時間或產物。
+- B1：4 個 UI 來源檔已完成唯讀來源審查，881 項選定 unit／VM 測試通過，已本地整合；不等於實際 LINE／手機驗收。
+- B2：legacy sentinel、single verify、request-mode guard 與 HTML／LINE adapters 已本地整合並通過來源審查。最後 app 回呼注入後，選定整合回歸 1044 pass、14 項 DB 依賴案例未執行；最後注入來源審查、完整 B native QA／CI 仍待完成，不得虛構最終 B SHA、部署時間或產物。
 - 最後實際正式環境唯讀觀測：**2026-10-30T14:34:31Z**，API `f9cb2215…`／schema 59 健康，來源與 dist 的 max 為 59。這只是該時點觀測，不代表發文時狀態；每次切換前必須重查。
 - 當時 realtime 使用 `407f2f9…`，核心 11 檔與 f9 相同，但 minute 59 review routing 有差異；各 worker 需獨立核驗，不能假設同版或盲退。
 
@@ -70,7 +70,7 @@
 - 新學員只依 verified LINE UID 走既有「加入」私人表單與人工審核；既有有效**私人邀請**自動核准行為不變，場地本身不是邀請。
 - 不新增私人表單 token 發放、自動返回、email／姓名帳號合併或新同意寫入。
 
-## B 的瀏覽器與組裝驗收契約（待實作／待審）
+## B 的瀏覽器與組裝驗收契約（已本地組裝，完整驗證待完成）
 
 - 新指引僅在 QR＋LINE 配置有效且 schema 60 entry capability 通過時啟用；不是部署後無條件取代 legacy。
 - B2 必須保留 server-only legacy sentinel、單次純 verify 及 request-mode guard；精確型別仍待實作審查，不能將 sentinel 當成客戶端 HTTP 身分旗標。
@@ -142,7 +142,8 @@
 ## 驗收清單（不得混寫為全部完成）
 
 - [x] A 來源提交／推送、完整 QA 與 exact-SHA CI，限制與原始失敗如上保留。
-- [ ] B1 來源審查；B2 實際 wiring／mode guard／single verify 審查。
+- [x] B1 來源審查；B2 mode guard／single verify／HTML adapters 來源審查。
+- [ ] 最後 app 回呼注入來源審查及完整整合驗證。
 - [ ] 最終 B SHA、完整 B QA／native／CI，並核對 A／B frozen artifacts 與 source integrity。
 - [ ] 新鮮正式唯讀 preflight、全 writer 停寫、加密 FINAL backup 與 PG16 actual restore。
 - [ ] A59／A60／B60、完整資料／security／worker invariants、部署與回復證據。

@@ -27,8 +27,10 @@ import {
   type TelegramOnboardingConfig
 } from './telegram-onboarding.js';
 import { registerLineOnboarding, type LineConfig } from './line-onboarding.js';
-import { registerVenueEntry } from './venue-entry.js';
+import { registerVenueEntry, type VenueGuidanceLookup } from './venue-entry.js';
 import {
+  createVenueEntryAvailability,
+  venueEntryCodeSchema,
   registerVenueEntryGuidanceRoutes,
   type VenueEntryModeResolver
 } from './venue-entry-guidance.js';
@@ -343,8 +345,8 @@ export const checkStartupReadiness = async (
     if (!capability.ready)
       return { ready: false as const, reason: 'venue_feature_not_ready', capability };
   }
-  // Keep startup capability semantics independent of lazy API dispatch.
-  // Guidance renderers remain unwired; QR-off remains zero entry probes.
+  // Keep startup capability semantics independent of lazy request dispatch.
+  // QR-off remains zero entry probes.
   if (venueQrEnabled && status.currentVersion === venueEntryGuidanceMigrationVersion) {
     const capability = await checkVenueEntryGuidanceReadiness(pool);
     if (!capability.ready)
@@ -386,6 +388,22 @@ export const buildApp = ({
   if (suite.history && !line) throw new Error('venue history requires LINE configuration');
   if ((suite.management || suite.people) && !adminAuth)
     throw new Error('venue administration requires admin authentication');
+  const guidance = qr
+    ? {
+        resolveMode: createVenueEntryModeResolver(pool),
+        availability: createVenueEntryAvailability(pool)
+      }
+    : undefined;
+  const guidanceLookup: VenueGuidanceLookup | undefined = guidance
+    ? async (requestId, code) => {
+        const input = venueEntryCodeSchema.safeParse(code);
+        if (!input.success) return { status: 400, body: { error: 'invalid_venue_entry_request' } };
+        const mode = await guidance.resolveMode(requestId);
+        if (mode === 'legacy') return { mode: 'legacy' };
+        if (mode !== 'guided') return { status: 503, body: { error: 'venue_entry_unavailable' } };
+        return guidance.availability(requestId, input.data);
+      }
+    : undefined;
   const enabledInviteTransports: InviteTransports = {
     ...(telegramOnboarding && inviteTransports.telegram
       ? { telegram: inviteTransports.telegram }
@@ -547,7 +565,8 @@ export const buildApp = ({
   registerVenueEntry(
     app,
     line?.liffId,
-    suite.management ? (requestId, code) => lookupManagedVenue(pool, requestId, code) : undefined
+    suite.management ? (requestId, code) => lookupManagedVenue(pool, requestId, code) : undefined,
+    guidanceLookup
   );
   registerLearnerHelpPages(app);
   registerLearnerPrivacyRoutes(app, pool);
@@ -578,7 +597,8 @@ export const buildApp = ({
       line,
       qr?.enabled === true,
       suite.history?.enabled === true,
-      qr?.debug ? { venueCode: qr.debug.venueCode, expiresAt: qr.debug.expiresAt } : undefined
+      qr?.debug ? { venueCode: qr.debug.venueCode, expiresAt: qr.debug.expiresAt } : undefined,
+      guidanceLookup
     );
     if (suite.history)
       registerVenueHistoryRoutes(app, pool, {
@@ -588,8 +608,10 @@ export const buildApp = ({
       });
     if (qr) {
       registerVenueQrCheckinRoutes(app, pool, line, qr);
-      const resolveMode = createVenueEntryModeResolver(pool);
-      registerVenueEntryGuidanceRoutes(app, pool, line, qr.publicOrigin, { resolveMode });
+      if (guidance)
+        registerVenueEntryGuidanceRoutes(app, pool, line, qr.publicOrigin, {
+          resolveMode: guidance.resolveMode
+        });
     }
   }
   if (whatsapp) registerWhatsAppOnboarding(app, pool, whatsapp, enabledInviteTransports.whatsapp);

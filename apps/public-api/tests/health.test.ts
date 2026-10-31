@@ -359,7 +359,7 @@ describe('server-owned venue entry mode resolver (mock metadata, not PostgreSQL)
 describe('guidance API through buildApp (mock SQL and pure LINE identity)', () => {
   const qr = { enabled: true, publicOrigin: guidanceOrigin } as const;
 
-  it('QR+LINE construction, ready, preview and liveness perform no mode SQL or verification', async () => {
+  it('QR+LINE construction, readiness setup and liveness perform no mode SQL or verification', async () => {
     const mock = createPoolMock();
     const line = guidanceLine();
     const app = buildApp({ pool: mock.pool, logger: false, line, venueQr: qr });
@@ -368,13 +368,127 @@ describe('guidance API through buildApp (mock SQL and pure LINE identity)', () =
       expect(app.hasRoute({ method: 'GET', url: guidanceGet })).toBe(true);
       expect(app.hasRoute({ method: 'POST', url: guidancePost })).toBe(true);
       expect((await app.inject('/health/live')).statusCode).toBe(200);
-      expect(
-        (await app.inject('/venue-checkin?venue=' + guidanceCode + '&source=nfc')).statusCode
-      ).toBe(200);
       expect(mock.connect).not.toHaveBeenCalled();
       expect(mock.directQuery).not.toHaveBeenCalled();
       expect(line.verifyIdentity).not.toHaveBeenCalled();
       expect(line.verifyIdToken).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it.each(['open', 'before_open', 'ended', 'not_activity_day', 'disabled', 'not_found'] as const)(
+    'composed public/direct/primary pages use the authoritative %s calendar without identity work',
+    async (availability) => {
+      const data: VenueEntryAvailabilityDto = {
+        version: 1,
+        availability,
+        venue:
+          availability === 'not_found'
+            ? null
+            : {
+                code: guidanceCode,
+                name: 'Synthetic venue',
+                timezone: 'Asia/Taipei'
+              },
+        observedAt:
+          availability === 'before_open'
+            ? '2032-01-05T00:00:00Z'
+            : availability === 'ended'
+              ? '2032-01-05T03:00:00Z'
+              : '2032-01-05T00:45:00Z',
+        relevantSession: ['open', 'before_open', 'ended'].includes(availability)
+          ? {
+              startsAt: '2032-01-05T01:00:00Z',
+              endsAt: '2032-01-05T03:00:00Z',
+              opensAt: '2032-01-05T00:30:00Z'
+            }
+          : null,
+        nextSession: null
+      };
+      const mock = createPoolMock(maximumMigrationVersion, true, { availability: data });
+      const line = guidanceLine();
+      const app = buildApp({ pool: mock.pool, logger: false, line, venueQr: qr });
+      const suffix = '/venue-checkin?venue=' + guidanceCode + '&source=nfc';
+      const expected = availability === 'not_found' ? 404 : availability === 'disabled' ? 410 : 200;
+      try {
+        const portal = await app.inject(suffix);
+        expect(portal.statusCode).toBe(expected);
+        expect(portal.headers.location).toBeUndefined();
+        const direct = await app.inject('/line' + suffix);
+        expect(direct.statusCode).toBe(expected);
+        expect(direct.headers['permissions-policy']).toBe(
+          `geolocation=${availability === 'open' ? '(self)' : '()'}, camera=(), microphone=()`
+        );
+        if (availability !== 'open') {
+          expect(portal.body).not.toMatch(/<a\b|<button\b|<select\b|<input\b|<script\b/);
+          expect(direct.body).not.toMatch(/<a\b|<button\b|<select\b|<input\b|<script\b/);
+        }
+        const primary = await app.inject('/line/?liff.state=' + encodeURIComponent(suffix));
+        expect(primary.statusCode).toBe(expected);
+        expect(primary.headers.location).toBeUndefined();
+        expect(primary.headers['permissions-policy']).toBe(
+          'geolocation=(), camera=(), microphone=()'
+        );
+        expect(primary.body).toContain('withLoginOnExternalBrowser:false');
+        expect(primary.body).not.toMatch(/getIDToken|liff\.login|fetch\(|navigator\./);
+        expect(businessCalls(mock)).toEqual(
+          Array.from({ length: 3 }, () => [
+            'SELECT platform.venue_entry_availability($1) AS data',
+            [guidanceCode]
+          ])
+        );
+        expect(line.verifyIdentity).not.toHaveBeenCalled();
+        expect(line.verifyIdToken).not.toHaveBeenCalled();
+        expect(mock.directQuery).not.toHaveBeenCalled();
+        for (const [statement] of mock.client.query.mock.calls) assertGuidanceReadsOnly(statement);
+      } finally {
+        await app.close();
+      }
+    }
+  );
+
+  it.each(['0058_venue_early_checkin_window.sql', '0059_telegram_learner_review.sql'])(
+    'composed HTML on verified %s stays legacy and never calls new entry facades',
+    async (version) => {
+      const mock = createPoolMock(version);
+      const line = guidanceLine();
+      const app = buildApp({ pool: mock.pool, logger: false, line, venueQr: qr });
+      try {
+        const portal = await app.inject('/venue-checkin?venue=' + guidanceCode + '&channel=line');
+        expect(portal.statusCode).toBe(303);
+        expect(portal.headers.location).toMatch(
+          /^https:\/\/liff\.line\.me\/123-synthetic\/venue-checkin\?/
+        );
+        const direct = await app.inject('/line/venue-checkin?venue=' + guidanceCode);
+        expect(direct.statusCode).toBe(200);
+        expect(direct.body).toContain('id="preview-test"');
+        expect(direct.body).not.toContain('id="guided-checkin"');
+        expect(direct.headers['permissions-policy']).toBe('geolocation=(self)');
+        expect(businessCalls(mock)).toEqual([]);
+        expect(capabilityCalls(mock).some((sql) => sql.includes('WITH entry_functions AS'))).toBe(
+          false
+        );
+        expect(line.verifyIdentity).not.toHaveBeenCalled();
+      } finally {
+        await app.close();
+      }
+    }
+  );
+
+  it('bad schema60 capability makes composed pages unavailable, never a legacy GPS fallback', async () => {
+    const mock = createPoolMock(maximumMigrationVersion, true, { entry: false });
+    const line = guidanceLine();
+    const app = buildApp({ pool: mock.pool, logger: false, line, venueQr: qr });
+    try {
+      for (const path of ['/venue-checkin?venue=', '/line/venue-checkin?venue=']) {
+        const response = await app.inject(path + guidanceCode);
+        expect(response.statusCode).toBe(503);
+        expect(response.headers.location).toBeUndefined();
+        expect(response.body).not.toMatch(/<script\b|<a\b|<button\b|<select\b|<input\b/);
+      }
+      expect(businessCalls(mock)).toEqual([]);
+      expect(line.verifyIdentity).not.toHaveBeenCalled();
     } finally {
       await app.close();
     }

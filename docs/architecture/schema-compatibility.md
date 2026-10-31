@@ -8,7 +8,7 @@
 - [Exact-A GitHub CI 41121515700，attempt 1](https://github.com/lulu-lovebird/qigong-platform/actions/runs/41121515700)：SUCCESS，3852 pass／0 fail／89 skip；79 項 native／歷史測試另於本機實測，10 項未實作 placeholders 未驗證。
 - Linux 本機 3931 pass／0 fail，另有 10 項未驗證 placeholders，不是零 skip。104 項新增 DB guidance cases 納入完整測試；151 項 PG metadata tamper＋4 項 healthy source namespace 修正案例通過。
 - 原 journal cap100／150 失敗及 NoExec11 保留；私有暫存環境執行修正與第 27 個來源檔 deterministic journal 測試細化，不是 SQL migration。journal PG12／12 含負零／正一斷言通過但成功無 raw trace；原 clock／Node／auth 根因未解。
-- B1 的分離 UI 工作樹回報 4 來源檔／833 unit、VM 通過，尚待來源審查、無 app wiring；B2 legacy sentinel／single verify／request-mode guard 待實作。此工作樹沒有 B renderer 來源，B 行為僅為待驗收規範。
+- B1 的 4 個 UI 來源檔已唯讀審查通過，881 項選定 unit／VM 測試通過並本地整合。B2 legacy sentinel／single verify／request-mode guard 與 HTML／LINE adapters 已來源審查通過；最後 app 回呼注入後，選定回歸 1044 pass、14 項 DB 案例未執行。最後注入來源審查、完整 B native QA／CI 及實機驗收仍待完成，不宣稱正式部署。
 - 最後實際正式環境唯讀觀測 **2026-10-30T14:34:31Z**：API `f9cb2215…`／schema59 健康、source／dist max59。這不是發文時現況宣告，切換前必須新鮮重查。
 - 當時 realtime `407f2f9…` 的核心 11 檔同 f9，但 minute59 review routing 有差異；不得假設 API／workers 同版或盲退。尚無新功能正式操作、FINAL backup／restore 或實機 NFC 驗收證據。
 
@@ -57,7 +57,7 @@ A minimum 為 `0042_activity_consecutive_drafts.sql`，maximum 為 `0060_venue_e
 
 完整繁中操作、公開 NDEF／QR、唯讀 calendar、純 LINE verify／資格／必要隱私與 fresh GPS-before-write 契約，見 [場地入口指引](../operations/venue-entry-guidance.md)。公開 URL／source 不是身分、出席或邀請；既有私人邀請與人工「加入」／「隱私」流程保持原狀。
 
-**已完成**：A 來源／完整 QA／CI（上述限制仍在）。**待完成**：B1 review、B2 wiring、最終 B QA／CI／artifact integrity、新鮮 FINAL encrypted backup＋actual restore、正式部署／回復證據及人員實機 LIFF／provider／NFC／QR 驗收；不得用 VM 測試或正式學員／簽到／provider 測試發送代替驗收。驗證失敗保存第一原因並停止，歷史來源修復預算不是操作豁免。
+**已完成**：A 來源／完整 QA／CI，以及 B1 與 B2 adapters／mode guard 的來源審查及本地組裝（上述限制仍在）。**待完成**：最後 app 注入來源審查、最終 B QA／CI／artifact integrity、新鮮 FINAL encrypted backup＋actual restore、正式部署／回復證據及人員實機 LIFF／provider／NFC／QR 驗收；不得用 VM 測試或正式學員／簽到／provider 測試發送代替驗收。驗證失敗保存第一原因並停止，歷史來源修復預算不是操作豁免。
 
 實際執行者在上述關卡後才補正式紀錄；法律／資料安全角色由營運方填列，不把開發者自動當服務營運者。保留公司署名，不改授權或 `UNLICENSED` metadata；不宣稱 WordPress／OIDC／保留政策／AI privilege 已完成。
 

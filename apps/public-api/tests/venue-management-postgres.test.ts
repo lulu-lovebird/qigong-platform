@@ -875,9 +875,16 @@ suite('venue management isolated PostgreSQL: integrated migration chain', () => 
     try {
       await app.ready();
       expect((await app.inject('/health/ready')).statusCode).toBe(200);
-      expect((await app.inject('/line/venue-checkin?venue=tw-test-one')).body).toContain(
-        'id="preview-history"'
+      const guidedPage = await app.inject('/line/venue-checkin?venue=tw-test-one');
+      expect(guidedPage.statusCode).toBe(200);
+      expect(guidedPage.body).toContain('id="guided-calendar"');
+      expect(guidedPage.body).toContain('id="guided-status"');
+      expect(guidedPage.body).not.toContain('id="preview-history"');
+      const guidedReceipt = guidedPage.body.match(
+        /<div id="guided-receipt" hidden>([\s\S]*?)<\/div>/
       );
+      expect(guidedReceipt).not.toBeNull();
+      expect(guidedReceipt?.[1]).toContain('<a href="/line/venue-history?lang=zh_TW">');
       expect((await app.inject('/line/venue-history?lang=en')).body).toContain(
         'My group practice history'
       );
