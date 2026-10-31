@@ -10,6 +10,8 @@ import type { VenueSuiteConfig } from './venue-suite.js';
 import { registerVenueManagementRoutes } from './venue-management-routes.js';
 import { registerVenuePeopleRoutes } from './venue-people-routes.js';
 import { createVenuePeopleService } from './venue-people-service.js';
+import { registerVenueReportingRoutes } from './venue-reporting-routes.js';
+import { createVenueReportingService } from './venue-reporting-service.js';
 import { readVenueAdminCapabilities } from './venue-admin-capabilities.js';
 import { z } from 'zod';
 import { accessCookie, registerAdminAccessRoutes } from './admin-access.js';
@@ -714,6 +716,11 @@ export const registerAdminRoutes = (
       registerVenuePeopleRoutes(app, {
         config: venueSuite.people,
         service: createVenuePeopleService(pool),
+        pagePrincipalFor: venuePrincipalFor
+      });
+      registerVenueReportingRoutes(app, {
+        config: venueSuite.people,
+        service: createVenueReportingService(pool),
         pagePrincipalFor: venuePrincipalFor
       });
     }

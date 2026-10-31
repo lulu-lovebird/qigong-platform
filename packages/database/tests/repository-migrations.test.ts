@@ -55,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0060_venue_entry_guidance.sql'
+      '0061_venue_attendance_reporting.sql'
     );
 
     expect(first.applied).toEqual([
@@ -118,13 +118,14 @@ describeWithDatabase('repository migrations', () => {
       '0057_venue_test_scope.sql',
       '0058_venue_early_checkin_window.sql',
       '0059_telegram_learner_review.sql',
-      '0060_venue_entry_guidance.sql'
+      '0060_venue_entry_guidance.sql',
+      '0061_venue_attendance_reporting.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0060_venue_entry_guidance.sql',
+      currentVersion: '0061_venue_attendance_reporting.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0060_venue_entry_guidance.sql',
+      maximumVersion: '0061_venue_attendance_reporting.sql',
       ready: true
     });
   });

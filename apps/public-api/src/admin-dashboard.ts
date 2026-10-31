@@ -25,26 +25,40 @@ export type AdminPage =
   | 'notifications'
   | 'achievementManagement'
   | 'fieldSchedule'
-  | 'attendance';
+  | 'attendance'
+  | 'venueWeekendAttendance'
+  | 'venueLearnerAttendance';
 
 const nfcNavLabels: Record<AdminLocale, Record<string, string>> = {
   zh_TW: {
     navFieldSchedule: '團練場出席管理 · 場地設定',
     navAttendance: '團練場出席管理 · 出席報表',
+    navVenueWeekendAttendance: '團練場出席管理 · 週末出席報表',
+    navVenueLearnerAttendance: '團練場出席管理 · 學員出席歷程',
     fieldSchedule: '團練場出席管理',
-    attendance: '團練場出席管理 · 出席報表'
+    attendance: '團練場出席管理',
+    venueWeekendAttendance: '團練場出席管理 · 週末出席報表',
+    venueLearnerAttendance: '團練場出席管理 · 學員出席歷程'
   },
   zh_CN: {
     navFieldSchedule: '团练场出席管理 · 场地设置',
     navAttendance: '团练场出席管理 · 出席报表',
+    navVenueWeekendAttendance: '团练场出席管理 · 周末出席报表',
+    navVenueLearnerAttendance: '团练场出席管理 · 学员出席历程',
     fieldSchedule: '团练场出席管理',
-    attendance: '团练场出席管理 · 出席报表'
+    attendance: '团练场出席管理',
+    venueWeekendAttendance: '团练场出席管理 · 周末出席报表',
+    venueLearnerAttendance: '团练场出席管理 · 学员出席历程'
   },
   en: {
     navFieldSchedule: 'Group Practice Attendance · Venues',
     navAttendance: 'Group Practice Attendance · Reports',
+    navVenueWeekendAttendance: 'Group Practice Attendance · Weekend Reports',
+    navVenueLearnerAttendance: 'Group Practice Attendance · Learner History',
     fieldSchedule: 'Group Practice Attendance',
-    attendance: 'Group Practice Attendance · Reports'
+    attendance: 'Group Practice Attendance · Reports',
+    venueWeekendAttendance: 'Group Practice Attendance · Weekend Reports',
+    venueLearnerAttendance: 'Group Practice Attendance · Learner History'
   }
 };
 
@@ -71,6 +85,16 @@ const navigation: ReadonlyArray<{ page: AdminPage; path: string; label: AdminTex
     page: 'attendance',
     path: '/admin/attendance',
     label: 'navAttendance' as AdminTextKey
+  },
+  {
+    page: 'venueWeekendAttendance',
+    path: '/admin/venue-weekend-attendance',
+    label: 'navVenueWeekendAttendance' as AdminTextKey
+  },
+  {
+    page: 'venueLearnerAttendance',
+    path: '/admin/venue-learner-attendance',
+    label: 'navVenueLearnerAttendance' as AdminTextKey
   },
   {
     page: 'fieldSchedule',
@@ -108,7 +132,9 @@ const deferredNavigation = (page: AdminPage) =>
     'achievements',
     'achievementManagement',
     'fieldSchedule',
-    'attendance'
+    'attendance',
+    'venueWeekendAttendance',
+    'venueLearnerAttendance'
   ].includes(page);
 // All shell inputs come from source-controlled page definitions, never user data.
 export const renderAdminShell = (
@@ -128,11 +154,11 @@ export const renderAdminShell = (
   )`<div class="languages"><select id="admin-language" aria-label="${text.language}">${languageOptions(locale)}</select></div>`;
   const suiteLabels =
     locale === 'en'
-      ? ['Group Practice Attendance', 'Venues', 'Participants / CSV']
+      ? ['Group Practice Attendance', 'Venues', 'Weekend Reports', 'Learner History', 'Participants / CSV']
       : locale === 'zh_CN'
-        ? ['团练场出席管理', '场地设置', '人员／CSV']
-        : ['團練場出席管理', '場地設定', '人員／CSV'];
-  const suiteNavigation = `<details class="nav-group" name="admin-navigation-groups" data-nav-group="venue-suite" aria-labelledby="nav-group-venue-suite" hidden><summary class="nav-group-title" id="nav-group-venue-suite">${suiteLabels[0]}</summary><div class="nav-group-links"><a href="/admin/venue-management${adminLocaleQuery(locale)}" data-venue-suite-nav="management" hidden>${suiteLabels[1]}</a><a href="/admin/venue-people" data-venue-suite-nav="people" hidden>${suiteLabels[2]}</a></div></details>`;
+        ? ['团练场出席管理', '场地设置', '周末出席报表', '学员出席历程', '人员／CSV']
+        : ['團練場出席管理', '場地設定', '週末出席報表', '學員出席歷程', '人員／CSV'];
+  const suiteNavigation = `<details class="nav-group" name="admin-navigation-groups" data-nav-group="venue-suite" aria-labelledby="nav-group-venue-suite" hidden><summary class="nav-group-title" id="nav-group-venue-suite">${suiteLabels[0]}</summary><div class="nav-group-links"><a href="/admin/venue-management${adminLocaleQuery(locale)}" data-venue-suite-nav="management" hidden>${suiteLabels[1]}</a><a href="/admin/venue-weekend-attendance${adminLocaleQuery(locale)}" data-venue-suite-nav="people" hidden>${suiteLabels[2]}</a><a href="/admin/venue-learner-attendance${adminLocaleQuery(locale)}" data-venue-suite-nav="people" hidden>${suiteLabels[3]}</a><a href="/admin/venue-people" data-venue-suite-nav="people" hidden>${suiteLabels[4]}</a></div></details>`;
   const navigationMarkup = navigationGroups
     .map((group) => {
       const items = group.pages

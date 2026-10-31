@@ -16,6 +16,8 @@ import { renderAdminAchievementsPage } from '../src/admin-achievement-page.js';
 import { renderAdminActivityPage } from '../src/admin-activity-page.js';
 import type { AdminLocale } from '../src/admin-locale.js';
 import { renderVenueFieldsPage } from '../src/admin-venue-fields-page.js';
+import { renderVenueWeekendPage } from '../src/admin-venue-weekend-page.js';
+import { renderVenueLearnerPage } from '../src/admin-venue-learner-page.js';
 import { renderVenueAttendanceReportPage } from '../src/venue-attendance-report-page.js';
 import { attendanceExportQuerySchema, attendanceRange } from '../src/venue-attendance-report.js';
 
@@ -35,6 +37,8 @@ const renderers: Readonly<Record<AdminPage, (locale: AdminLocale) => string>> = 
   invites: renderAdminLineInvites,
   notifications: (locale) => renderReviewNotificationPage(locale, true),
   fieldSchedule: renderVenueFieldsPage,
+  venueWeekendAttendance: (locale) => renderVenueWeekendPage(locale, true),
+  venueLearnerAttendance: (locale) => renderVenueLearnerPage(locale, true),
   attendance: (locale) => {
     const query = attendanceExportQuerySchema.parse({ month: '2026-10' });
     return renderVenueAttendanceReportPage(
@@ -69,23 +73,6 @@ describe('Admin brand consistency and image isolation', () => {
         const html = render(locale);
         for (const color of Object.values(adminBrandColors)) expect(html).toContain(color);
         expect(html).not.toMatch(oldColors);
-        if (page === 'attendance') {
-          // The real report route uses a standalone layout, not the admin sidebar shell.
-          expect(html).toContain(`<html lang="${locale === 'en' ? 'en' : 'zh-TW'}">`);
-          expect(html).toContain(`<a href="/admin?lang=${locale}">`);
-          expect(html).toContain('id="attendance-filters"');
-          expect(html).toContain('id="attendance-status" role="status" aria-live="polite"');
-          expect(html).toContain('name="month" type="month" value="2026-10"');
-          expect(html).toContain(
-            '<button type="button" disabled>下載 CSV（未授權或待接線）</button>'
-          );
-          expect(html).toContain('Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting');
-          expect(html).not.toContain('class="admin-logo"');
-          expect(html).not.toContain('<aside class="sidebar">');
-          expect(html).not.toContain('id="admin-navigation"');
-          expect(html).not.toContain('id="logout"');
-          continue;
-        }
         expect(html).toContain(renderAdminLogo(locale));
         expect(html).toContain(
           '<div class="brand-title">' + renderAdminLogo(locale) + '<span class="brand-title-text">'

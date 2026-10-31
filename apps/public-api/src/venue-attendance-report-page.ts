@@ -3,6 +3,7 @@
  * Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
  */
 import { adminBrandStyles } from './admin-branding.js';
+import { renderAdminShell } from './admin-dashboard.js';
 import type { AdminLocale } from './admin-locale.js';
 import {
   attendanceQueryString,
@@ -101,12 +102,8 @@ export const renderVenueAttendanceReportPage = (
     ready && state.canExport
       ? `<a class="button" download href="/admin/attendance/export.csv?${escape(exportQuery.toString())}">下載 CSV</a>`
       : '<button type="button" disabled>下載 CSV（未授權或待接線）</button>';
-  return `<!doctype html><html lang="${locale === 'en' ? 'en' : locale === 'zh_CN' ? 'zh-CN' : 'zh-TW'}"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
-<title>${venueAttendanceTitle}｜白雁氣功管理平台</title><style>${adminBrandStyles}
-*{box-sizing:border-box}body{margin:0;background:var(--canvas);color:var(--brand-primary);font:16px/1.6 system-ui,sans-serif}main,header,footer{max-width:1100px;margin:auto;padding:1rem}h1{font-size:1.65rem}h2{font-size:1.25rem}a{color:var(--brand-secondary)}.card{background:var(--surface);border:1px solid var(--border);border-radius:.7rem;padding:1rem;margin-bottom:1rem}form{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem}label{display:flex;flex-direction:column;gap:.3rem}input,select,button,.button{font:inherit;min-height:44px;max-width:100%;padding:.5rem;border:1px solid var(--border);border-radius:.4rem}button,.button{background:var(--brand-primary);color:white;cursor:pointer}button:disabled{opacity:.6;cursor:not-allowed}.button{display:inline-block;text-decoration:none}.metrics{display:flex;flex-wrap:wrap;gap:1rem}.metric{flex:1;min-width:150px;background:var(--surface-muted);padding:1rem;border-radius:.5rem}dd{margin:0;font-size:1.6rem;font-weight:bold}.table-scroll{overflow-x:auto}table{width:100%;border-collapse:collapse}th,td{text-align:left;vertical-align:top;padding:.65rem;border-bottom:1px solid var(--border);overflow-wrap:anywhere}small{display:block}.pagination{display:flex;align-items:center;flex-wrap:wrap;gap:1rem;margin-top:1rem}.pagination a{padding:.5rem}.muted,footer{color:var(--muted)}#attendance-status{padding:.75rem;background:var(--surface-muted)}.skip{position:absolute;left:-10000px}.skip:focus{position:static}
-@media(max-width:600px){main,header,footer{padding:.65rem}.attendance-list thead{display:none}.attendance-list tr{display:block;margin-bottom:1rem;border:1px solid var(--border)}.attendance-list td{display:grid;grid-template-columns:6rem minmax(0,1fr);gap:.5rem}.attendance-list td::before{content:attr(data-label);font-weight:bold}.attendance-list small{grid-column:2}.metrics{gap:.5rem}}
-</style></head><body><a class="skip" href="#main">跳至內容</a><header><nav aria-label="管理導覽"><a href="/admin?lang=${escape(locale)}">返回管理首頁</a></nav><h1>${venueAttendanceTitle}</h1></header><main id="main">
+  const body = `
+<style>@media(max-width:600px){.attendance-list thead{display:none}.attendance-list tr{display:block;margin-bottom:1rem;border:1px solid var(--border)}.attendance-list td{display:grid;grid-template-columns:6rem minmax(0,1fr);gap:.5rem}.attendance-list td::before{content:attr(data-label);font-weight:bold}.attendance-list small{grid-column:2}.metrics{gap:.5rem}}</style>
 <section class="card" aria-labelledby="filters-heading"><h2 id="filters-heading">出席查詢</h2>
 <p>時間以 Asia/Taipei（UTC+08:00）計算。可選月份或日期範圍；填入日期時以日期為準。</p>
 <form id="attendance-filters"><input type="hidden" name="lang" value="${escape(locale)}">
@@ -133,5 +130,7 @@ ${ready ? `<div class="table-scroll"><table><caption>依月份彙總</caption><t
 ${ready && state.rows.length ? `<div class="table-scroll"><table class="attendance-list"><caption>團練場出席管理紀錄</caption><thead><tr>${['時間', '學員', '場地', '方式', '紀錄距離', '核實志工'].map((name) => `<th scope="col">${name}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>` : `<p>${ready ? '查無符合條件的授權出席紀錄。' : '尚未查詢，不代表沒有出席紀錄。'}</p>`}
 <nav class="pagination" aria-label="出席紀錄分頁">${ready ? `${query.page > 1 ? link('上一頁', query.page - 1) : ''}<span>第 ${query.page} 頁／共 ${totalPages} 頁，${state.total} 筆</span>${query.page < totalPages ? link('下一頁', query.page + 1) : ''}` : '<span>分頁待接線</span>'}</nav></section>
 <section class="card"><h2>後續功能</h2><p>人工補簽／作廢需另外審核操作權限、地區範圍、原因及稽核紀錄；目前未提供寫入操作。</p></section>
-</main><footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer><script>${venueAttendancePageScript}</script></body></html>`;
+`;
+
+  return renderAdminShell('attendance', body, venueAttendancePageScript, locale);
 };

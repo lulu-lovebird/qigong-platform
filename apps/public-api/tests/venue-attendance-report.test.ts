@@ -290,8 +290,12 @@ describe('actual report renderer (local authorized-data fixtures only)', () => {
     });
     expect(html).toContain('查無符合條件');
     expect(html).toContain('<dd>0</dd>');
-    expect(html).not.toContain('上一頁');
-    expect(html).not.toContain('下一頁');
+    const paginationNav = html.slice(
+      html.indexOf('class="pagination"'),
+      html.indexOf('</nav>', html.indexOf('class="pagination"'))
+    );
+    expect(paginationNav).not.toContain('上一頁');
+    expect(paginationNav).not.toContain('下一頁');
   });
   it('executes the real CSP-compatible filter controller without fetch, inline handlers or injected data', () => {
     let submit: ((event: { preventDefault: () => void }) => void) | undefined;

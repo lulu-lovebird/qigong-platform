@@ -184,6 +184,8 @@ describe('Compact grouped admin navigation', () => {
       ]);
       expect(f.groups.get('venue-suite')?.links.map((link) => link.href)).toEqual([
         '/admin/venue-management?lang=' + locale,
+        '/admin/venue-weekend-attendance?lang=' + locale,
+        '/admin/venue-learner-attendance?lang=' + locale,
         '/admin/venue-people'
       ]);
       const expected = {

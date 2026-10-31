@@ -57,6 +57,7 @@ import {
   type VenueSuiteConfig,
   type VenueSuiteFeature
 } from './venue-suite.js';
+import { venueReportingMigrationVersion } from './venue-reporting-service.js';
 
 // LIFF primary redirects can contain both SDK credentials and private application fragments in the query.
 export const apiLogRedaction = Object.freeze({
@@ -95,6 +96,7 @@ const defaultOffMigrationVersions = new Set([
   '0057_venue_test_scope.sql',
   venueDebugMigrationVersion,
   telegramLearnerReviewMigrationVersion,
+  venueEntryGuidanceMigrationVersion,
   maximumMigrationVersion
 ]);
 // HTTP error classes can inherit status/message data (unlike log diagnostics,
@@ -309,6 +311,7 @@ export const checkStartupReadiness = async (
         ? venueQrEnabled &&
           (status.currentVersion === venueDebugMigrationVersion ||
             status.currentVersion === telegramLearnerReviewMigrationVersion ||
+            status.currentVersion === venueEntryGuidanceMigrationVersion ||
             status.currentVersion === maximumMigrationVersion)
         : enabledFeatures.length > 0
           ? status.currentVersion === venueSuiteMigrationVersion ||
@@ -317,6 +320,7 @@ export const checkStartupReadiness = async (
             status.currentVersion === '0057_venue_test_scope.sql' ||
             status.currentVersion === venueDebugMigrationVersion ||
             status.currentVersion === telegramLearnerReviewMigrationVersion ||
+            status.currentVersion === venueEntryGuidanceMigrationVersion ||
             status.currentVersion === maximumMigrationVersion
           : venueQrEnabled
             ? status.currentVersion === venueQrMigrationVersion ||
@@ -326,6 +330,7 @@ export const checkStartupReadiness = async (
               status.currentVersion === '0057_venue_test_scope.sql' ||
               status.currentVersion === venueDebugMigrationVersion ||
               status.currentVersion === telegramLearnerReviewMigrationVersion ||
+              status.currentVersion === venueEntryGuidanceMigrationVersion ||
               status.currentVersion === maximumMigrationVersion
             : status.currentVersion !== null &&
               defaultOffMigrationVersions.has(status.currentVersion))
