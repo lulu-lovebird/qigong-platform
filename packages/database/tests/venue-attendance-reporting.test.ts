@@ -153,15 +153,15 @@ describeWithDatabase('schema61 venue attendance reporting integration (PostgreSQ
 
       // 2. Fields
       const f1 = await client.query<{ id: string }>(
-        `INSERT INTO core.practice_fields(region_id, code, name_zh_tw, timezone, is_active)
-         VALUES ($1, 'tw-taipei-1', '台北大安團練場', 'Asia/Taipei', true) RETURNING id`,
+        `INSERT INTO core.practice_fields(region_id, code, name_zh_tw, latitude, longitude, radius_meters, timezone, is_active)
+         VALUES ($1, 'tw-taipei-1', '台北大安團練場', 25.033, 121.565, 100, 'Asia/Taipei', true) RETURNING id`,
         [twRegion]
       );
       testField1 = f1.rows[0]!.id;
 
       const f2 = await client.query<{ id: string }>(
-        `INSERT INTO core.practice_fields(region_id, code, name_zh_tw, timezone, is_active)
-         VALUES ($1, 'tw-hsinchu-1', '新竹團練場', 'Asia/Taipei', true) RETURNING id`,
+        `INSERT INTO core.practice_fields(region_id, code, name_zh_tw, latitude, longitude, radius_meters, timezone, is_active)
+         VALUES ($1, 'tw-hsinchu-1', '新竹團練場', 24.813, 120.967, 100, 'Asia/Taipei', true) RETURNING id`,
         [twRegion]
       );
       testField2 = f2.rows[0]!.id;
