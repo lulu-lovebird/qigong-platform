@@ -74,6 +74,36 @@ describe('schema61 static source contracts (safety & security)', () => {
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
 
+interface SummaryResponse {
+  mode: string;
+  regionId: string;
+  fields: Array<{ fieldCode: string; attendanceCount: number; learnerCount: number }>;
+}
+interface ExportResponse {
+  mode: string;
+  rowCount: number;
+  rows: Array<{
+    fieldCode: string;
+    learnerName: string;
+    email: string;
+    phone: string;
+    lineId: string;
+    whatsappId: string;
+  }>;
+}
+interface SearchResponse {
+  mode: string;
+  total: number;
+  rows: Array<{ phone: string; email: string }>;
+}
+interface DetailResponse {
+  mode: string;
+  total: number;
+  learner: { learnerName: string; email: string; phone: string };
+  annualSummary: Array<{ year: number; attendanceCount: number; attendanceDays: number }>;
+  history: Array<{ fieldCode: string; attendanceDate: string }>;
+}
+
 describeWithDatabase('schema61 venue attendance reporting integration (PostgreSQL 16)', () => {
   let pool: Pool;
   let dispose: () => Promise<void>;
@@ -237,68 +267,68 @@ describeWithDatabase('schema61 venue attendance reporting integration (PostgreSQ
 
   it('summarizes weekend attendance across venues in a region', async () => {
     await withRequestContext(pool, 'qigong_api_runtime', { requestId: randomUUID() }, async (c) => {
-      const res = await c.query<{ data: any }>(
+      const res = await c.query<{ data: SummaryResponse }>(
         "SELECT admin.venue_weekend_attendance_summary($1, $2, '2026-10-30', '2026-11-01', NULL, false) AS data",
         [adminSession, twRegion]
       );
-      const data = res.rows[0]?.data;
+      const data = res.rows[0]!.data;
       expect(data.mode).toBe('summary');
       expect(data.regionId).toBe(twRegion);
       expect(data.fields).toHaveLength(2);
 
-      const f1 = data.fields.find((f: any) => f.fieldCode === 'tw-taipei-1');
+      const f1 = data.fields.find((f) => f.fieldCode === 'tw-taipei-1');
       expect(f1).toBeDefined();
-      expect(f1.attendanceCount).toBe(1);
-      expect(f1.learnerCount).toBe(1);
+      expect(f1!.attendanceCount).toBe(1);
+      expect(f1!.learnerCount).toBe(1);
 
-      const f2 = data.fields.find((f: any) => f.fieldCode === 'tw-hsinchu-1');
+      const f2 = data.fields.find((f) => f.fieldCode === 'tw-hsinchu-1');
       expect(f2).toBeDefined();
-      expect(f2.attendanceCount).toBe(1);
-      expect(f2.learnerCount).toBe(1);
+      expect(f2!.attendanceCount).toBe(1);
+      expect(f2!.learnerCount).toBe(1);
     });
   });
 
   it('exports attendee details with phone, email and platform IDs for CSV generation', async () => {
     await withRequestContext(pool, 'qigong_api_runtime', { requestId: randomUUID() }, async (c) => {
-      const res = await c.query<{ data: any }>(
+      const res = await c.query<{ data: ExportResponse }>(
         "SELECT admin.venue_weekend_attendance_summary($1, $2, '2026-10-30', '2026-11-01', NULL, true) AS data",
         [adminSession, twRegion]
       );
-      const data = res.rows[0]?.data;
+      const data = res.rows[0]!.data;
       expect(data.mode).toBe('export');
       expect(data.rowCount).toBe(2);
       expect(data.rows).toHaveLength(2);
 
-      const row1 = data.rows.find((r: any) => r.fieldCode === 'tw-taipei-1');
-      expect(row1.learnerName).toBe('陳小明');
-      expect(row1.email).toBe('ming_a@example.com');
-      expect(row1.phone).toBe('+886912345678');
-      expect(row1.lineId).toBe('U_LINE_1');
+      const row1 = data.rows.find((r) => r.fieldCode === 'tw-taipei-1');
+      expect(row1!.learnerName).toBe('陳小明');
+      expect(row1!.email).toBe('ming_a@example.com');
+      expect(row1!.phone).toBe('+886912345678');
+      expect(row1!.lineId).toBe('U_LINE_1');
 
-      const row2 = data.rows.find((r: any) => r.fieldCode === 'tw-hsinchu-1');
-      expect(row2.learnerName).toBe('陳小明');
-      expect(row2.email).toBe('ming_b@example.com');
-      expect(row2.phone).toBe('+886987654321');
-      expect(row2.whatsappId).toBe('+886911222333');
+      const row2 = data.rows.find((r) => r.fieldCode === 'tw-hsinchu-1');
+      expect(row2!.learnerName).toBe('陳小明');
+      expect(row2!.email).toBe('ming_b@example.com');
+      expect(row2!.phone).toBe('+886987654321');
+      expect(row2!.whatsappId).toBe('+886911222333');
     });
   });
 
   it('searches learners by name and disambiguates duplicate names via phone and email', async () => {
     await withRequestContext(pool, 'qigong_api_runtime', { requestId: randomUUID() }, async (c) => {
-      const res = await c.query<{ data: any }>(
+      const res = await c.query<{ data: SearchResponse }>(
         "SELECT admin.venue_learner_attendance_history($1, $2, '小明', NULL, 1, 20) AS data",
         [adminSession, twRegion]
       );
-      const data = res.rows[0]?.data;
+      const data = res.rows[0]!.data;
       expect(data.mode).toBe('search');
       expect(data.total).toBe(2);
       expect(data.rows).toHaveLength(2);
 
-      const phones = data.rows.map((r: any) => r.phone);
+      const phones = data.rows.map((r) => r.phone);
       expect(phones).toContain('+886912345678');
       expect(phones).toContain('+886987654321');
 
-      const emails = data.rows.map((r: any) => r.email);
+      const emails = data.rows.map((r) => r.email);
       expect(emails).toContain('ming_a@example.com');
       expect(emails).toContain('ming_b@example.com');
     });
@@ -306,11 +336,11 @@ describeWithDatabase('schema61 venue attendance reporting integration (PostgreSQ
 
   it('retrieves detailed learner attendance history with annual breakdown', async () => {
     await withRequestContext(pool, 'qigong_api_runtime', { requestId: randomUUID() }, async (c) => {
-      const res = await c.query<{ data: any }>(
+      const res = await c.query<{ data: DetailResponse }>(
         "SELECT admin.venue_learner_attendance_history($1, $2, '', $3, 1, 20) AS data",
         [adminSession, twRegion, person1]
       );
-      const data = res.rows[0]?.data;
+      const data = res.rows[0]!.data;
       expect(data.mode).toBe('detail');
       expect(data.learner.learnerName).toBe('陳小明');
       expect(data.learner.email).toBe('ming_a@example.com');
@@ -323,8 +353,8 @@ describeWithDatabase('schema61 venue attendance reporting integration (PostgreSQ
 
       expect(data.total).toBe(2);
       expect(data.history).toHaveLength(2);
-      expect(data.history[0].fieldCode).toBe('tw-taipei-1');
-      expect(data.history[0].attendanceDate).toBe('2026-10-31');
+      expect(data.history[0]!.fieldCode).toBe('tw-taipei-1');
+      expect(data.history[0]!.attendanceDate).toBe('2026-10-31');
     });
   });
 });

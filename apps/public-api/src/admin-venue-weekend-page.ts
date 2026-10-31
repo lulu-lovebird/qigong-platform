@@ -1,14 +1,12 @@
 /** Developed with ❤️ by Bean, Bird & Badminton Tech Consulting
  * Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved. */
 import { renderAdminShell } from './admin-dashboard.js';
-import { adminLocaleScript, adminTexts, type AdminLocale } from './admin-locale.js';
+import { adminLocaleScript, type AdminLocale } from './admin-locale.js';
 
 export const renderVenueWeekendPage = (
   locale: AdminLocale = 'zh_TW',
   canManageAdmins = false
 ): string => {
-  const text = adminTexts(locale);
-
   const body = `
   <section class="card" aria-labelledby="weekend-heading">
     <h1 id="weekend-heading">週末團練出席報表</h1>

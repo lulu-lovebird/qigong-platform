@@ -154,7 +154,13 @@ export const renderAdminShell = (
   )`<div class="languages"><select id="admin-language" aria-label="${text.language}">${languageOptions(locale)}</select></div>`;
   const suiteLabels =
     locale === 'en'
-      ? ['Group Practice Attendance', 'Venues', 'Weekend Reports', 'Learner History', 'Participants / CSV']
+      ? [
+          'Group Practice Attendance',
+          'Venues',
+          'Weekend Reports',
+          'Learner History',
+          'Participants / CSV'
+        ]
       : locale === 'zh_CN'
         ? ['团练场出席管理', '场地设置', '周末出席报表', '学员出席历程', '人员／CSV']
         : ['團練場出席管理', '場地設定', '週末出席報表', '學員出席歷程', '人員／CSV'];

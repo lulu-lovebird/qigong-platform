@@ -2,14 +2,12 @@
  * Developed with ❤️ by Bean, Bird & Badminton Tech Consulting
  * Copyright (c) 2026 Bean, Bird & Badminton Tech Consulting. All rights reserved.
  */
-import { adminBrandStyles } from './admin-branding.js';
 import { renderAdminShell } from './admin-dashboard.js';
 import type { AdminLocale } from './admin-locale.js';
 import {
   attendanceQueryString,
   formatAttendanceDate,
   formatCheckinMethod,
-  venueAttendanceTitle,
   type AttendanceExportQuery,
   type AttendanceExportRecord,
   type AttendanceRange,

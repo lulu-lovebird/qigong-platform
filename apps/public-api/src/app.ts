@@ -57,7 +57,6 @@ import {
   type VenueSuiteConfig,
   type VenueSuiteFeature
 } from './venue-suite.js';
-import { venueReportingMigrationVersion } from './venue-reporting-service.js';
 
 // LIFF primary redirects can contain both SDK credentials and private application fragments in the query.
 export const apiLogRedaction = Object.freeze({
