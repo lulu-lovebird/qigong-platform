@@ -33,14 +33,14 @@ describe('schema62 static source contracts (safety & security)', () => {
     );
   });
 
-  it('seeds initial venue milestone badges with identities', () => {
-    expect(sql).toContain("'venue_first_step'");
-    expect(sql).toContain("'venue_total_5'");
-    expect(sql).toContain("'venue_total_10'");
-    expect(sql).toContain("'venue_total_25'");
-    expect(sql).toContain("'venue_total_50'");
-    expect(sql).toContain("'venue_total_100'");
-    expect(sql).toContain('INSERT INTO core.achievement_badge_identities');
+  it('defines core.person_venue_badges table with FORCE RLS and restricted permissions', () => {
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS core.person_venue_badges');
+    expect(sql).toContain('ALTER TABLE core.person_venue_badges ENABLE ROW LEVEL SECURITY');
+    expect(sql).toContain('ALTER TABLE core.person_venue_badges FORCE ROW LEVEL SECURITY');
+    expect(sql).toContain('REVOKE ALL ON core.person_venue_badges FROM PUBLIC');
+    expect(sql).toContain(
+      'GRANT SELECT ON core.person_venue_badges TO qigong_api_runtime, qigong_worker_runtime'
+    );
   });
 
   it('installs the evaluation trigger on core.field_attendance', () => {
@@ -114,9 +114,9 @@ describe.runIf(canRunDatabase)('schema62 integration: venue attendance badge eva
       );
 
       // 1. Initial state: no badges
-      await client.query('SELECT core.evaluate_practice_badges($1)', [personId]);
+      await client.query('SELECT core.evaluate_venue_badges($1)', [personId]);
       const initialBadges = await client.query(
-        "SELECT * FROM core.person_practice_badges WHERE person_id = $1 AND badge_code LIKE 'venue_%'",
+        'SELECT * FROM core.person_venue_badges WHERE person_id = $1',
         [personId]
       );
       expect(initialBadges.rows).toHaveLength(0);
@@ -124,13 +124,13 @@ describe.runIf(canRunDatabase)('schema62 integration: venue attendance badge eva
       // 2. Insert test attendance (is_test = true): must NOT award badge
       await client.query(
         `INSERT INTO core.field_attendance(
-          id, person_id, field_id, checkin_method, attendance_date, attendance_timezone, is_test, verification_mode
-        ) VALUES(gen_random_uuid(), $1, $2, 'qr_gps', '2026-11-01', 'Asia/Taipei', true, 'distance_debug')`,
+          id, person_id, field_id, checkin_method, checkin_at, attendance_date, attendance_timezone, is_test, verification_mode
+        ) VALUES(gen_random_uuid(), $1, $2, 'qr_gps', '2026-11-01T10:00:00+08:00', '2026-11-01', 'Asia/Taipei', true, 'distance_debug')`,
         [personId, fieldId]
       );
-      await client.query('SELECT core.evaluate_practice_badges($1)', [personId]);
+      await client.query('SELECT core.evaluate_venue_badges($1)', [personId]);
       const afterTestBadge = await client.query(
-        "SELECT * FROM core.person_practice_badges WHERE person_id = $1 AND badge_code LIKE 'venue_%'",
+        'SELECT * FROM core.person_venue_badges WHERE person_id = $1',
         [personId]
       );
       expect(afterTestBadge.rows).toHaveLength(0);
@@ -138,15 +138,15 @@ describe.runIf(canRunDatabase)('schema62 integration: venue attendance badge eva
       // 3. Insert real attendance (is_test = false) on day 1
       await client.query(
         `INSERT INTO core.field_attendance(
-          id, person_id, field_id, checkin_method, attendance_date, attendance_timezone, is_test, verification_mode
-        ) VALUES(gen_random_uuid(), $1, $2, 'qr_gps', '2026-11-01', 'Asia/Taipei', false, 'standard')`,
+          id, person_id, field_id, checkin_method, checkin_at, attendance_date, attendance_timezone, is_test, verification_mode
+        ) VALUES(gen_random_uuid(), $1, $2, 'qr_gps', '2026-11-01T10:00:00+08:00', '2026-11-01', 'Asia/Taipei', false, 'standard')`,
         [personId, fieldId]
       );
-      await client.query('SELECT core.evaluate_practice_badges($1)', [personId]);
+      await client.query('SELECT core.evaluate_venue_badges($1)', [personId]);
 
       // Assert venue_first_step earned
       const afterFirstBadge = await client.query<{ badge_code: string; period: string }>(
-        "SELECT badge_code, period FROM core.person_practice_badges WHERE person_id = $1 AND badge_code LIKE 'venue_%'",
+        'SELECT badge_code, period FROM core.person_venue_badges WHERE person_id = $1',
         [personId]
       );
       expect(afterFirstBadge.rows).toEqual([
@@ -166,10 +166,10 @@ describe.runIf(canRunDatabase)('schema62 integration: venue attendance badge eva
         ) VALUES(gen_random_uuid(), $1, $2, 'nfc_gps', '2026-11-01T14:00:00+08:00', '2026-11-01', 'Asia/Taipei', false, 'standard')`,
         [personId, fieldId2]
       );
-      await client.query('SELECT core.evaluate_practice_badges($1)', [personId]);
+      await client.query('SELECT core.evaluate_venue_badges($1)', [personId]);
 
       const afterSameDay = await client.query<{ badge_code: string }>(
-        "SELECT badge_code FROM core.person_practice_badges WHERE person_id = $1 AND badge_code LIKE 'venue_%'",
+        'SELECT badge_code FROM core.person_venue_badges WHERE person_id = $1',
         [personId]
       );
       // Still only venue_first_step (1 distinct date)
@@ -185,11 +185,11 @@ describe.runIf(canRunDatabase)('schema62 integration: venue attendance badge eva
           [personId, fieldId, d]
         );
       }
-      await client.query('SELECT core.evaluate_practice_badges($1)', [personId]);
+      await client.query('SELECT core.evaluate_venue_badges($1)', [personId]);
 
       // Total distinct days = 5 -> should have venue_first_step and venue_total_5
       const afterFiveDays = await client.query<{ badge_code: string; period: string }>(
-        "SELECT badge_code, period FROM core.person_practice_badges WHERE person_id = $1 AND badge_code LIKE 'venue_%' ORDER BY badge_code",
+        'SELECT badge_code, period FROM core.person_venue_badges WHERE person_id = $1 ORDER BY badge_code',
         [personId]
       );
       expect(afterFiveDays.rows).toEqual([
@@ -240,9 +240,6 @@ describe.runIf(canRunDatabase)('schema62 integration: venue attendance badge eva
         "INSERT INTO core.venue_badge_definitions(code, kind, name_zh_tw, name_en, threshold, sort_order) VALUES('venue_spring_2026', 'venue_activity', '2026 迎春團練', 'Spring 2026 Gathering', 2, 3501)"
       );
       await client.query(
-        "INSERT INTO core.achievement_badge_identities(code, origin) VALUES('venue_spring_2026', 'versioned')"
-      );
-      await client.query(
         `INSERT INTO core.venue_badge_activities(
           badge_code, period, start_date, end_date, timezone, required_days, region_id, field_id
         ) VALUES('venue_spring_2026', 'spring_2026', '2026-01-01', '2026-01-31', 'Asia/Hong_Kong', 2, $1, $2)`,
@@ -256,10 +253,10 @@ describe.runIf(canRunDatabase)('schema62 integration: venue attendance badge eva
         ) VALUES(gen_random_uuid(), $1, $2, 'qr_gps', '2026-02-01T10:00:00+08:00', '2026-02-01', 'Asia/Hong_Kong', false, 'standard')`,
         [personId, fieldId]
       );
-      await client.query('SELECT core.evaluate_practice_badges($1)', [personId]);
+      await client.query('SELECT core.evaluate_venue_badges($1)', [personId]);
 
       const initialBadges = await client.query(
-        "SELECT * FROM core.person_practice_badges WHERE person_id = $1 AND badge_code = 'venue_spring_2026'",
+        "SELECT * FROM core.person_venue_badges WHERE person_id = $1 AND badge_code = 'venue_spring_2026'",
         [personId]
       );
       expect(initialBadges.rows).toHaveLength(0);
@@ -271,9 +268,9 @@ describe.runIf(canRunDatabase)('schema62 integration: venue attendance badge eva
         ) VALUES(gen_random_uuid(), $1, $2, 'qr_gps', '2026-01-10T10:00:00+08:00', '2026-01-10', 'Asia/Hong_Kong', false, 'standard')`,
         [personId, fieldId]
       );
-      await client.query('SELECT core.evaluate_practice_badges($1)', [personId]);
+      await client.query('SELECT core.evaluate_venue_badges($1)', [personId]);
       const afterOneDay = await client.query(
-        "SELECT * FROM core.person_practice_badges WHERE person_id = $1 AND badge_code = 'venue_spring_2026'",
+        "SELECT * FROM core.person_venue_badges WHERE person_id = $1 AND badge_code = 'venue_spring_2026'",
         [personId]
       );
       expect(afterOneDay.rows).toHaveLength(0);
@@ -285,9 +282,9 @@ describe.runIf(canRunDatabase)('schema62 integration: venue attendance badge eva
         ) VALUES(gen_random_uuid(), $1, $2, 'qr_gps', '2026-01-20T10:00:00+08:00', '2026-01-20', 'Asia/Hong_Kong', false, 'standard')`,
         [personId, fieldId]
       );
-      await client.query('SELECT core.evaluate_practice_badges($1)', [personId]);
+      await client.query('SELECT core.evaluate_venue_badges($1)', [personId]);
       const afterTwoDays = await client.query<{ badge_code: string; period: string }>(
-        "SELECT badge_code, period FROM core.person_practice_badges WHERE person_id = $1 AND badge_code = 'venue_spring_2026'",
+        "SELECT badge_code, period FROM core.person_venue_badges WHERE person_id = $1 AND badge_code = 'venue_spring_2026'",
         [personId]
       );
       expect(afterTwoDays.rows).toEqual([
