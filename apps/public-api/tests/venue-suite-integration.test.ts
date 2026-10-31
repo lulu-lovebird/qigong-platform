@@ -600,18 +600,36 @@ describe('venue suite through buildApp', () => {
     expect(f.directQuery).not.toHaveBeenCalled();
   });
 
-  it('schema60 readiness does not prematurely wire new guidance routes or execute any learner operations', async () => {
+  it('QR and LINE register guidance routes lazily without executing learner operations', async () => {
     const f = fixture(venueEntryGuidanceMigrationVersion);
     const app = buildApp({ pool: f.pool, line, logger: false, venueQr: enabled });
     apps.push(app);
     await app.ready();
     expect((await app.inject('/health/ready')).statusCode).toBe(200);
-    expect(app.hasRoute({ method: 'GET', url: '/api/venue-entry/availability' })).toBe(false);
-    expect(app.hasRoute({ method: 'POST', url: '/api/line/venue-entry-status' })).toBe(false);
+    expect(app.hasRoute({ method: 'GET', url: '/api/venue-entry/availability' })).toBe(true);
+    expect(app.hasRoute({ method: 'POST', url: '/api/line/venue-entry-status' })).toBe(true);
     for (const [sql] of f.query.mock.calls)
       expect(sql).not.toMatch(
         /SELECT\s+platform\.(?:venue_entry_|privacy_usage|refresh_verified_line_profile|begin_privacy_gate)/
       );
+    expect(line.verifyIdentity).not.toHaveBeenCalled();
+  });
+
+  it('LINE without QR keeps guidance unregistered and preview/liveness free of database work', async () => {
+    const f = fixture(venueEntryGuidanceMigrationVersion);
+    const app = buildApp({ pool: f.pool, line, logger: false });
+    apps.push(app);
+    await app.ready();
+    expect(app.hasRoute({ method: 'GET', url: '/api/venue-entry/availability' })).toBe(false);
+    expect(app.hasRoute({ method: 'POST', url: '/api/line/venue-entry-status' })).toBe(false);
+    expect((await app.inject('/health/live')).statusCode).toBe(200);
+    expect((await app.inject('/venue-checkin?venue=tw-test-one&source=nfc')).statusCode).toBe(200);
+    expect((await app.inject('/line/venue-checkin?venue=tw-test-one&source=nfc')).statusCode).toBe(
+      200
+    );
+    expect(f.query).not.toHaveBeenCalled();
+    expect(f.connect).not.toHaveBeenCalled();
+    expect(f.directQuery).not.toHaveBeenCalled();
     expect(line.verifyIdentity).not.toHaveBeenCalled();
   });
 

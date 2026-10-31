@@ -28,6 +28,10 @@ import {
 } from './telegram-onboarding.js';
 import { registerLineOnboarding, type LineConfig } from './line-onboarding.js';
 import { registerVenueEntry } from './venue-entry.js';
+import {
+  registerVenueEntryGuidanceRoutes,
+  type VenueEntryModeResolver
+} from './venue-entry-guidance.js';
 import { lookupManagedVenue } from './venue-management.js';
 import { registerWhatsAppOnboarding, type WhatsAppConfig } from './whatsapp-onboarding.js';
 import { registerLearnerHelpPages } from './learner-help-page.js';
@@ -239,6 +243,45 @@ interface AppDependencies {
   inviteTransports?: InviteTransports;
 }
 
+const legacyVenueEntryMigrationVersions = new Set([
+  '0051_venue_qr_attendance.sql',
+  '0054_venue_people_read.sql',
+  '0055_venue_distance_debug.sql',
+  '0056_venue_cks_distance_debug.sql',
+  '0057_venue_test_scope.sql'
+]);
+
+/** Server-only metadata dispatch. Construction performs no I/O; each valid
+ * operation rechecks exact schema and capability evidence before learner SQL. */
+export const createVenueEntryModeResolver =
+  (pool: Pool): VenueEntryModeResolver =>
+  async () => {
+    try {
+      const status = await getMigrationStatus(
+        pool,
+        minimumMigrationVersion,
+        maximumMigrationVersion,
+        'qigong_api_runtime'
+      );
+      if (status.ready !== true) return 'unavailable';
+      if (status.currentVersion && legacyVenueEntryMigrationVersions.has(status.currentVersion))
+        return 'legacy';
+      if (
+        status.currentVersion !== venueDebugMigrationVersion &&
+        status.currentVersion !== telegramLearnerReviewMigrationVersion &&
+        status.currentVersion !== venueEntryGuidanceMigrationVersion
+      )
+        return 'unavailable';
+      if ((await checkVenueWindowReadiness(pool)).ready !== true) return 'unavailable';
+      if (status.currentVersion !== venueEntryGuidanceMigrationVersion) return 'legacy';
+      return (await checkVenueEntryGuidanceReadiness(pool)).ready === true
+        ? 'guided'
+        : 'unavailable';
+    } catch {
+      return 'unavailable';
+    }
+  };
+
 export const checkStartupReadiness = async (
   pool: Pool,
   venueQrEnabled = false,
@@ -300,8 +343,8 @@ export const checkStartupReadiness = async (
     if (!capability.ready)
       return { ready: false as const, reason: 'venue_feature_not_ready', capability };
   }
-  // Capability gate only. Guidance routes/renderers are deliberately not wired
-  // until the next reviewed composition step; QR-off remains zero entry probes.
+  // Keep startup capability semantics independent of lazy API dispatch.
+  // Guidance renderers remain unwired; QR-off remains zero entry probes.
   if (venueQrEnabled && status.currentVersion === venueEntryGuidanceMigrationVersion) {
     const capability = await checkVenueEntryGuidanceReadiness(pool);
     if (!capability.ready)
@@ -543,7 +586,11 @@ export const buildApp = ({
         loginChannelId: line.loginChannelId,
         ...(line.verifyIdentity ? { verifyIdentity: line.verifyIdentity } : {})
       });
-    if (qr) registerVenueQrCheckinRoutes(app, pool, line, qr);
+    if (qr) {
+      registerVenueQrCheckinRoutes(app, pool, line, qr);
+      const resolveMode = createVenueEntryModeResolver(pool);
+      registerVenueEntryGuidanceRoutes(app, pool, line, qr.publicOrigin, { resolveMode });
+    }
   }
   if (whatsapp) registerWhatsAppOnboarding(app, pool, whatsapp, enabledInviteTransports.whatsapp);
 
