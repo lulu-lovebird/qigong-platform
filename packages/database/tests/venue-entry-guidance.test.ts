@@ -251,8 +251,8 @@ describeWithDatabase(
   () => {
     let pool: Pool;
     let dispose: (() => Promise<void>) | undefined;
-    let previousDirectory: string | undefined;
-    let targetDirectory: string | undefined;
+    let previousDirectory = '';
+    let targetDirectory = '';
     let region: string;
     let principal: string;
     const subjects = new Map<string, string>();
