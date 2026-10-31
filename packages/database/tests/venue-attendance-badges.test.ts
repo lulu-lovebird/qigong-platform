@@ -13,11 +13,14 @@ const sqlFile = '0062_venue_attendance_badges.sql';
 const sql = readFileSync(path.join(migrationsDir, sqlFile), 'utf8');
 
 describe('schema62 static source contracts (safety & security)', () => {
-  it('extends practice_badge_definitions kind check constraint to include venue badge kinds', () => {
-    expect(sql).toContain('ALTER TABLE core.practice_badge_definitions DROP CONSTRAINT IF EXISTS');
-    expect(sql).toContain("'venue_total'::text");
-    expect(sql).toContain("'venue_streak'::text");
-    expect(sql).toContain("'venue_activity'::text");
+  it('defines core.venue_badge_definitions table with FORCE RLS and restricted permissions', () => {
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS core.venue_badge_definitions');
+    expect(sql).toContain('ALTER TABLE core.venue_badge_definitions ENABLE ROW LEVEL SECURITY');
+    expect(sql).toContain('ALTER TABLE core.venue_badge_definitions FORCE ROW LEVEL SECURITY');
+    expect(sql).toContain('REVOKE ALL ON core.venue_badge_definitions FROM PUBLIC');
+    expect(sql).toContain(
+      'GRANT SELECT ON core.venue_badge_definitions TO qigong_api_runtime, qigong_worker_runtime'
+    );
   });
 
   it('defines core.venue_badge_activities table with FORCE RLS and restricted permissions', () => {
@@ -30,7 +33,7 @@ describe('schema62 static source contracts (safety & security)', () => {
     );
   });
 
-  it('seeds initial venue milestone badges with legacy snapshots and identities', () => {
+  it('seeds initial venue milestone badges with identities', () => {
     expect(sql).toContain("'venue_first_step'");
     expect(sql).toContain("'venue_total_5'");
     expect(sql).toContain("'venue_total_10'");
@@ -38,7 +41,6 @@ describe('schema62 static source contracts (safety & security)', () => {
     expect(sql).toContain("'venue_total_50'");
     expect(sql).toContain("'venue_total_100'");
     expect(sql).toContain('INSERT INTO core.achievement_badge_identities');
-    expect(sql).toContain('INSERT INTO core.achievement_rule_versions');
   });
 
   it('installs the evaluation trigger on core.field_attendance', () => {
@@ -48,11 +50,12 @@ describe('schema62 static source contracts (safety & security)', () => {
     expect(sql).toContain('NOT NEW.is_test');
   });
 
-  it('updates core.evaluate_practice_badges with venue_total and venue_activity handlers', () => {
+  it('defines core.evaluate_venue_badges with venue_total and venue_activity handlers', () => {
+    expect(sql).toContain('CREATE OR REPLACE FUNCTION core.evaluate_venue_badges(target UUID)');
     expect(sql).toContain("WHEN 'venue_total' THEN");
     expect(sql).toContain('SELECT count(DISTINCT attendance_date) INTO count_days');
     expect(sql).toContain('FROM core.field_attendance');
-    expect(sql).toContain('WHERE person_id=target AND NOT is_test');
+    expect(sql).toContain('WHERE person_id = target AND NOT is_test');
     expect(sql).toContain("WHEN 'venue_activity' THEN");
     expect(sql).toContain('FROM core.venue_badge_activities');
   });
@@ -234,10 +237,10 @@ describe.runIf(canRunDatabase)('schema62 integration: venue attendance badge eva
 
       // Define a custom campaign badge: "2026 迎春團練" requiring 2 days in Jan 2026
       await client.query(
-        "INSERT INTO core.practice_badge_definitions(code, kind, name_zh_tw, name_en, threshold, sort_order) VALUES('venue_spring_2026', 'venue_activity', '2026 迎春團練', 'Spring 2026 Gathering', 2, 3501)"
+        "INSERT INTO core.venue_badge_definitions(code, kind, name_zh_tw, name_en, threshold, sort_order) VALUES('venue_spring_2026', 'venue_activity', '2026 迎春團練', 'Spring 2026 Gathering', 2, 3501)"
       );
       await client.query(
-        "INSERT INTO core.achievement_badge_identities(code, origin) VALUES('venue_spring_2026', 'legacy')"
+        "INSERT INTO core.achievement_badge_identities(code, origin) VALUES('venue_spring_2026', 'versioned')"
       );
       await client.query(
         `INSERT INTO core.venue_badge_activities(
