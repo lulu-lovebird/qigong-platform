@@ -285,14 +285,14 @@ BEGIN
       ) contact ON TRUE
       WHERE (input_search = '' OR strpos(lower(coalesce(p.preferred_name, '') || ' ' || coalesce(p.legal_name, '')), lower(input_search)) > 0)
     ), counted AS (
-      SELECT count(*)::integer AS total_count FROM matched_people
+      SELECT count(*)::integer AS matched_count FROM matched_people
     ), paged AS (
       SELECT * FROM matched_people
       ORDER BY latest_date DESC, attendance_count DESC, person_id
       LIMIT input_limit OFFSET (input_page - 1) * input_limit
     )
     SELECT
-      (SELECT coalesce(total_count, 0) FROM counted),
+      (SELECT coalesce(counted.matched_count, 0) FROM counted),
       coalesce(jsonb_agg(jsonb_build_object(
         'personId', paged.person_id,
         'learnerName', paged.learner_name,
