@@ -1,4 +1,6 @@
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { copyFile, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -160,7 +162,14 @@ suite('Authenticated reviewer Telegram setup and delivery', () => {
     db = await createIsolatedTestDatabase(base!);
     const database = db;
     cleaners.push(() => database.dispose());
-    await runMigrations(db.pool, directory, 'review-http');
+    const schema60Directory = await mkdtemp(path.join(tmpdir(), 'qigong-review-schema60-'));
+    cleaners.push(() => rm(schema60Directory, { recursive: true, force: true }));
+    for (const name of await readdir(directory)) {
+      if (/^\d{4}_.+\.sql$/.test(name) && name <= '0060_venue_entry_guidance.sql') {
+        await copyFile(path.join(directory, name), path.join(schema60Directory, name));
+      }
+    }
+    await runMigrations(db.pool, schema60Directory, 'review-http');
     role = 'qigong_review_http_' + randomUUID().replaceAll('-', '');
     const roleName = role,
       password = randomBytes(24).toString('hex');
