@@ -190,7 +190,8 @@ export const checkVenueEntryGuidanceReadiness = async (pool: Pool) => {
         ), entry_roles AS (
           SELECT * FROM pg_roles WHERE rolname=ANY($2::text[])
         ) SELECT
-          (SELECT count(*)=60 AND max(version)=$6
+          (SELECT ((count(*)=60 AND max(version)=$6)
+                OR (count(*)=61 AND max(version)='0061_venue_attendance_reporting.sql'))
             AND bool_or(version=$7) AND bool_or(version=$8) FROM public.schema_migrations)
           AND ${windowCapabilityPredicate}
           AND (SELECT count(*)=cardinality($2::text[]) AND bool_and(
@@ -343,7 +344,8 @@ export const checkVenueFeatureReadiness = async (
               OR (count(*)=57 AND max(version)='0057_venue_test_scope.sql' AND NOT $6)
               OR (count(*)=58 AND max(version)=$5)
               OR (count(*)=59 AND max(version)='0059_telegram_learner_review.sql')
-              OR (count(*)=60 AND max(version)='0060_venue_entry_guidance.sql') FROM public.schema_migrations)
+              OR (count(*)=60 AND max(version)='0060_venue_entry_guidance.sql')
+              OR (count(*)=61 AND max(version)='0061_venue_attendance_reporting.sql') FROM public.schema_migrations)
             AND (NOT EXISTS(SELECT 1 FROM public.schema_migrations WHERE version=$5) OR ${windowCapabilityPredicate})
             AND (NOT $6 OR EXISTS(SELECT 1 FROM pg_proc g
               WHERE g.oid=to_regprocedure('platform.venue_debug_region_active(uuid)')

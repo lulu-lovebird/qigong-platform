@@ -57,6 +57,7 @@ import {
   type VenueSuiteConfig,
   type VenueSuiteFeature
 } from './venue-suite.js';
+import { venueReportingMigrationVersion } from './venue-reporting-service.js';
 
 // LIFF primary redirects can contain both SDK credentials and private application fragments in the query.
 export const apiLogRedaction = Object.freeze({
@@ -77,7 +78,7 @@ export const apiLogRedaction = Object.freeze({
 
 export const minimumMigrationVersion = '0042_activity_consecutive_drafts.sql';
 // Exact QR schema compatibility does not enable QR or the old NFC routes.
-export const maximumMigrationVersion = venueEntryGuidanceMigrationVersion;
+export const maximumMigrationVersion = venueReportingMigrationVersion;
 const telegramLearnerReviewMigrationVersion = '0059_telegram_learner_review.sql';
 const defaultOffMigrationVersions = new Set([
   minimumMigrationVersion,
@@ -272,11 +273,16 @@ export const createVenueEntryModeResolver =
       if (
         status.currentVersion !== venueDebugMigrationVersion &&
         status.currentVersion !== telegramLearnerReviewMigrationVersion &&
-        status.currentVersion !== venueEntryGuidanceMigrationVersion
+        status.currentVersion !== venueEntryGuidanceMigrationVersion &&
+        status.currentVersion !== venueReportingMigrationVersion
       )
         return 'unavailable';
       if ((await checkVenueWindowReadiness(pool)).ready !== true) return 'unavailable';
-      if (status.currentVersion !== venueEntryGuidanceMigrationVersion) return 'legacy';
+      if (
+        status.currentVersion !== venueEntryGuidanceMigrationVersion &&
+        status.currentVersion !== venueReportingMigrationVersion
+      )
+        return 'legacy';
       return (await checkVenueEntryGuidanceReadiness(pool)).ready === true
         ? 'guided'
         : 'unavailable';
@@ -343,6 +349,7 @@ export const checkStartupReadiness = async (
     venueQrEnabled &&
     (status.currentVersion === venueDebugMigrationVersion ||
       status.currentVersion === telegramLearnerReviewMigrationVersion ||
+      status.currentVersion === venueEntryGuidanceMigrationVersion ||
       status.currentVersion === maximumMigrationVersion)
   ) {
     const capability = await checkVenueWindowReadiness(pool);
@@ -351,7 +358,11 @@ export const checkStartupReadiness = async (
   }
   // Keep startup capability semantics independent of lazy request dispatch.
   // QR-off remains zero entry probes.
-  if (venueQrEnabled && status.currentVersion === venueEntryGuidanceMigrationVersion) {
+  if (
+    venueQrEnabled &&
+    (status.currentVersion === venueEntryGuidanceMigrationVersion ||
+      status.currentVersion === maximumMigrationVersion)
+  ) {
     const capability = await checkVenueEntryGuidanceReadiness(pool);
     if (!capability.ready)
       return { ready: false as const, reason: 'venue_feature_not_ready', capability };
