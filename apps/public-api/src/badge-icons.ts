@@ -2,6 +2,20 @@
 // Platform seasonal codes omit _27; platform complete-set codes include _7.
 // Do not use icons to determine eligibility or award status.
 export const fallbackBadgeIcon = '🏅';
+
+export const venueBadgeIcons: Readonly<Record<string, string>> = Object.freeze({
+  venue_first_step: '🚩',
+  venue_total_5: '🥉',
+  venue_total_10: '🥈',
+  venue_total_25: '🥇',
+  venue_total_50: '🏆',
+  venue_total_100: '👑'
+});
+
+export const allBadgeIcons: Readonly<Record<string, string>> = Object.freeze({
+  ...venueBadgeIcons
+});
+
 export const badgeIcons: Readonly<Record<string, string>> = Object.freeze({
   streak_3: '🥉',
   streak_7: '🥈',

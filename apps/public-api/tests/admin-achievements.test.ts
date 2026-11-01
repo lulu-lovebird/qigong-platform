@@ -183,7 +183,8 @@ suite('Authenticated read-only achievement HTTP boundaries', () => {
         });
         expect(catalog.statusCode, catalog.body).toBe(200);
         const data = achievementCatalogSchema.parse(catalog.json());
-        expect(data.badges).toHaveLength(49);
+        expect(data.badges.filter((b) => !b.code.startsWith('venue_'))).toHaveLength(49);
+        expect(data.badges.filter((b) => b.code.startsWith('venue_'))).toHaveLength(6);
         expect(data.badges.find((b) => b.code === 'streak_3')?.name).toBe(
           lang === 'en'
             ? '3-day practice streak'
@@ -279,6 +280,17 @@ suite('Authenticated read-only achievement HTTP boundaries', () => {
       ).toBe(404);
       await app.inject({ url: '/admin/api/achievements', headers: headers() });
       await app.inject({ url: '/admin/api/achievements/streak_3/recipients', headers: headers() });
+      const venueRecipients = await app.inject({
+        url: '/admin/api/achievements/venue_first_step/recipients',
+        headers: headers()
+      });
+      expect(venueRecipients.statusCode).toBe(200);
+      expect(venueRecipients.json()).toMatchObject({
+        code: 'venue_first_step',
+        ruleVersion: 1,
+        total: 0,
+        rows: []
+      });
       expect(await snapshot()).toBe(before);
       expect((await root.query('SELECT id FROM core.checkins')).rows).toEqual([]);
     } finally {

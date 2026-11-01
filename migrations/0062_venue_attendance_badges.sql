@@ -176,3 +176,76 @@ DROP TRIGGER IF EXISTS queue_venue_attendance_badges ON core.field_attendance;
 CREATE TRIGGER queue_venue_attendance_badges
   AFTER INSERT ON core.field_attendance
   FOR EACH ROW EXECUTE FUNCTION ops.queue_venue_practice_badges();
+
+-- 8. Admin venue badge recipients reader
+CREATE OR REPLACE FUNCTION admin.venue_badge_recipients(
+  input_code TEXT,
+  input_locale TEXT,
+  input_region UUID,
+  input_platform TEXT,
+  input_query TEXT,
+  input_year INTEGER,
+  input_page INTEGER,
+  input_limit INTEGER
+) RETURNS JSONB
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE vdef core.venue_badge_definitions; result JSONB;
+BEGIN
+  PERFORM 1 FROM admin._achievement_people(input_region, input_platform, input_query);
+  IF input_locale IS NULL OR input_locale NOT IN ('zh_TW', 'zh_CN', 'en')
+    OR input_page IS NULL OR input_page NOT BETWEEN 1 AND 10000
+    OR input_limit IS NULL OR input_limit NOT BETWEEN 1 AND 100
+    OR input_code IS NULL OR char_length(input_code) > 80 THEN
+    RAISE EXCEPTION 'invalid achievement query' USING ERRCODE='22023';
+  END IF;
+
+  SELECT * INTO vdef FROM core.venue_badge_definitions vd WHERE vd.code = input_code;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'achievement unavailable' USING ERRCODE='P0002';
+  END IF;
+
+  WITH visible AS MATERIALIZED (
+    SELECT * FROM admin._achievement_people(input_region, input_platform, input_query)
+  ),
+  recipients AS MATERIALIZED (
+    SELECT v.person_id, v.display_name, v.region_id, v.region_name_zh_tw, v.region_name_en, v.platform,
+      jsonb_agg(jsonb_build_object(
+        'period', b.period,
+        'ruleVersion', b.rule_version,
+        'earnedAt', b.earned_at
+      ) ORDER BY b.period, b.rule_version) AS awards
+    FROM visible v
+    JOIN core.person_venue_badges b ON b.person_id = v.person_id
+    WHERE b.badge_code = input_code AND b.rule_version = vdef.rule_version AND b.revoked_at IS NULL
+    GROUP BY v.person_id, v.display_name, v.region_id, v.region_name_zh_tw, v.region_name_en, v.platform
+  ),
+  page_rows AS (
+    SELECT * FROM recipients ORDER BY display_name, person_id LIMIT input_limit OFFSET (input_page - 1) * input_limit
+  )
+  SELECT jsonb_build_object(
+    'code', vdef.code,
+    'ruleVersion', vdef.rule_version,
+    'name', CASE WHEN input_locale = 'en' THEN vdef.name_en ELSE vdef.name_zh_tw END,
+    'configurationKnown', true,
+    'page', input_page,
+    'limit', input_limit,
+    'total', (SELECT count(*)::integer FROM recipients),
+    'totalPages', GREATEST(1, CEIL((SELECT count(*) FROM recipients)::numeric / input_limit)::integer),
+    'rows', coalesce((
+      SELECT jsonb_agg(jsonb_build_object(
+        'personId', p.person_id,
+        'displayName', p.display_name,
+        'regionId', p.region_id,
+        'regionName', CASE WHEN input_locale = 'en' THEN p.region_name_en ELSE p.region_name_zh_tw END,
+        'platform', p.platform,
+        'awards', p.awards
+      ) ORDER BY p.display_name, p.person_id) FROM page_rows p
+    ), '[]'::jsonb)
+  ) INTO result;
+
+  RETURN result;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION admin.venue_badge_recipients(TEXT, TEXT, UUID, TEXT, TEXT, INTEGER, INTEGER, INTEGER) FROM PUBLIC, qigong_worker_runtime;
+GRANT EXECUTE ON FUNCTION admin.venue_badge_recipients(TEXT, TEXT, UUID, TEXT, TEXT, INTEGER, INTEGER, INTEGER) TO qigong_api_runtime;

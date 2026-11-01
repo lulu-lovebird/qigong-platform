@@ -53,7 +53,10 @@ export const achievementCatalogSchema = z.object({
         'summer',
         'winter',
         'event',
-        'challenge'
+        'challenge',
+        'venue_total',
+        'venue_streak',
+        'venue_activity'
       ]),
       provenance: z.string().nullable().optional(),
       continuous: z.boolean().optional(),
@@ -170,7 +173,7 @@ export const getAchievementCatalog = async (
       : 'SELECT admin.achievement_catalog($1,$2,$3,$4,$5) data',
     parameters(query, locale)
   );
-  return achievementCatalogSchema.parse(
+  const catalog = achievementCatalogSchema.parse(
     localizeSystemLabels(
       locale,
       achievementCatalogSchema.parse(
@@ -181,6 +184,77 @@ export const getAchievementCatalog = async (
       )
     )
   );
+
+  try {
+    const hasVenue =
+      (
+        await client.query<{ exists: boolean }>(
+          "SELECT to_regclass('core.venue_badge_definitions') IS NOT NULL AS exists"
+        )
+      ).rows[0]?.exists === true;
+
+    if (hasVenue) {
+      const venueRes = await client.query<{
+        code: string;
+        kind: 'venue_total' | 'venue_streak' | 'venue_activity';
+        name: string;
+        threshold: number;
+        rule_version: number;
+        recipient_count: number;
+        periods: { period: string; recipientCount: number }[];
+        seasons: {
+          year: number;
+          startDate: string;
+          endDate: string;
+          timezone: string;
+          requiredDays: number;
+        }[];
+      }>(
+        `SELECT vd.code, vd.kind,
+          CASE WHEN $1 = 'en' THEN vd.name_en ELSE vd.name_zh_tw END AS name,
+          vd.threshold, vd.rule_version,
+          coalesce((SELECT count(DISTINCT b.person_id)::integer FROM core.person_venue_badges b WHERE b.badge_code = vd.code AND b.revoked_at IS NULL), 0) AS recipient_count,
+          coalesce((
+            SELECT jsonb_agg(jsonb_build_object('period', p.period, 'recipientCount', p.cnt))
+            FROM (
+              SELECT b.period, count(DISTINCT b.person_id)::integer cnt
+              FROM core.person_venue_badges b
+              WHERE b.badge_code = vd.code AND b.revoked_at IS NULL
+              GROUP BY b.period
+            ) p
+          ), '[]'::jsonb) AS periods,
+          coalesce((
+            SELECT jsonb_agg(jsonb_build_object('year', extract(year from a.start_date)::integer, 'startDate', a.start_date::text, 'endDate', a.end_date::text, 'timezone', a.timezone, 'requiredDays', a.required_days))
+            FROM core.venue_badge_activities a WHERE a.badge_code = vd.code
+          ), '[]'::jsonb) AS seasons
+        FROM core.venue_badge_definitions vd
+        ORDER BY vd.sort_order, vd.code`,
+        [locale]
+      );
+
+      const venueBadges = venueRes.rows.map((row) => ({
+        code: row.code,
+        kind: row.kind,
+        name: row.name,
+        threshold: row.threshold,
+        methodCodes: [],
+        ruleVersion: row.rule_version,
+        configured: true,
+        recipientCount: row.recipient_count,
+        periods: row.periods,
+        seasons: row.seasons
+      }));
+
+      return {
+        ...catalog,
+        badges: [...catalog.badges, ...venueBadges]
+      };
+    }
+  } catch {
+    // Non-fatal
+  }
+
+  return catalog;
 };
 export const getAchievementRecipients = async (
   client: PoolClient,
@@ -188,6 +262,16 @@ export const getAchievementRecipients = async (
   query: AchievementQuery,
   locale: AdminLocale
 ) => {
+  if (code.startsWith('venue_')) {
+    const result = await client.query<{ data: unknown }>(
+      'SELECT admin.venue_badge_recipients($1,$2,$3,$4,$5,$6,$7,$8) data',
+      [code, ...parameters(query, locale), query.page, query.limit]
+    );
+    return achievementRecipientsSchema.parse(
+      localizeSystemLabels(locale, achievementRecipientsSchema.parse(result.rows[0]?.data))
+    );
+  }
+
   const versioned = query.version !== undefined;
   if (versioned && !(await hasAchievementVersions(client)))
     throw Error('invalid achievement query');
