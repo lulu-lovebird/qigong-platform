@@ -1,3 +1,4 @@
+import { e164PhoneSchema } from './phone-e164.js';
 import { localeSchema, uiText } from './ui-localization.js';
 import { telegramProfileDisplayName, refreshVerifiedTelegramProfile } from './telegram-profile.js';
 import { createHmac, timingSafeEqual } from 'node:crypto';
@@ -67,7 +68,7 @@ const applicationDetails = z.object({
   token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   name: z.string().trim().min(1).max(150),
   email: z.email().max(254),
-  phone: z.string().regex(/^\+[1-9][0-9]{6,14}$/),
+  phone: e164PhoneSchema,
   region: z.enum(['tw-general', 'my-general', 'sg-general', 'hk-general', 'other-general'])
 });
 

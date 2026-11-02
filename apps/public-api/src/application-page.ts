@@ -197,7 +197,18 @@ ${channel.platform === 'line' ? '<script src="https://static.line-scdn.net/liff/
     <form id="application">
       <label><span id="applicationNameText">${t('name')}</span><input name="name" id="applicationNameInput" autocomplete="name" maxlength="150" required></label>
       <label><span id="applicationEmailText">${t('email')}</span><input name="email" id="applicationEmailInput" type="email" autocomplete="email" maxlength="254" required></label>
-      <label><span id="applicationPhoneText">${t('phone')}</span><input name="phone" id="applicationPhoneInput" type="tel" autocomplete="tel" pattern="\\+[1-9][0-9]{6,14}" required></label>
+      <label><span id="applicationPhoneText">${t('phone')}</span>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <select id="applicationCountryCode" style="min-width:130px;min-height:44px;padding:6px;border:1px solid #305888;border-radius:6px;background:white;">
+            <option value="+886">🇹🇼 台灣 (+886)</option>
+            <option value="+852">🇭🇰 香港 (+852)</option>
+            <option value="+60">🇲🇾 馬來西亞 (+60)</option>
+            <option value="+65">🇸🇬 新加坡 (+65)</option>
+            <option value="other">🌐 其它</option>
+          </select>
+          <input name="phone" id="applicationPhoneInput" type="tel" autocomplete="tel" placeholder="0912345678" style="flex:1;" required>
+        </div>
+      </label>
       <label><span id="applicationRegionText">${t('region')}</span><select name="region" id="applicationRegionInput" required>
         <option value="" id="applicationRegionPlaceholder">${t('selectRegion')}</option><option value="tw-general" id="applicationRegionTw">${t('taiwan')}</option>
         <option value="my-general" id="applicationRegionMy">${t('malaysia')}</option><option value="sg-general" id="applicationRegionSg">${t('singapore')}</option>
@@ -226,8 +237,52 @@ ${channel.platform === 'line' ? '<script src="https://static.line-scdn.net/liff/
         : ''
     }
     ${channel.platform === 'whatsapp' ? whatsappApplicationLanguageScript(locale) : languageSwitchScript(channel.platform, locale)}
+    const regionSelect = document.getElementById('applicationRegionInput');
+    const countrySelect = document.getElementById('applicationCountryCode');
+    const phoneInput = document.getElementById('applicationPhoneInput');
+    const updateCountryPlaceholder = () => {
+      if (!countrySelect || !phoneInput) return;
+      const code = countrySelect.value;
+      if (code === '+886') phoneInput.placeholder = '0912345678';
+      else if (code === '+852') phoneInput.placeholder = '91234567';
+      else if (code === '+60') phoneInput.placeholder = '0123456789';
+      else if (code === '+65') phoneInput.placeholder = '81234567';
+      else phoneInput.placeholder = '+886912345678';
+    };
+    if (regionSelect && countrySelect) {
+      regionSelect.addEventListener('change', () => {
+        const r = regionSelect.value;
+        if (r === 'tw-general') countrySelect.value = '+886';
+        else if (r === 'hk-general') countrySelect.value = '+852';
+        else if (r === 'my-general') countrySelect.value = '+60';
+        else if (r === 'sg-general') countrySelect.value = '+65';
+        else countrySelect.value = 'other';
+        updateCountryPlaceholder();
+      });
+      countrySelect.addEventListener('change', updateCountryPlaceholder);
+    }
     form.addEventListener('submit', async event => {
       event.preventDefault();
+      if (phoneInput && countrySelect) {
+        let val = phoneInput.value.trim().replace(/[\\s\\-\\(\\)\\.]+/g, '');
+        const code = countrySelect.value;
+        if (code === '+886') {
+          if (val.startsWith('+8860')) val = '+886' + val.slice(5);
+          else if (val.startsWith('0')) val = '+886' + val.slice(1);
+          else if (!val.startsWith('+')) val = '+886' + val;
+        } else if (code === '+60') {
+          if (val.startsWith('+600')) val = '+60' + val.slice(4);
+          else if (val.startsWith('0')) val = '+60' + val.slice(1);
+          else if (!val.startsWith('+')) val = '+60' + val;
+        } else if (code === '+852') {
+          if (!val.startsWith('+')) val = '+852' + val;
+        } else if (code === '+65') {
+          if (!val.startsWith('+')) val = '+65' + val;
+        } else if (!val.startsWith('+')) {
+          val = '+' + val;
+        }
+        phoneInput.value = val;
+      }
       const button = form.querySelector('button');
       button.disabled = true;
       status.textContent = ui.sending;

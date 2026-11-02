@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
+import { e164PhoneSchema } from './phone-e164.js';
 import { z } from 'zod';
 import { channelInviteAvailable, type InvitePlatform } from './channel-invites.js';
 import { renderChannelInvitePage } from './channel-invite-pages.js';
@@ -25,7 +26,7 @@ const details = credential
         })
       ),
     email: z.email().max(254),
-    phone: z.string().regex(/^\+[1-9][0-9]{6,14}$/),
+    phone: e164PhoneSchema,
     notificationConsent: z.boolean()
   })
   .strict();

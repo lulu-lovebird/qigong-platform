@@ -14,6 +14,7 @@ import {
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { withRequestContext, type Pool } from '@qigong/database';
+import { e164PhoneSchema } from './phone-e164.js';
 import { z } from 'zod';
 import {
   beginLearnerPrivacy,
@@ -111,7 +112,7 @@ const detailsSchema = credentials.extend({
   telegramReviewNoticeVersion: z.literal('telegram-learner-review-v1').optional(),
   name: z.string().trim().min(1).max(150),
   email: z.email().max(254),
-  phone: z.string().regex(/^\+[1-9][0-9]{6,14}$/),
+  phone: e164PhoneSchema,
   region: z.enum(['tw-general', 'my-general', 'sg-general', 'hk-general', 'other-general']),
   notificationConsent: z.literal(true)
 });
