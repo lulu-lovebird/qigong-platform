@@ -852,11 +852,17 @@ describe('stamp card truthful display (real renderer and controller)', () => {
       expect(ui.get('blank-slots').children).toHaveLength(n === 0 ? 20 : 0);
       expect(ui.get('count').textContent).toBe(String(n));
       expect(ui.get('days').textContent).toBe(n ? '1' : '0');
-      expect(ui.get('entries').children).toHaveLength(count);
+      expect(ui.get('entries').children).toHaveLength(count ? 20 : 0);
+      const stamped = ui.get('entries').children.filter((c) => c.attributes['data-entry-id']);
+      const emptySlots = ui
+        .get('entries')
+        .children.filter((c) => c.attributes.class === 'empty-slot');
+      expect(stamped).toHaveLength(count);
+      expect(emptySlots).toHaveLength(count ? 20 - count : 0);
       expect(ui.get('sheet').textContent).toBe('最近 ' + count + ' 筆 / 貼紙第 1 頁');
       expect(ui.get('next').disabled).toBe(n <= 20);
       expect(ui.get('empty').hidden).toBe(count !== 0);
-      for (const item of ui.get('entries').children) {
+      for (const item of stamped) {
         expect(item.tagName).toBe('LI');
         expect(item.attributes['data-entry-id']).toMatch(/^synthetic-/);
         expect(item.children[0]?.tagName).toBe('DETAILS');
@@ -867,6 +873,10 @@ describe('stamp card truthful display (real renderer and controller)', () => {
         );
         expect(item.children[0]?.children[0]?.children[0]?.attributes['aria-hidden']).toBe('true');
         expect(descendants(item).some((node) => node.tagName === 'IMG')).toBe(false);
+      }
+      for (const slot of emptySlots) {
+        expect(slot.tagName).toBe('LI');
+        expect(slot.attributes['aria-hidden']).toBe('true');
       }
       expect(ui.fetch).toHaveBeenCalledOnce();
       expect(ui.forbidden).not.toHaveBeenCalled();
@@ -894,7 +904,8 @@ describe('stamp card truthful display (real renderer and controller)', () => {
     await settle();
     expect(ui.get('count').textContent).toBe('2');
     expect(ui.get('days').textContent).toBe('1');
-    expect(ui.get('entries').children).toHaveLength(2);
+    expect(ui.get('entries').children).toHaveLength(20);
+    expect(ui.get('entries').children.filter((c) => c.attributes['data-entry-id'])).toHaveLength(2);
     expect(ui.get('entries').children[0]?.attributes['data-entry-id']).toBe('other-venue');
     expect(ui.get('entries').children[0]?.textContent).toContain(
       'Other synthetic venue [tw-test-two]'
@@ -911,7 +922,10 @@ describe('stamp card truthful display (real renderer and controller)', () => {
       expect(ui.get('sheet').textContent).toBe('此篩選已載入 ' + count + ' 筆 / 貼紙第 1 頁');
       expect(ui.get('scope').textContent).toBe('正式出席 · 2026-10 · tw-test-one');
       expect(ui.get('month-period').textContent).toBe('2026-10');
-      expect(ui.get('entries').children).toHaveLength(count);
+      expect(ui.get('entries').children).toHaveLength(count ? 20 : 0);
+      expect(ui.get('entries').children.filter((c) => c.attributes['data-entry-id'])).toHaveLength(
+        count
+      );
       expect(ui.get('next').disabled).toBe(false);
       expect(ui.get('empty').hidden).toBe(count !== 0);
       assertStatus(ui, true);
@@ -943,7 +957,10 @@ describe('stamp card truthful display (real renderer and controller)', () => {
       ui.get('next').onclick?.();
       assertCleared(ui);
       await settle();
-      expect(ui.get('entries').children).toHaveLength(n);
+      expect(ui.get('entries').children).toHaveLength(20);
+      expect(ui.get('entries').children.filter((c) => c.attributes['data-entry-id'])).toHaveLength(
+        n
+      );
       expect(ui.get('count').textContent).toBe('31');
       expect(ui.get('sheet').textContent).toBe('本頁 ' + n + ' 筆 / 貼紙第 2 頁');
       expect(ui.get('next').disabled).toBe(true);
