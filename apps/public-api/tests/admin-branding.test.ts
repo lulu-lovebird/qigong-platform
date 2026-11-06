@@ -18,6 +18,7 @@ import type { AdminLocale } from '../src/admin-locale.js';
 import { renderVenueFieldsPage } from '../src/admin-venue-fields-page.js';
 import { renderVenueWeekendPage } from '../src/admin-venue-weekend-page.js';
 import { renderVenueLearnerPage } from '../src/admin-venue-learner-page.js';
+import { renderAdminGuidancePage } from '../src/admin-guidance-page.js';
 import { renderVenueAttendanceReportPage } from '../src/venue-attendance-report-page.js';
 import { attendanceExportQuerySchema, attendanceRange } from '../src/venue-attendance-report.js';
 
@@ -39,6 +40,7 @@ const renderers: Readonly<Record<AdminPage, (locale: AdminLocale) => string>> = 
   fieldSchedule: renderVenueFieldsPage,
   venueWeekendAttendance: (locale) => renderVenueWeekendPage(locale, true),
   venueLearnerAttendance: (locale) => renderVenueLearnerPage(locale, true),
+  guidance: (locale) => renderAdminGuidancePage(locale, true),
   attendance: (locale) => {
     const query = attendanceExportQuerySchema.parse({ month: '2026-10' });
     return renderVenueAttendanceReportPage(
