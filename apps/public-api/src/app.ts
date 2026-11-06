@@ -79,7 +79,8 @@ export const apiLogRedaction = Object.freeze({
 export const minimumMigrationVersion = '0042_activity_consecutive_drafts.sql';
 // Exact QR schema compatibility does not enable QR or the old NFC routes.
 export const venueAttendanceBadgesMigrationVersion = '0062_venue_attendance_badges.sql';
-export const maximumMigrationVersion = venueAttendanceBadgesMigrationVersion;
+export const practiceGuidanceMigrationVersion = '0063_practice_guidance.sql';
+export const maximumMigrationVersion = practiceGuidanceMigrationVersion;
 const telegramLearnerReviewMigrationVersion = '0059_telegram_learner_review.sql';
 const defaultOffMigrationVersions = new Set([
   minimumMigrationVersion,
@@ -354,6 +355,7 @@ export const checkStartupReadiness = async (
       status.currentVersion === telegramLearnerReviewMigrationVersion ||
       status.currentVersion === venueEntryGuidanceMigrationVersion ||
       status.currentVersion === venueReportingMigrationVersion ||
+      status.currentVersion === venueAttendanceBadgesMigrationVersion ||
       status.currentVersion === maximumMigrationVersion)
   ) {
     const capability = await checkVenueWindowReadiness(pool);
@@ -366,6 +368,7 @@ export const checkStartupReadiness = async (
     venueQrEnabled &&
     (status.currentVersion === venueEntryGuidanceMigrationVersion ||
       status.currentVersion === venueReportingMigrationVersion ||
+      status.currentVersion === venueAttendanceBadgesMigrationVersion ||
       status.currentVersion === maximumMigrationVersion)
   ) {
     const capability = await checkVenueEntryGuidanceReadiness(pool);

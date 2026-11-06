@@ -194,7 +194,8 @@ describe('Compact grouped admin navigation', () => {
           '/admin/applications',
           '/admin/learners',
           '/admin/line-invites',
-          '/admin/channel-invites'
+          '/admin/channel-invites',
+          '/admin/practice-guidance'
         ],
         journal: ['/admin/journal', '/admin/shared-journal', '/admin/practice-feeling-tags'],
         settings: [

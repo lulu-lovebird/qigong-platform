@@ -12,6 +12,7 @@ import { registerVenuePeopleRoutes } from './venue-people-routes.js';
 import { createVenuePeopleService } from './venue-people-service.js';
 import { registerVenueReportingRoutes } from './venue-reporting-routes.js';
 import { createVenueReportingService } from './venue-reporting-service.js';
+import { registerAdminGuidanceRoutes } from './admin-guidance-routes.js';
 import {
   readVenueAdminCapabilities,
   readVenueManagementRegions
@@ -568,6 +569,23 @@ export const registerAdminRoutes = (
         timingSafeEqual(sha256(value), sha256(saved))
       );
     });
+
+  registerAdminGuidanceRoutes(app, {
+    pool,
+    adminOrigin: new URL(provider.callbackUrl).origin,
+    sessionFor: (request) => cookies(request)[sessionCookie] ?? null,
+    validCsrf: (request) => {
+      const value = request.headers['x-csrf-token'];
+      const saved = cookies(request)[csrfCookie];
+      return (
+        typeof value === 'string' &&
+        typeof saved === 'string' &&
+        saved.length > 0 &&
+        timingSafeEqual(sha256(value), sha256(saved))
+      );
+    },
+    principalFor
+  });
 
   registerReviewNotificationRoutes(
     app,

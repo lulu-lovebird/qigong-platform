@@ -9,7 +9,14 @@ const payloadSchema = z.object({
   locale: localeSchema,
   methods: z.array(z.string()).min(1).max(30),
   currentStreak: z.number().int().nonnegative(),
-  totalDays: z.number().int().nonnegative()
+  totalDays: z.number().int().nonnegative(),
+  guidance: z
+    .object({
+      campaignTitle: z.string().optional(),
+      title: z.string().nullable().optional(),
+      content: z.string()
+    })
+    .optional()
 });
 export type TelegramPracticeSummary = z.infer<typeof payloadSchema>;
 export type TelegramPracticeSender = (recipient: string, text: string) => Promise<void>;
@@ -38,7 +45,7 @@ export const buildTelegramPracticeSummary = (input: unknown) => {
     .map((name) => uiText(data.locale, name))
     .map((name) => [...name].slice(0, 55).join('') + ([...name].length > 55 ? '…' : ''))
     .join(english ? ', ' : '、');
-  return [
+  const baseLines = [
     title,
     (english ? 'Practice date: ' : uiText(data.locale, '練功日期：')) + data.date,
     (english ? 'Practice methods: ' : uiText(data.locale, '練習功法：')) + methods,
@@ -48,7 +55,18 @@ export const buildTelegramPracticeSummary = (input: unknown) => {
     english
       ? `⭐ Total practice: ${data.totalDays} days`
       : uiTemplate(data.locale)`⭐ 總打卡天數：${data.totalDays} 天`
-  ].join('\n');
+  ];
+
+  if (data.guidance?.content) {
+    const heading = data.guidance.title
+      ? `💡【${data.guidance.title}】`
+      : english
+        ? '💡【Daily Guidance】'
+        : uiText(data.locale, '💡【今日練功指引】');
+    baseLines.push('--------------------------', heading, data.guidance.content);
+  }
+
+  return baseLines.join('\n');
 };
 export const createTelegramPracticeSender =
   (botToken: string): TelegramPracticeSender =>

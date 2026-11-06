@@ -13,7 +13,7 @@ const venueFiles = [
 describe('unpublished venue renumber integration (static, not deployment evidence)', () => {
   it('keeps one artifact per number, including the published invitation migration', () => {
     const files = readdirSync(directory).filter((file) => /^\d{4}_[a-z0-9_]+\.sql$/.test(file));
-    expect(files).toHaveLength(62);
+    expect(files).toHaveLength(63);
     expect(new Set(files.map((file) => file.slice(0, 4))).size).toBe(files.length);
     expect(files.sort().slice(46, 51)).toEqual(['0047_channel_invitations.sql', ...venueFiles]);
     expect(files.slice(51)).toEqual([
@@ -27,7 +27,8 @@ describe('unpublished venue renumber integration (static, not deployment evidenc
       '0059_telegram_learner_review.sql',
       '0060_venue_entry_guidance.sql',
       '0061_venue_attendance_reporting.sql',
-      '0062_venue_attendance_badges.sql'
+      '0062_venue_attendance_badges.sql',
+      '0063_practice_guidance.sql'
     ]);
   });
 

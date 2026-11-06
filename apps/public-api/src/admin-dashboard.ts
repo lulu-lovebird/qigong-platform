@@ -27,7 +27,8 @@ export type AdminPage =
   | 'fieldSchedule'
   | 'attendance'
   | 'venueWeekendAttendance'
-  | 'venueLearnerAttendance';
+  | 'venueLearnerAttendance'
+  | 'guidance';
 
 const nfcNavLabels: Record<AdminLocale, Record<string, string>> = {
   zh_TW: {
@@ -58,7 +59,9 @@ const nfcNavLabels: Record<AdminLocale, Record<string, string>> = {
     fieldSchedule: 'Group Practice Attendance',
     attendance: 'Group Practice Attendance · Reports',
     venueWeekendAttendance: 'Group Practice Attendance · Weekend Reports',
-    venueLearnerAttendance: 'Group Practice Attendance · Learner History'
+    venueLearnerAttendance: 'Group Practice Attendance · Learner History',
+    navGuidance: 'Practice Guidance Management',
+    guidance: 'Practice Guidance Management'
   }
 };
 
@@ -100,6 +103,11 @@ const navigation: ReadonlyArray<{ page: AdminPage; path: string; label: AdminTex
     page: 'fieldSchedule',
     path: '/admin/fields',
     label: 'navFieldSchedule' as AdminTextKey
+  },
+  {
+    page: 'guidance',
+    path: '/admin/practice-guidance',
+    label: 'navGuidance' as AdminTextKey
   }
 ];
 
@@ -113,7 +121,11 @@ const navigationGroups: ReadonlyArray<{
     label: 'navGroupReports',
     pages: ['overview', 'leaderboard', 'achievements', 'methods', 'attendance']
   },
-  { id: 'learners', label: 'navGroupLearners', pages: ['review', 'learners', 'invites'] },
+  {
+    id: 'learners',
+    label: 'navGroupLearners',
+    pages: ['review', 'learners', 'invites', 'guidance']
+  },
   { id: 'journal', label: 'navGroupJournal', pages: ['journal', 'shared', 'tags'] },
   {
     id: 'settings',
