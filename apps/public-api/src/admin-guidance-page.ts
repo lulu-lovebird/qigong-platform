@@ -143,7 +143,11 @@ export const renderAdminGuidancePage = (
 
   <script>
   (() => {
-    const csrf = () => (document.cookie.split(';').map(v=>v.trim()).find(v=>v.startsWith('__Host-qigong-admin-csrf='))||'').slice(26);
+    const csrf = () =>
+      document.cookie
+        .split('; ')
+        .find((part) => part.startsWith('__Host-qigong-admin-csrf='))
+        ?.split('=')[1] || '';
     const statusBar = document.getElementById('status-bar');
     const campaignsTbody = document.getElementById('campaigns-tbody');
     const dialog = document.getElementById('campaign-dialog');
