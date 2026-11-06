@@ -317,4 +317,21 @@ describe('WhatsApp committed check-in completion', () => {
     expect(f.get('wa-completion').hidden).toBe(true);
     expect(f.window.close).not.toHaveBeenCalled();
   });
+  it('renders guidance content when present in the completion result', () => {
+    const f = fixture();
+    const resultWithGuidance = {
+      ...result,
+      guidance: {
+        title: '立冬節氣練功',
+        content: '今日立冬，練功時注意保暖，加練大雁初級前段。'
+      }
+    };
+    f.api.validate(resultWithGuidance, f.saved);
+    f.api.show(f.saved, resultWithGuidance);
+    const box = f.get('wa-completion-guidance');
+    expect(box.hidden).toBe(false);
+    expect(box.children).toHaveLength(2);
+    expect(box.children[0]?.textContent).toContain('立冬節氣練功');
+    expect(box.children[1]?.textContent).toBe('今日立冬，練功時注意保暖，加練大雁初級前段。');
+  });
 });

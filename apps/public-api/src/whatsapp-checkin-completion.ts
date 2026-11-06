@@ -7,6 +7,7 @@ export const whatsappCompletionTexts = (locale: LearnerLocale) =>
         title: 'Check-in completed',
         encouragement: 'Keep it up tomorrow!',
         record: 'This saved check-in',
+        guidance: 'Practice guidance',
         date: 'Practice date',
         zone: 'Practice time zone',
         methods: 'Practice methods',
@@ -29,6 +30,7 @@ export const whatsappCompletionTexts = (locale: LearnerLocale) =>
         title: '已完成打卡',
         encouragement: '明天繼續加油！',
         record: '本次已儲存的打卡紀錄',
+        guidance: '練功指引',
         date: '練習日期',
         zone: '練習時區',
         methods: '練習功法',
@@ -62,6 +64,14 @@ export const whatsappCompletionBootstrap = (locale: LearnerLocale) => `
       waCancelCompletionTimer();waCompletionActive=true;waCompletionRefreshError=false;
       const record=$('wa-completion-record');record.replaceChildren();
       for(const text of [waCompletionText.date+': '+saved.date,waCompletionText.zone+': '+saved.timezone,waCompletionText[result.action],waCompletionText.methods+': '+saved.methods.join('、')])record.append(node('p',text));
+      const guidanceBox=$('wa-completion-guidance');
+      if(result.guidance&&result.guidance.content){
+        guidanceBox.replaceChildren();
+        const headerText=result.guidance.title?waCompletionText.guidance+': '+result.guidance.title:waCompletionText.guidance;
+        guidanceBox.append(node('h4',headerText));
+        guidanceBox.append(node('p',result.guidance.content));
+        guidanceBox.hidden=false;
+      }else if(guidanceBox){guidanceBox.replaceChildren();guidanceBox.hidden=true;}
       $('wa-completion-hint').textContent=waCompletionText.waiting;$('editor').hidden=true;$('wa-completion').hidden=false;
       $('wa-completion').focus?.();$('wa-completion').scrollIntoView?.({behavior:'smooth',block:'start'});
     };
@@ -79,11 +89,11 @@ export const whatsappCompletionBootstrap = (locale: LearnerLocale) => `
 
 export const addWhatsAppCheckinCompletion = (html: string, locale: LearnerLocale): string => {
   const t = whatsappCompletionTexts(locale);
-  const panel = `<section id="wa-completion" class="card wa-completion" role="status" aria-live="polite" tabindex="-1" hidden><h2>${t.title}</h2><p class="success">${t.encouragement}</p><h3>${t.record}</h3><div id="wa-completion-record"></div><p id="wa-completion-hint" class="hint"></p><div class="row"><button id="wa-completion-close" type="button">${t.close}</button><button id="wa-completion-edit" type="button" class="secondary">${t.edit}</button></div></section>`;
+  const panel = `<section id="wa-completion" class="card wa-completion" role="status" aria-live="polite" tabindex="-1" hidden><h2>${t.title}</h2><p class="success">${t.encouragement}</p><h3>${t.record}</h3><div id="wa-completion-record"></div><div id="wa-completion-guidance" class="wa-completion-guidance" hidden></div><p id="wa-completion-hint" class="hint"></p><div class="row"><button id="wa-completion-close" type="button">${t.close}</button><button id="wa-completion-edit" type="button" class="secondary">${t.edit}</button></div></section>`;
   const edits: ReadonlyArray<readonly [string, string]> = [
     [
       '</style>',
-      '.wa-completion{overflow-wrap:anywhere;border:3px solid #166534;background:#f0fdf4}.wa-completion>h2{margin:0 0 12px;color:#14532d;font-size:clamp(2rem,8vw,2.75rem);font-weight:800;line-height:1.3;text-align:center}.wa-completion>.success{margin:0 0 24px;color:#14532d;font-size:clamp(1.5rem,6vw,2rem);font-weight:800;line-height:1.4;text-align:center}.wa-completion button{min-height:44px;white-space:normal}</style>'
+      '.wa-completion{overflow-wrap:anywhere;border:3px solid #166534;background:#f0fdf4}.wa-completion>h2{margin:0 0 12px;color:#14532d;font-size:clamp(2rem,8vw,2.75rem);font-weight:800;line-height:1.3;text-align:center}.wa-completion>.success{margin:0 0 24px;color:#14532d;font-size:clamp(1.5rem,6vw,2rem);font-weight:800;line-height:1.4;text-align:center}.wa-completion button{min-height:44px;white-space:normal}.wa-completion-guidance{background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:12px;margin:12px 0}.wa-completion-guidance>h4{margin:0 0 6px;color:#065f46;font-size:1.1rem}.wa-completion-guidance>p{margin:0;color:#047857;white-space:pre-wrap}</style>'
     ],
     ['<fieldset id="editor"', panel + '<fieldset id="editor"'],
     [

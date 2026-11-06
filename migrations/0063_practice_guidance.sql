@@ -107,7 +107,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION platform.queue_channel_practice_receipt(input_platform TEXT,input_credential TEXT,input_checkin UUID,input_action TEXT) RETURNS UUID
+CREATE OR REPLACE FUNCTION platform._pre_browser_queue_channel_practice_receipt(input_platform TEXT,input_credential TEXT,input_checkin UUID,input_action TEXT) RETURNS UUID
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE target UUID;ident UUID;recipient TEXT;practice core.checkins;payload JSONB;receipt UUID;locale TEXT;state TEXT;guidance JSONB;
 BEGIN
@@ -115,7 +115,7 @@ BEGIN
  IF input_action IS NULL OR input_action NOT IN ('regular','makeup','corrected') THEN RAISE EXCEPTION 'invalid receipt action';END IF;
  SELECT * INTO practice FROM core.checkins WHERE id=input_checkin AND person_id=target;IF practice.id IS NULL THEN RAISE EXCEPTION 'practice identity unavailable';END IF;
  SELECT external_subject_id INTO recipient FROM identity.platform_identities WHERE id=ident;
- locale:=CASE WHEN input_platform='line' THEN 'zh_TW' ELSE platform.get_identity_locale(input_platform,recipient) END;
+ locale:=platform.get_identity_locale(input_platform,recipient);
  guidance:=core.lookup_practice_guidance(practice.practice_date);
  payload:=core.practice_metrics(target,(clock_timestamp() AT TIME ZONE practice.practice_timezone)::date)||jsonb_build_object('date',practice.practice_date::text,'action',input_action,'locale',locale,'methods',(SELECT jsonb_agg(CASE WHEN locale='en' THEN m.name_en ELSE m.name_zh_tw END ORDER BY m.sort_order,m.code) FROM core.checkin_method_selections s JOIN core.practice_methods m ON m.id=s.practice_method_id WHERE s.checkin_id=input_checkin));
  IF guidance IS NOT NULL THEN
@@ -123,6 +123,51 @@ BEGIN
  END IF;
  state:=CASE WHEN input_platform='whatsapp' AND NOT EXISTS(SELECT 1 FROM platform.whatsapp_service_windows w WHERE w.subject_hash=platform.privacy_subject_hash('whatsapp',recipient) AND w.expires_at>clock_timestamp()) THEN 'cancelled' ELSE 'pending' END;
  INSERT INTO ops.channel_practice_receipts(platform,identity_id,person_id,checkin_id,recipient,payload,status) VALUES(input_platform,ident,target,practice.id,recipient,payload,state) RETURNING id INTO receipt;RETURN receipt;
+END$$;
+
+CREATE OR REPLACE FUNCTION platform.queue_channel_practice_receipt(input_platform TEXT,input_credential TEXT,input_checkin UUID,input_action TEXT) RETURNS UUID
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$DECLARE target UUID;BEGIN
+ IF input_platform='whatsapp' THEN target:=platform.channel_workspace_person(input_platform,input_credential);
+ IF input_action IS NULL OR input_action NOT IN ('regular','makeup','corrected') OR NOT EXISTS(SELECT 1 FROM core.checkins WHERE id=input_checkin AND person_id=target) THEN RAISE EXCEPTION 'invalid receipt action';END IF;RETURN NULL;END IF;
+ RETURN platform._pre_browser_queue_channel_practice_receipt(input_platform,input_credential,input_checkin,input_action);
+END$$;
+
+CREATE OR REPLACE FUNCTION platform.channel_workspace_save(input_platform TEXT,input_credential TEXT,input_request UUID,input_date DATE,input_version INTEGER,input_methods TEXT[],input_note TEXT,input_tags UUID[]) RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE target UUID;ident UUID;practice UUID;actual_version INTEGER;anchor DATE;zone TEXT;old_request ops.channel_practice_requests;fingerprint BYTEA;result JSONB;action TEXT;receipt UUID;subject TEXT;guidance JSONB;
+BEGIN
+ target:=platform.channel_workspace_person(input_platform,input_credential);
+ SELECT practice_timezone INTO zone FROM identity.people WHERE id=target FOR UPDATE;
+ IF platform.channel_workspace_person(input_platform,input_credential) IS DISTINCT FROM target THEN RAISE EXCEPTION 'practice identity unavailable';END IF;
+ IF coalesce(input_note,'')<>'' OR cardinality(input_tags)>0 THEN PERFORM platform.require_reflection_consent(input_platform,input_credential);END IF;
+ ident:=platform.channel_workspace_identity(input_platform,input_credential,target);
+ IF input_request IS NULL OR input_date IS NULL OR input_version IS NULL OR input_version<0 THEN RAISE EXCEPTION 'invalid workspace save';END IF;
+ fingerprint:=public.digest(jsonb_build_array(input_date,input_version,input_methods,input_note,input_tags)::text,'sha256');
+ SELECT * INTO old_request FROM ops.channel_practice_requests WHERE identity_id=ident AND request_id=input_request;
+ IF old_request.identity_id IS NOT NULL THEN IF old_request.payload_hash<>fingerprint THEN RAISE EXCEPTION 'workspace request conflict' USING ERRCODE='40001';END IF;RETURN old_request.result||CASE WHEN input_platform='whatsapp' THEN jsonb_build_object('receiptQueued',FALSE) ELSE '{}'::jsonb END;END IF;
+ IF NOT EXISTS(SELECT 1 FROM platform.telegram_workspace_preferences WHERE person_id=target) THEN RAISE EXCEPTION 'workspace timezone unconfirmed';END IF;
+ anchor:=(CURRENT_TIMESTAMP AT TIME ZONE zone)::date;
+ IF (clock_timestamp() AT TIME ZONE zone)::date<>anchor OR (input_date<>anchor AND (input_date<>anchor-1 OR (clock_timestamp() AT TIME ZONE zone)::time>=TIME '12:00')) THEN RAISE EXCEPTION 'checkin correction unavailable';END IF;
+ SELECT id INTO practice FROM core.checkins WHERE person_id=target AND practice_date=input_date FOR UPDATE;
+ SELECT external_subject_id INTO subject FROM identity.platform_identities WHERE id=ident;
+ IF practice IS NULL THEN
+  IF input_version<>0 THEN RAISE EXCEPTION 'workspace version conflict' USING ERRCODE='40001';END IF;
+  IF input_platform='line' THEN SELECT checkin_id,entry_kind INTO practice,action FROM platform.submit_line_checkin(subject,input_methods,input_date=anchor-1);
+  ELSE SELECT checkin_id,entry_kind INTO practice,action FROM platform.submit_whatsapp_checkin(subject,input_methods,input_date=anchor-1);END IF;
+ ELSE
+  SELECT coalesce((SELECT revision FROM platform.telegram_practice_versions WHERE checkin_id=practice),0) INTO actual_version;
+  IF actual_version<>input_version THEN RAISE EXCEPTION 'workspace version conflict' USING ERRCODE='40001';END IF;
+  IF input_platform='line' THEN PERFORM platform.correct_line_checkin(subject,practice,input_methods);ELSE PERFORM platform.correct_whatsapp_checkin(subject,practice,input_methods);END IF;action:='corrected';
+ END IF;
+ PERFORM platform.save_practice_note(input_platform,input_credential,practice,input_note,input_tags);
+ receipt:=platform.queue_channel_practice_receipt(input_platform,input_credential,practice,action);
+ guidance:=core.lookup_practice_guidance(input_date);
+ SELECT revision INTO actual_version FROM platform.telegram_practice_versions WHERE checkin_id=practice;
+ result:=jsonb_build_object('checkinId',practice,'version',actual_version,'action',action,'receiptQueued',coalesce((SELECT status='pending' FROM ops.channel_practice_receipts WHERE id=receipt),FALSE));
+ IF guidance IS NOT NULL THEN
+   result:=result||jsonb_build_object('guidance',guidance);
+ END IF;
+ INSERT INTO ops.channel_practice_requests(identity_id,request_id,payload_hash,result) VALUES(ident,input_request,fingerprint,result);RETURN result;
 END$$;
 
 CREATE OR REPLACE FUNCTION admin.manage_guidance_campaign(
