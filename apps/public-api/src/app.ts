@@ -58,6 +58,10 @@ import {
   type VenueSuiteFeature
 } from './venue-suite.js';
 import { venueReportingMigrationVersion } from './venue-reporting-service.js';
+import { adminMcpRoutes } from './admin-mcp-routes.js';
+import type { AdminMcpAuthVerifier } from './admin-mcp-dispatch.js';
+import type { AdminMcpReadToolName } from './admin-mcp-contract.js';
+import type { AdminMcpCampaignStatusPolicy } from './admin-mcp-pg-read-adapter.js';
 
 // LIFF primary redirects can contain both SDK credentials and private application fragments in the query.
 export const apiLogRedaction = Object.freeze({
@@ -80,7 +84,8 @@ export const minimumMigrationVersion = '0042_activity_consecutive_drafts.sql';
 // Exact QR schema compatibility does not enable QR or the old NFC routes.
 export const venueAttendanceBadgesMigrationVersion = '0062_venue_attendance_badges.sql';
 export const practiceGuidanceMigrationVersion = '0063_practice_guidance.sql';
-export const maximumMigrationVersion = practiceGuidanceMigrationVersion;
+export const adminMcpMigrationVersion = '0064_admin_mcp_read_facade.sql';
+export const maximumMigrationVersion = adminMcpMigrationVersion;
 const telegramLearnerReviewMigrationVersion = '0059_telegram_learner_review.sql';
 const defaultOffMigrationVersions = new Set([
   minimumMigrationVersion,
@@ -99,7 +104,8 @@ const defaultOffMigrationVersions = new Set([
   venueDebugMigrationVersion,
   telegramLearnerReviewMigrationVersion,
   venueEntryGuidanceMigrationVersion,
-  maximumMigrationVersion
+  practiceGuidanceMigrationVersion,
+  adminMcpMigrationVersion
 ]);
 // HTTP error classes can inherit status/message data (unlike log diagnostics,
 // which deliberately ignore prototypes). Preserve that compatibility without
@@ -240,6 +246,13 @@ interface AppDependencies {
   logStream?: FastifyLoggerOptions['stream'];
   serviceVersion?: string;
   adminAuth?: AdminAuthProvider;
+  adminMcp?: {
+    enabled: boolean;
+    verifier: AdminMcpAuthVerifier;
+    allowedOrigins?: string[];
+    enabledTools?: readonly AdminMcpReadToolName[];
+    campaignStatus?: AdminMcpCampaignStatusPolicy;
+  };
   telegramOnboarding?: TelegramOnboardingConfig;
   telegramLearnerReviewEnabled?: boolean;
   line?: LineConfig;
@@ -277,14 +290,16 @@ export const createVenueEntryModeResolver =
         status.currentVersion !== telegramLearnerReviewMigrationVersion &&
         status.currentVersion !== venueEntryGuidanceMigrationVersion &&
         status.currentVersion !== venueReportingMigrationVersion &&
-        status.currentVersion !== maximumMigrationVersion
+        status.currentVersion !== practiceGuidanceMigrationVersion &&
+        status.currentVersion !== adminMcpMigrationVersion
       )
         return 'unavailable';
       if ((await checkVenueWindowReadiness(pool)).ready !== true) return 'unavailable';
       if (
         status.currentVersion !== venueEntryGuidanceMigrationVersion &&
         status.currentVersion !== venueReportingMigrationVersion &&
-        status.currentVersion !== maximumMigrationVersion
+        status.currentVersion !== practiceGuidanceMigrationVersion &&
+        status.currentVersion !== adminMcpMigrationVersion
       )
         return 'legacy';
       return (await checkVenueEntryGuidanceReadiness(pool)).ready === true
@@ -321,7 +336,8 @@ export const checkStartupReadiness = async (
           (status.currentVersion === venueDebugMigrationVersion ||
             status.currentVersion === telegramLearnerReviewMigrationVersion ||
             status.currentVersion === venueEntryGuidanceMigrationVersion ||
-            status.currentVersion === maximumMigrationVersion)
+            status.currentVersion === practiceGuidanceMigrationVersion ||
+            status.currentVersion === adminMcpMigrationVersion)
         : enabledFeatures.length > 0
           ? status.currentVersion === venueSuiteMigrationVersion ||
             status.currentVersion === '0055_venue_distance_debug.sql' ||
@@ -330,7 +346,8 @@ export const checkStartupReadiness = async (
             status.currentVersion === venueDebugMigrationVersion ||
             status.currentVersion === telegramLearnerReviewMigrationVersion ||
             status.currentVersion === venueEntryGuidanceMigrationVersion ||
-            status.currentVersion === maximumMigrationVersion
+            status.currentVersion === practiceGuidanceMigrationVersion ||
+            status.currentVersion === adminMcpMigrationVersion
           : venueQrEnabled
             ? status.currentVersion === venueQrMigrationVersion ||
               status.currentVersion === venueSuiteMigrationVersion ||
@@ -340,7 +357,8 @@ export const checkStartupReadiness = async (
               status.currentVersion === venueDebugMigrationVersion ||
               status.currentVersion === telegramLearnerReviewMigrationVersion ||
               status.currentVersion === venueEntryGuidanceMigrationVersion ||
-              status.currentVersion === maximumMigrationVersion
+              status.currentVersion === practiceGuidanceMigrationVersion ||
+              status.currentVersion === adminMcpMigrationVersion
             : status.currentVersion !== null &&
               defaultOffMigrationVersions.has(status.currentVersion))
   };
@@ -356,7 +374,8 @@ export const checkStartupReadiness = async (
       status.currentVersion === venueEntryGuidanceMigrationVersion ||
       status.currentVersion === venueReportingMigrationVersion ||
       status.currentVersion === venueAttendanceBadgesMigrationVersion ||
-      status.currentVersion === maximumMigrationVersion)
+      status.currentVersion === practiceGuidanceMigrationVersion ||
+      status.currentVersion === adminMcpMigrationVersion)
   ) {
     const capability = await checkVenueWindowReadiness(pool);
     if (!capability.ready)
@@ -369,7 +388,8 @@ export const checkStartupReadiness = async (
     (status.currentVersion === venueEntryGuidanceMigrationVersion ||
       status.currentVersion === venueReportingMigrationVersion ||
       status.currentVersion === venueAttendanceBadgesMigrationVersion ||
-      status.currentVersion === maximumMigrationVersion)
+      status.currentVersion === practiceGuidanceMigrationVersion ||
+      status.currentVersion === adminMcpMigrationVersion)
   ) {
     const capability = await checkVenueEntryGuidanceReadiness(pool);
     if (!capability.ready)
@@ -397,6 +417,7 @@ export const buildApp = ({
   logStream,
   serviceVersion = 'development',
   adminAuth,
+  adminMcp,
   telegramOnboarding,
   telegramLearnerReviewEnabled = false,
   line,
@@ -606,6 +627,15 @@ export const buildApp = ({
       suite,
       telegramLearnerReviewEnabled
     );
+  if (adminMcp?.enabled === true)
+    app.register(adminMcpRoutes, {
+      pool,
+      verifier: adminMcp.verifier,
+      allowedOrigins: adminMcp.allowedOrigins ?? ['https://checkin.baiyinqigong.org'],
+      enabledTools: adminMcp.enabledTools ?? ['guidance_list', 'guidance_get', 'venues_list'],
+      campaignStatus:
+        adminMcp.campaignStatus ?? ((campaign) => (campaign.isActive ? 'published' : 'archived'))
+    });
   if (telegramOnboarding)
     registerTelegramOnboarding(
       app,

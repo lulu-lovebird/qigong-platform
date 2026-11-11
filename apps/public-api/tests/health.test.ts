@@ -7,9 +7,14 @@ import {
   checkStartupReadiness,
   createVenueEntryModeResolver,
   minimumMigrationVersion,
+  practiceGuidanceMigrationVersion,
+  adminMcpMigrationVersion,
   maximumMigrationVersion
 } from '../src/app.js';
 import { nfcMigrationVersion, nfcQuarantineMigrationVersion } from '../src/admin-auth.js';
+import { adminMcpReadScopes } from '../src/admin-mcp-contract.js';
+import type { AdminMcpAuthVerifier } from '../src/admin-mcp-dispatch.js';
+import type { AdminMcpCampaignStatusPolicy } from '../src/admin-mcp-pg-read-adapter.js';
 
 beforeEach(() => {
   vi.stubEnv('NFC_FIELD_CHECKIN_ENABLED', undefined);
@@ -26,8 +31,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// Existing venue fixtures stay pinned to the last reviewed capability ledger;
+// schema64 readiness is tested explicitly below, without inventing SQL support.
 const createPoolMock = (
-  version: string | null = maximumMigrationVersion,
+  version: string | null = practiceGuidanceMigrationVersion,
   preflightReady = true,
   evidence: {
     window?: boolean;
@@ -410,7 +417,7 @@ describe('guidance API through buildApp (mock SQL and pure LINE identity)', () =
           : null,
         nextSession: null
       };
-      const mock = createPoolMock(maximumMigrationVersion, true, { availability: data });
+      const mock = createPoolMock(practiceGuidanceMigrationVersion, true, { availability: data });
       const line = guidanceLine();
       const app = buildApp({ pool: mock.pool, logger: false, line, venueQr: qr });
       const suffix = '/venue-checkin?venue=' + guidanceCode + '&source=nfc';
@@ -481,7 +488,7 @@ describe('guidance API through buildApp (mock SQL and pure LINE identity)', () =
   );
 
   it('bad schema60 capability makes composed pages unavailable, never a legacy GPS fallback', async () => {
-    const mock = createPoolMock(maximumMigrationVersion, true, { entry: false });
+    const mock = createPoolMock(practiceGuidanceMigrationVersion, true, { entry: false });
     const line = guidanceLine();
     const app = buildApp({ pool: mock.pool, logger: false, line, venueQr: qr });
     try {
@@ -576,8 +583,8 @@ describe('guidance API through buildApp (mock SQL and pure LINE identity)', () =
     ['0051_venue_qr_attendance.sql', {}, 404],
     ['0058_venue_early_checkin_window.sql', {}, 404],
     ['0059_telegram_learner_review.sql', {}, 404],
-    [maximumMigrationVersion, { window: false }, 503],
-    [maximumMigrationVersion, { entry: false }, 503],
+    [practiceGuidanceMigrationVersion, { window: false }, 503],
+    [practiceGuidanceMigrationVersion, { entry: false }, 503],
     ['0060_unknown.sql', {}, 503]
   ] as const)(
     '%s rejects unsupported/unready operations without data facades',
@@ -629,7 +636,7 @@ describe('guidance API through buildApp (mock SQL and pure LINE identity)', () =
         relevantSession: ['open', 'before_open', 'ended'].includes(availability) ? session : null,
         nextSession: null
       };
-      const mock = createPoolMock(maximumMigrationVersion, true, { availability: data });
+      const mock = createPoolMock(practiceGuidanceMigrationVersion, true, { availability: data });
       const line = guidanceLine();
       const app = buildApp({ pool: mock.pool, logger: false, line, venueQr: qr });
       try {
@@ -663,7 +670,7 @@ describe('guidance API through buildApp (mock SQL and pure LINE identity)', () =
   it.each(['needs_application', 'pending', 'approved', 'blocked'] as const)(
     'self %s verifies once, then resolves mode, then reads only the verified subject',
     async (learner) => {
-      const mock = createPoolMock(maximumMigrationVersion, true, { learner });
+      const mock = createPoolMock(practiceGuidanceMigrationVersion, true, { learner });
       const line = guidanceLine();
       const app = buildApp({ pool: mock.pool, logger: false, line, venueQr: qr });
       try {
@@ -748,7 +755,8 @@ describe('health endpoints', () => {
     nfcQuarantineMigrationVersion,
     '0058_venue_early_checkin_window.sql',
     '0059_telegram_learner_review.sql',
-    maximumMigrationVersion
+    practiceGuidanceMigrationVersion,
+    adminMcpMigrationVersion
   ])('accepts %s at startup and health without NFC access when off', async (version) => {
     const mock = createPoolMock(version);
     const app = buildApp({ pool: mock.pool, logger: false });
@@ -831,7 +839,9 @@ describe('health endpoints', () => {
         '0052_future.sql',
         '0059_future.sql',
         '0060_future.sql',
-        '0061_future.sql'
+        '0061_future.sql',
+        '0064_other.sql',
+        '0065_future.sql'
       ]) {
         const mock = createPoolMock(version);
         expect(await checkStartupReadiness(mock.pool)).toMatchObject({
@@ -869,8 +879,21 @@ describe('health endpoints', () => {
     }
   );
 
-  it('keeps the reviewed schema63 maximum explicit without enabling Telegram review', () => {
-    expect(maximumMigrationVersion).toBe('0063_practice_guidance.sql');
+  it('keeps the reviewed schema64 maximum explicit without enabling optional features', () => {
+    expect(adminMcpMigrationVersion).toBe('0064_admin_mcp_read_facade.sql');
+    expect(maximumMigrationVersion).toBe(adminMcpMigrationVersion);
+  });
+
+  it('schema64 reaches the unchanged venue capability gate and fails closed without reviewed evidence', async () => {
+    // venue-suite.ts still only admits exact ledgers through 0063; do not teach this mock
+    // that 0064 has reviewed window/entry evidence before those SQL gates are updated.
+    const mock = createPoolMock(adminMcpMigrationVersion);
+    expect(await checkStartupReadiness(mock.pool, true)).toMatchObject({
+      ready: false,
+      reason: 'venue_feature_not_ready',
+      capability: { feature: 'window', ready: false }
+    });
+    expect(capabilityCalls(mock)).toHaveLength(1);
   });
 
   it.each([
@@ -879,7 +902,8 @@ describe('health endpoints', () => {
     '0060_venue_entry_guidance.sql',
     '0061_venue_attendance_reporting.sql',
     '0062_venue_attendance_badges.sql',
-    '0063_practice_guidance.sql'
+    practiceGuidanceMigrationVersion,
+    adminMcpMigrationVersion
   ])(
     'default-off build, liveness and ordinary public preview use zero DB on %s',
     async (version) => {
@@ -989,4 +1013,308 @@ describe('health endpoints', () => {
     expectNoNfcAccess(mock);
     await app.close();
   });
+});
+
+const mcpOrigin = 'https://checkin.baiyinqigong.org';
+const mcpAuthorization = {
+  principalId: '10000000-0000-4000-8000-000000000001',
+  clientId: 'synthetic-mcp-client',
+  principalActive: true as const,
+  isSuperAdmin: true as const,
+  clientAuthorized: true as const,
+  scopes: adminMcpReadScopes,
+  expiresAt: '2099-01-01T00:00:00Z'
+};
+const mcpVerifier = () => ({
+  verifyCurrentAuthorization: vi
+    .fn<AdminMcpAuthVerifier['verifyCurrentAuthorization']>()
+    .mockResolvedValue(mcpAuthorization)
+});
+
+describe('Admin MCP app wiring (mock authorization and PostgreSQL)', () => {
+  it.each([undefined, false])(
+    'does not mount MCP when enabled is %s, regardless of ambient env',
+    async (enabled) => {
+      vi.stubEnv('ADMIN_MCP_ENABLED', 'true');
+      const mock = createPoolMock(adminMcpMigrationVersion);
+      const verifier = mcpVerifier();
+      const app = buildApp({
+        pool: mock.pool,
+        logger: false,
+        ...(enabled === undefined ? {} : { adminMcp: { enabled, verifier } })
+      });
+      try {
+        for (const method of ['GET', 'POST'] as const) {
+          expect((await app.inject({ method, url: '/mcp/admin' })).statusCode).toBe(404);
+        }
+        expect(verifier.verifyCurrentAuthorization).not.toHaveBeenCalled();
+        expect(mock.connect).not.toHaveBeenCalled();
+        expect(mock.directQuery).not.toHaveBeenCalled();
+      } finally {
+        await app.close();
+      }
+    }
+  );
+
+  it('mounts opt-in MCP without browser admin auth and defaults to the three reviewed read tools', async () => {
+    const mock = createPoolMock(adminMcpMigrationVersion);
+    const verifier = mcpVerifier();
+    const app = buildApp({ pool: mock.pool, logger: false, adminMcp: { enabled: true, verifier } });
+    try {
+      const unauthorized = await app.inject({
+        url: '/mcp/admin',
+        headers: { cookie: 'admin_session=synthetic' }
+      });
+      expect(unauthorized.statusCode).toBe(401);
+      expect(verifier.verifyCurrentAuthorization).not.toHaveBeenCalled();
+      const denied = await app.inject({
+        url: '/mcp/admin',
+        headers: { authorization: 'Bearer synthetic', origin: 'https://untrusted.example.test' }
+      });
+      expect(denied.statusCode).toBe(403);
+      expect(verifier.verifyCurrentAuthorization).not.toHaveBeenCalled();
+      for (const origin of [undefined, mcpOrigin]) {
+        const response = await app.inject({
+          url: '/mcp/admin',
+          headers: { authorization: 'Bearer synthetic', ...(origin ? { origin } : {}) }
+        });
+        expect(response.statusCode).toBe(200);
+        expect(response.headers['cache-control']).toBe('no-store');
+        expect(response.json()).toMatchObject({
+          ok: true,
+          data: {
+            phase: 'read_only',
+            tools: ['admin_get_capabilities', 'guidance_list', 'guidance_get', 'venues_list']
+          }
+        });
+      }
+      expect(mock.connect).not.toHaveBeenCalled();
+      expect(mock.directQuery).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it.each([
+    [true, 'published', false],
+    [false, 'archived', false],
+    [true, 'draft', true]
+  ] as const)(
+    'maps active=%s to %s with custom policy=%s through the registered PG adapter',
+    async (isActive, status, custom) => {
+      const mock = createPoolMock(adminMcpMigrationVersion);
+      const campaign = {
+        id: mcpAuthorization.principalId,
+        title: 'Synthetic guidance',
+        startDate: '2026-01-01',
+        endDate: '2026-01-31',
+        timezone: 'Asia/Taipei',
+        isActive,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z'
+      };
+      mock.client.query.mockImplementation(async (sql) => ({
+        rows: sql.includes('admin.mcp_read_guidance_campaigns') ? [{ data: [campaign] }] : []
+      }));
+      const policy = vi.fn<AdminMcpCampaignStatusPolicy>(() => 'draft');
+      const app = buildApp({
+        pool: mock.pool,
+        logger: false,
+        adminMcp: {
+          enabled: true,
+          verifier: mcpVerifier(),
+          ...(custom ? { campaignStatus: policy } : {})
+        }
+      });
+      try {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/mcp/admin',
+          headers: { authorization: 'Bearer synthetic', origin: mcpOrigin },
+          payload: {
+            tool: 'guidance_list',
+            arguments: {
+              from: '2026-01-01',
+              until: '2026-02-01',
+              timezone: 'Asia/Taipei',
+              cursor: null,
+              limit: 10
+            }
+          }
+        });
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+          ok: true,
+          data: { items: [{ campaignId: campaign.id, status }] }
+        });
+        expect(policy).toHaveBeenCalledTimes(custom ? 1 : 0);
+        expect(mock.client.release).toHaveBeenCalledOnce();
+      } finally {
+        await app.close();
+      }
+    }
+  );
+
+  it('forwards explicit origins and tool allowlists, including an empty allowlist', async () => {
+    for (const enabledTools of [['venues_list'] as const, [] as const]) {
+      const mock = createPoolMock(adminMcpMigrationVersion);
+      const app = buildApp({
+        pool: mock.pool,
+        logger: false,
+        adminMcp: {
+          enabled: true,
+          verifier: mcpVerifier(),
+          allowedOrigins: ['https://custom.example.test'],
+          enabledTools
+        }
+      });
+      try {
+        const headers = {
+          authorization: 'Bearer synthetic',
+          origin: 'https://custom.example.test'
+        };
+        expect(
+          (await app.inject({ url: '/mcp/admin', headers: { ...headers, origin: mcpOrigin } }))
+            .statusCode
+        ).toBe(403);
+        const response = await app.inject({ url: '/mcp/admin', headers });
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+          data: { tools: ['admin_get_capabilities', ...enabledTools] }
+        });
+        const disabled = await app.inject({
+          method: 'POST',
+          url: '/mcp/admin',
+          headers,
+          payload: { tool: 'guidance_list', arguments: {} }
+        });
+        expect(disabled.statusCode).toBe(404);
+        expect(disabled.json()).toMatchObject({ error: { code: 'tool_unavailable' } });
+        expect(mock.connect).not.toHaveBeenCalled();
+      } finally {
+        await app.close();
+      }
+    }
+  });
+});
+
+// Exercise the real entrypoint and verifier factory with an injected startup source.
+// Pool acquisition, browser discovery and app construction/listen are substituted;
+// actual MCP registration through buildApp is covered separately above.
+describe('Admin MCP startup environment wiring', () => {
+  const source = {
+    NODE_ENV: 'test',
+    DATABASE_URL: 'postgresql://synthetic.invalid/test',
+    ADMIN_OIDC_ISSUER_URL: 'https://identity.example.test',
+    ADMIN_OIDC_CLIENT_ID: 'synthetic-browser-client',
+    ADMIN_OIDC_REDIRECT_URI: 'https://admin.example.test/callback'
+  };
+  const setup = async () => {
+    const mock = createPoolMock(adminMcpMigrationVersion);
+    const end = vi.fn(async () => {});
+    const pool = Object.assign(mock.pool, { end, on: vi.fn() });
+    vi.spyOn(database, 'createPool').mockReturnValue(pool);
+    const oidc = await import('../src/oidc-provider.js');
+    vi.spyOn(oidc, 'createAdminOidcProvider').mockResolvedValue({
+      callbackUrl: source.ADMIN_OIDC_REDIRECT_URI,
+      begin: async () => new URL(source.ADMIN_OIDC_ISSUER_URL),
+      complete: async () => ({ iss: source.ADMIN_OIDC_ISSUER_URL, sub: 'synthetic-admin' })
+    });
+    const app = buildApp({ pool, logger: false });
+    const listen = vi.spyOn(app, 'listen').mockResolvedValue('http://127.0.0.1:3100');
+    const appModule = await import('../src/app.js');
+    const build = vi.spyOn(appModule, 'buildApp').mockReturnValue(app);
+    const verifierModule = await import('../src/admin-mcp-oidc-verifier.js');
+    const verifier = vi.spyOn(verifierModule, 'createAdminMcpOidcVerifier');
+    const output = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // Do not install actual process signal handlers for a fake listener.
+    vi.spyOn(process, 'on').mockReturnValue(process);
+    vi.spyOn(process, 'off').mockReturnValue(process);
+    const { runPublicApi } = await import('../src/index.js');
+    const exit = vi.fn<(code: 0 | 1) => void>();
+    return { pool, end, app, listen, build, verifier, output, runPublicApi, exit };
+  };
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([undefined, 'false'])(
+    'defaults MCP off for %s using only the explicit source',
+    async (enabled) => {
+      const runtime = await setup();
+      vi.stubEnv('ADMIN_MCP_ENABLED', 'true');
+      try {
+        await runtime.runPublicApi(
+          {
+            ...source,
+            ADMIN_MCP_ENABLED: enabled,
+            ADMIN_MCP_OIDC_CLIENT_ID: 'invalid client ignored while off'
+          },
+          runtime.exit
+        );
+        expect(runtime.build).toHaveBeenCalledOnce();
+        expect(runtime.build.mock.calls[0]?.[0]).not.toHaveProperty('adminMcp');
+        expect(runtime.verifier).not.toHaveBeenCalled();
+        expect(runtime.listen).toHaveBeenCalledOnce();
+        expect(runtime.exit).not.toHaveBeenCalled();
+      } finally {
+        await runtime.app.close();
+      }
+    }
+  );
+
+  it.each([
+    ['synthetic-dedicated-client', 'synthetic-dedicated-client'],
+    [undefined, source.ADMIN_OIDC_CLIENT_ID],
+    ['', source.ADMIN_OIDC_CLIENT_ID]
+  ])(
+    'configures enabled MCP client %s as %s with the validated source issuer and shared pool',
+    async (clientId, expected) => {
+      const runtime = await setup();
+      vi.stubEnv('ADMIN_OIDC_ISSUER_URL', 'https://ambient.example.test');
+      try {
+        await runtime.runPublicApi(
+          { ...source, ADMIN_MCP_ENABLED: 'true', ADMIN_MCP_OIDC_CLIENT_ID: clientId },
+          runtime.exit
+        );
+        expect(runtime.verifier).toHaveBeenCalledExactlyOnceWith({
+          pool: runtime.pool,
+          issuer: source.ADMIN_OIDC_ISSUER_URL,
+          clientId: expected
+        });
+        expect(runtime.build).toHaveBeenCalledWith(
+          expect.objectContaining({
+            adminMcp: { enabled: true, verifier: runtime.verifier.mock.results[0]?.value }
+          })
+        );
+        expect(runtime.listen).toHaveBeenCalledOnce();
+        expect(runtime.exit).not.toHaveBeenCalled();
+      } finally {
+        await runtime.app.close();
+      }
+    }
+  );
+
+  it.each([
+    { ADMIN_MCP_ENABLED: 'yes' },
+    { ADMIN_MCP_ENABLED: 'true', ADMIN_OIDC_CLIENT_ID: undefined },
+    { ADMIN_MCP_ENABLED: 'true', ADMIN_MCP_OIDC_CLIENT_ID: 'synthetic private invalid client' },
+    { ADMIN_MCP_ENABLED: 'true', ADMIN_OIDC_ISSUER_URL: undefined },
+    { ADMIN_MCP_ENABLED: 'true', ADMIN_OIDC_ISSUER_URL: 'http://identity.example.test' }
+  ])(
+    'rejects invalid MCP configuration before listen without exposing values %#',
+    async (overrides) => {
+      const runtime = await setup();
+      try {
+        await runtime.runPublicApi({ ...source, ...overrides }, runtime.exit);
+        expect(runtime.build).not.toHaveBeenCalled();
+        expect(runtime.listen).not.toHaveBeenCalled();
+        expect(runtime.exit).toHaveBeenCalledExactlyOnceWith(1);
+        expect(runtime.end).toHaveBeenCalledTimes(overrides.ADMIN_MCP_ENABLED === 'yes' ? 0 : 1);
+        expect(JSON.stringify(runtime.output.mock.calls)).not.toContain(
+          'synthetic private invalid client'
+        );
+      } finally {
+        await runtime.app.close();
+      }
+    }
+  );
 });

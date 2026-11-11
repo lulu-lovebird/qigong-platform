@@ -71,6 +71,8 @@ export const runPublicApi = async (
     const environment = loadEnvironment(source);
     phase = 'api_channels_failed';
     const { z } = await import('zod');
+    const adminMcpEnabled =
+      z.enum(['true', 'false']).default('false').parse(source.ADMIN_MCP_ENABLED) === 'true';
     const { telegramLearnerReviewEnabled } = await import('./telegram-learner-review.js');
     const directReviewEnabled = telegramLearnerReviewEnabled(
       source.TELEGRAM_LEARNER_REVIEW_ENABLED
@@ -160,6 +162,21 @@ export const runPublicApi = async (
     phase = 'api_oidc_failed';
     const { createAdminOidcProvider } = await import('./oidc-provider.js');
     const adminAuth = await createAdminOidcProvider();
+    let adminMcp: Parameters<typeof buildApp>[0]['adminMcp'];
+    if (adminMcpEnabled) {
+      const { loadAdminOidcEnvironment } = await import('@qigong/identity');
+      const { createAdminMcpOidcVerifier } = await import('./admin-mcp-oidc-verifier.js');
+      const oidcEnvironment = loadAdminOidcEnvironment(source);
+      // Reuse the runtime pool's bounded connection and server-side statement timeouts.
+      adminMcp = {
+        enabled: true,
+        verifier: createAdminMcpOidcVerifier({
+          pool,
+          issuer: oidcEnvironment.ADMIN_OIDC_ISSUER_URL,
+          clientId: source.ADMIN_MCP_OIDC_CLIENT_ID || oidcEnvironment.ADMIN_OIDC_CLIENT_ID
+        })
+      };
+    }
     phase = 'api_invites_failed';
     const { loadInviteTransports } = await import('./channel-invites.js');
     const inviteTransports = loadInviteTransports(source);
@@ -169,6 +186,7 @@ export const runPublicApi = async (
       pool,
       telegramLearnerReviewEnabled: directReviewEnabled,
       adminAuth,
+      ...(adminMcp ? { adminMcp } : {}),
       ...(telegramOnboarding ? { telegramOnboarding } : {}),
       ...(line ? { line } : {}),
       ...(venueQr ? { venueQr } : {}),
