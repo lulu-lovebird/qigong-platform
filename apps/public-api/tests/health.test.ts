@@ -1221,7 +1221,7 @@ describe('Admin MCP startup environment wiring', () => {
       complete: async () => ({ iss: source.ADMIN_OIDC_ISSUER_URL, sub: 'synthetic-admin' })
     });
     const app = buildApp({ pool, logger: false });
-    const listen = vi.spyOn(app, 'listen').mockResolvedValue('http://127.0.0.1:3100');
+    const listen = vi.spyOn(app, 'listen').mockResolvedValue(undefined as never);
     const appModule = await import('../src/app.js');
     const build = vi.spyOn(appModule, 'buildApp').mockReturnValue(app);
     const verifierModule = await import('../src/admin-mcp-oidc-verifier.js');
