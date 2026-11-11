@@ -73,6 +73,22 @@ describe('phase-one internal tool contract', () => {
     expect(Object.isFrozen(parsed.arguments)).toBe(true);
   });
 
+  it('normalizes UUID selectors and DTO identities consistently without type coercion', () => {
+    const upper = 'ABCDEF00-0000-4000-8000-000000000001';
+    const call = parseAdminMcpCall({
+      tool: 'guidance_get',
+      arguments: { campaignId: upper, ...page }
+    });
+    expect(call.arguments).toEqual({ campaignId: upper.toLowerCase(), ...page });
+    const campaign = { campaignId: upper, title: 'Synthetic', status: 'published', ...range };
+    expect(
+      parseAdminMcpReadResult(call, { data: { campaign, entries: [] }, ...meta }).data
+    ).toEqual({
+      campaign: { ...campaign, campaignId: upper.toLowerCase() },
+      entries: []
+    });
+  });
+
   it.each([
     { ...search, principalId: id },
     { ...search, arguments: { ...search.arguments, principalId: id } },
@@ -145,6 +161,20 @@ describe('minimal output contracts', () => {
     { ...result, data: { items: [] }, truncated: 'false' }
   ])('rejects unsafe or unbound results: %j', (input) => {
     expect(() => parseAdminMcpReadResult(parseAdminMcpCall(search), input)).toThrow();
+  });
+  it('allows only bounded, documented pagination warnings, never arbitrary backend text', () => {
+    expect(
+      parseAdminMcpReadResult(parseAdminMcpCall(search), {
+        ...result,
+        warnings: ['pagination_not_snapshot']
+      }).warnings
+    ).toEqual(['pagination_not_snapshot']);
+    expect(() =>
+      parseAdminMcpReadResult(parseAdminMcpCall(search), {
+        ...result,
+        warnings: ['SQL private secret']
+      })
+    ).toThrow();
   });
   it('does not present page counts as aggregate totals', () => {
     const call = parseAdminMcpCall({

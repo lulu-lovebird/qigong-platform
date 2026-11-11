@@ -1,126 +1,127 @@
 /** Developed with ❤️ by Bean, Bird & Badminton Tech Consulting */
 import { Buffer } from 'node:buffer';
-import { randomUUID } from 'node:crypto';
+import {
+  adminMcpScopesFor,
+  parseAdminMcpReadResult,
+  type AdminMcpErrorCode,
+  type AdminMcpResponse
+} from './admin-mcp-contract.js';
+import type { AdminMcpReadContext } from './admin-mcp-dispatch.js';
 import {
   adminMcpReadMaximumBytes,
   buildAdminMcpReadQuery,
   decodeAdminMcpReadPage,
   parseAdminMcpReadRequest,
-  type AdminMcpReadData,
+  type AdminMcpReadRequest,
   type AdminMcpReadQuery
 } from './admin-mcp-read-model.js';
 
 export const adminMcpReadRequiredScopes = Object.freeze({
-  guidance_list: 'admin:guidance:read',
-  guidance_get: 'admin:guidance:read',
-  venues_list: 'admin:venues:read'
-} as const);
-
+  guidance_list: adminMcpScopesFor('guidance_list')[0],
+  guidance_get: adminMcpScopesFor('guidance_get')[0],
+  venues_list: adminMcpScopesFor('venues_list')[0]
+});
 export type AdminMcpReadAdapterResult =
   | Readonly<{ status: 'ok'; data: unknown }>
   | Readonly<{ status: 'permission_denied' | 'not_found' | 'unavailable' }>;
 
 /**
- * TRUSTED SERVER dependency, never tool input or an agent-selected dependency.
- * Bind it to the authenticated request in server code, not a principal UUID,
- * agent-supplied role, browser cookie obtained by an agent, or cached grant.
+ * TRUSTED SERVER dependency, not an implementation of OAuth or database authorization.
+ * Each read MUST revalidate current active Super Admin status, issuer/audience/expiry,
+ * client/revocation, scopes, feature gates and selected business resources. The context
+ * is server-resolved, never tool input, and is not itself proof of ongoing authorization.
+ * Authorization and the bounded read must share a trusted operation boundary; denial
+ * precedes resource-existence disclosure. No authorization is cached between pages.
  *
- * Each read MUST revalidate issuer/audience/expiry/client/revocation, current
- * active Super Admin status (NOT Master Admin), the required scope above, the
- * read feature gate, and the selected business region/resource. Authorization
- * and the bounded read must share a trusted operation boundary; denial must
- * precede resource-existence disclosure. A cursor is only a position hint.
+ * Enforce every query selector, half-open guidance overlap in the supplied timezone,
+ * fetchLimit and ascending keyset ordering AT SOURCE. Honor context.signal and database
+ * statement deadlines. Do not silently ignore a filter or fetch an unbounded list.
+ * Return the canonical DTO wire shapes documented in decodeAdminMcpReadPage.
  *
- * The implementation MUST use an authorization-preserving restricted DB facade,
- * enforce query.fetchLimit at the data source, and return normalized shapes
- * documented in decodeAdminMcpReadPage. Lists order by canonical UUID ascending;
- * guidance_get entries order by guideDate ascending. Return one lookahead row,
- * not an unbounded list, export, aggregate inferred from a page, or raw SQL.
- *
- * PRODUCTION WIRING BLOCKED: existing admin.manage_guidance_campaign(list/get)
- * in migration 0063 requires a browser session, permits Master Admin too, and
- * returns unbounded campaigns/entries. runVenueManagement similarly requires a
- * browser session and its list is not paginated. Neither is an MCP credential
- * adapter. A reviewed trusted MCP identity + bounded DB authorization contract
- * is required before implementing this dependency. Never invent a session,
- * set caller-supplied principal context, query raw tables, or use an owner pool.
- *
- * This module intentionally supplies NO production adapter, OAuth verifier,
- * HTTP route, MCP transport, or advertised runnable tool registration.
+ * PRODUCTION WIRING BLOCKED: admin.manage_guidance_campaign (migration 0063) needs a
+ * browser session, also permits Master Admin, and returns unbounded lists/entries.
+ * runVenueManagement likewise needs a browser session and has no bounded list contract.
+ * Neither is an MCP credential adapter. A reviewed MCP identity + restricted bounded
+ * DB facade is required. Never invent sessions, set caller-controlled principal context,
+ * query raw tables or use an owner pool. Legacy status/date mapping requires review too.
+ * NO production adapter, OAuth verifier, HTTP route or MCP transport is supplied here.
  */
 export interface TrustedAdminMcpReadAdapter {
-  read(query: AdminMcpReadQuery): Promise<AdminMcpReadAdapterResult>;
+  read(query: AdminMcpReadQuery, context: AdminMcpReadContext): Promise<AdminMcpReadAdapterResult>;
 }
-
-export type AdminMcpReadError =
-  'invalid_request' | 'permission_denied' | 'not_found' | 'read_unavailable';
-export type AdminMcpReadResult =
-  | Readonly<{
-      ok: true;
-      schemaVersion: 1;
-      requestId: string;
-      data: AdminMcpReadData;
-      asOf: string;
-      nextCursor: string | null;
-      truncated: boolean;
-      warnings: readonly string[];
-    }>
-  | Readonly<{
-      ok: false;
-      schemaVersion: 1;
-      requestId: string;
-      error: AdminMcpReadError;
-    }>;
 export interface AdminMcpReadService {
-  read(input: unknown): Promise<AdminMcpReadResult>;
+  read(input: unknown, context: AdminMcpReadContext): Promise<AdminMcpResponse>;
 }
 
-/** Validated, minimized service foundation only; adapter trust is external. */
+/** Canonical input/output only; real authorization and DB trust remain external. */
 export const createAdminMcpReadService = (
   adapter: TrustedAdminMcpReadAdapter
 ): AdminMcpReadService =>
   Object.freeze({
-    async read(input: unknown): Promise<AdminMcpReadResult> {
-      const requestId = randomUUID();
-      const failure = (error: AdminMcpReadError): AdminMcpReadResult => ({
-        ok: false,
-        schemaVersion: 1,
-        requestId,
-        error
-      });
+    async read(input: unknown, context: AdminMcpReadContext): Promise<AdminMcpResponse> {
+      const failure = (code: AdminMcpErrorCode): AdminMcpResponse =>
+        Object.freeze({
+          ok: false,
+          schemaVersion: 1,
+          requestId: context.requestId,
+          error: Object.freeze({ code })
+        });
+      const permitted = () => {
+        const auth = context.authorization;
+        return (
+          auth.principalActive === true &&
+          auth.isSuperAdmin === true &&
+          auth.clientAuthorized === true &&
+          Date.parse(auth.expiresAt) > Date.now()
+        );
+      };
+      if (context.signal.aborted) return failure('timeout');
+      if (!permitted()) return failure('permission_denied');
+      let request: AdminMcpReadRequest;
       let query: AdminMcpReadQuery;
       try {
-        query = buildAdminMcpReadQuery(parseAdminMcpReadRequest(input));
+        request = parseAdminMcpReadRequest(input);
+        if (
+          !adminMcpScopesFor(request.tool).every((scope) =>
+            context.authorization.scopes.includes(scope)
+          )
+        )
+          return failure('permission_denied');
+        query = buildAdminMcpReadQuery(request, context.authorization);
       } catch {
         return failure('invalid_request');
       }
+      let source: unknown;
       try {
-        // No authorization snapshot is cached, including between cursor pages.
-        const result = await adapter.read(query);
+        const result = await adapter.read(query, context);
+        context.signal.throwIfAborted();
+        if (!permitted()) return failure('permission_denied');
         if (result.status === 'permission_denied') return failure('permission_denied');
-        if (result.status === 'not_found') {
-          return failure(query.operation === 'guidance_get' ? 'not_found' : 'read_unavailable');
-        }
-        if (result.status !== 'ok') return failure('read_unavailable');
-        const page = decodeAdminMcpReadPage(result.data, query);
-        const response = {
+        // No new not_found wire contract or resource-existence disclosure is introduced.
+        if (result.status === 'not_found') return failure('result_unavailable');
+        if (result.status !== 'ok') return failure('service_unavailable');
+        source = result.data;
+      } catch {
+        return failure(context.signal.aborted ? 'timeout' : 'service_unavailable');
+      }
+      try {
+        const page = decodeAdminMcpReadPage(source, query, context.authorization);
+        const parsed = parseAdminMcpReadResult(request, {
+          ...page,
+          asOf: new Date().toISOString(),
+          warnings: ['pagination_not_snapshot']
+        });
+        const response: AdminMcpResponse = Object.freeze({
           ok: true,
           schemaVersion: 1,
-          requestId,
-          data: page.data,
-          asOf: new Date().toISOString(),
-          nextCursor: page.nextCursor,
-          truncated: page.truncated,
-          warnings: ['Pagination is not a snapshot; asOf is the response time.']
-        } satisfies AdminMcpReadResult;
-        // Include envelope metadata in the wire-size bound, not just data rows.
+          requestId: context.requestId,
+          ...parsed
+        });
         return Buffer.byteLength(JSON.stringify(response), 'utf8') <= adminMcpReadMaximumBytes
           ? response
-          : failure('read_unavailable');
+          : failure('result_unavailable');
       } catch {
-        // Do not inspect/echo adapter messages: they may contain SQL, tokens,
-        // browser sessions, contact details, or raw validation diagnostics.
-        return failure('read_unavailable');
+        return failure('result_unavailable');
       }
     }
   });

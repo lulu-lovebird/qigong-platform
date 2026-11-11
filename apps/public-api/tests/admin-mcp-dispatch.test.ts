@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { adminMcpLimits, type AdminMcpReadToolName } from '../src/admin-mcp-contract.js';
 import {
   adminMcpMaximumInFlight,
+  AdminMcpReadAdapterFailure,
   createAdminMcpDispatcher,
   type AdminMcpAuthVerifier,
   type AdminMcpReadAdapter,
@@ -211,6 +212,40 @@ describe('deny-by-default tool discovery and execution', () => {
     expect(code(await dispatch(call, credential))).toBe('tool_unavailable');
     expect(execute).not.toHaveBeenCalled();
   });
+  it('snapshots adapter support and intersects it with enabled tools', async () => {
+    const { verifyCurrentAuthorization, execute, consumeBudget } = setup();
+    const supportedTools: AdminMcpReadToolName[] = ['learners_search'];
+    const dispatch = createAdminMcpDispatcher({
+      verifier: { verifyCurrentAuthorization },
+      reads: { execute, supportedTools },
+      consumeBudget,
+      enabledTools: ['learners_get', 'learners_search']
+    });
+    supportedTools.push('learners_get');
+    expect(code(await dispatch(call, credential))).toBe('tool_unavailable');
+    expect(await dispatch(capabilities, credential)).toMatchObject({
+      ok: true,
+      data: { tools: ['admin_get_capabilities', 'learners_search'] }
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+  it('fails closed on an invalid declared adapter subset instead of partially enabling reads', async () => {
+    const { verifyCurrentAuthorization, execute, consumeBudget } = setup();
+    const dispatch = createAdminMcpDispatcher({
+      verifier: { verifyCurrentAuthorization },
+      reads: {
+        execute,
+        supportedTools: [
+          'learners_get',
+          'operations_commit'
+        ] as unknown as readonly AdminMcpReadToolName[]
+      },
+      consumeBudget,
+      enabledTools: ['learners_get']
+    });
+    expect(code(await dispatch(call, credential))).toBe('tool_unavailable');
+    expect(execute).not.toHaveBeenCalled();
+  });
   it('snapshots phase switches against later caller mutation', async () => {
     const tools: AdminMcpReadToolName[] = [];
     const { dispatch, execute } = setup(tools);
@@ -245,6 +280,18 @@ describe('bounded, safe failures', () => {
       error: { code: 'service_unavailable' }
     });
     expect(JSON.stringify(response)).not.toMatch(/SELECT|private|stack|synthetic/);
+  });
+  it('only translates validated trusted adapter failures, never lookalike backend objects', async () => {
+    const { dispatch, execute } = setup();
+    execute
+      .mockRejectedValueOnce(new AdminMcpReadAdapterFailure('permission_denied'))
+      .mockRejectedValueOnce({ code: 'permission_denied' })
+      .mockRejectedValueOnce(
+        new AdminMcpReadAdapterFailure('SELECT secret' as 'permission_denied')
+      );
+    expect(code(await dispatch(call, credential))).toBe('permission_denied');
+    expect(code(await dispatch(call, credential))).toBe('service_unavailable');
+    expect(code(await dispatch(call, credential))).toBe('service_unavailable');
   });
   it.each([
     { ...result, data: { ...data, phone: '+00000000000' } },

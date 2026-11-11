@@ -18,6 +18,8 @@ const text = (maximum: number) =>
     .min(1)
     .max(maximum)
     .refine((value) => value.trim().length > 0 && !/[\p{Cc}]/u.test(value));
+// One canonical UUID representation keeps resource selectors and keyset ordering stable.
+const uuid = z.uuid().toLowerCase();
 const count = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const date = z.iso.date().refine((value) => value >= '0001-01-01');
 const timestamp = z.iso.datetime({ offset: true });
@@ -55,27 +57,27 @@ const validRange = (value: { from: string; until: string }) => {
   const days = (Date.parse(value.until) - Date.parse(value.from)) / 86400000;
   return days > 0 && days <= adminMcpLimits.maximumRangeDays;
 };
-const regionalRange = { regionId: z.uuid(), ...range };
+const regionalRange = { regionId: uuid, ...range };
 const channel = z.enum(['line', 'telegram', 'whatsapp']);
 const inviteStatus = z.enum(['active', 'expired', 'revoked', 'exhausted']);
 const guidanceStatus = z.enum(['draft', 'published', 'archived']);
 const attendanceMethod = z.enum(['nfc_gps', 'qr_gps', 'volunteer_manual']);
-const warning = z.enum(['data_delayed', 'partial_data']);
+const warning = z.enum(['data_delayed', 'partial_data', 'pagination_not_snapshot']);
 
 const inputs = {
   admin_get_capabilities: z.object({}).strict().readonly(),
   dashboard_get_summary: z.object(regionalRange).strict().refine(validRange).readonly(),
   learners_search: z
-    .object({ regionId: z.uuid(), query: text(100), ...pagination })
+    .object({ regionId: uuid, query: text(100), ...pagination })
     .strict()
     .readonly(),
-  learners_get: z.object({ learnerId: z.uuid() }).strict().readonly(),
+  learners_get: z.object({ learnerId: uuid }).strict().readonly(),
   applications_list: z
-    .object({ regionId: z.uuid(), status: z.literal('pending'), ...pagination })
+    .object({ regionId: uuid, status: z.literal('pending'), ...pagination })
     .strict()
     .readonly(),
   invites_list: z
-    .object({ regionId: z.uuid(), channel, status: inviteStatus, ...pagination })
+    .object({ regionId: uuid, channel, status: inviteStatus, ...pagination })
     .strict()
     .readonly(),
   guidance_list: z
@@ -84,30 +86,30 @@ const inputs = {
     .refine(validRange)
     .readonly(),
   guidance_get: z
-    .object({ campaignId: z.uuid(), ...pagination })
+    .object({ campaignId: uuid, ...pagination })
     .strict()
     .readonly(),
   venues_list: z
-    .object({ regionId: z.uuid(), ...pagination })
+    .object({ regionId: uuid, ...pagination })
     .strict()
     .readonly(),
   attendance_search: z
     .object({
       ...regionalRange,
-      venueId: z.uuid().nullable(),
-      learnerId: z.uuid().nullable(),
+      venueId: uuid.nullable(),
+      learnerId: uuid.nullable(),
       ...pagination
     })
     .strict()
     .refine(validRange)
     .readonly(),
   attendance_get_summary: z
-    .object({ ...regionalRange, venueId: z.uuid().nullable() })
+    .object({ ...regionalRange, venueId: uuid.nullable() })
     .strict()
     .refine(validRange)
     .readonly(),
   audit_search: z
-    .object({ ...regionalRange, targetId: z.uuid().nullable(), ...pagination })
+    .object({ ...regionalRange, targetId: uuid.nullable(), ...pagination })
     .strict()
     .refine(validRange)
     .readonly()
@@ -184,18 +186,28 @@ export const getAdminMcpToolCatalog = () =>
   }));
 
 const learner = z
-  .object({ learnerId: z.uuid(), displayName: text(120), regionId: z.uuid() })
+  .object({ learnerId: uuid, displayName: text(120), regionId: uuid })
   .strict()
   .readonly();
 const guidance = z
-  .object({ campaignId: z.uuid(), title: text(200), status: guidanceStatus, ...range })
+  .object({ campaignId: uuid, title: text(200), status: guidanceStatus, ...range })
   .strict()
   .refine(validRange)
   .readonly();
 const venue = z
-  .object({ venueId: z.uuid(), regionId: z.uuid(), name: text(120), active: z.boolean() })
+  .object({ venueId: uuid, regionId: uuid, name: text(120), active: z.boolean() })
   .strict()
   .readonly();
+const guidanceEntry = z
+  .object({ date, content: text(4000) })
+  .strict()
+  .readonly();
+/** Shared row schemas for the trusted backend boundary and public result validation. */
+export const adminMcpReadRowSchemas = Object.freeze({
+  campaign: guidance,
+  entry: guidanceEntry,
+  venue
+});
 const rows = <Schema extends z.ZodType>(schema: Schema) =>
   z.array(schema).max(adminMcpLimits.maximumRows).readonly();
 const summary = { ...regionalRange, basis: z.literal('all_matching_records') };
@@ -231,8 +243,8 @@ const outputs = {
       items: rows(
         z
           .object({
-            applicationId: z.uuid(),
-            regionId: z.uuid(),
+            applicationId: uuid,
+            regionId: uuid,
             displayName: text(120),
             status: z.literal('pending'),
             submittedAt: timestamp
@@ -248,8 +260,8 @@ const outputs = {
       items: rows(
         z
           .object({
-            inviteId: z.uuid(),
-            regionId: z.uuid(),
+            inviteId: uuid,
+            regionId: uuid,
             channel,
             status: inviteStatus,
             expiresAt: timestamp,
@@ -270,12 +282,7 @@ const outputs = {
   guidance_get: z
     .object({
       campaign: guidance,
-      entries: rows(
-        z
-          .object({ date, content: text(4000) })
-          .strict()
-          .readonly()
-      )
+      entries: rows(guidanceEntry)
     })
     .strict()
     .readonly(),
@@ -288,10 +295,10 @@ const outputs = {
       items: rows(
         z
           .object({
-            attendanceId: z.uuid(),
-            learnerId: z.uuid(),
-            venueId: z.uuid(),
-            regionId: z.uuid(),
+            attendanceId: uuid,
+            learnerId: uuid,
+            venueId: uuid,
+            regionId: uuid,
             date,
             method: attendanceMethod
           })
@@ -304,7 +311,7 @@ const outputs = {
   attendance_get_summary: z
     .object({
       ...summary,
-      venueId: z.uuid().nullable(),
+      venueId: uuid.nullable(),
       attendanceCount: count,
       learnerCount: count,
       attendanceDays: count
@@ -317,9 +324,9 @@ const outputs = {
       items: rows(
         z
           .object({
-            auditId: z.uuid(),
-            targetId: z.uuid(),
-            regionId: z.uuid(),
+            auditId: uuid,
+            targetId: uuid,
+            regionId: uuid,
             occurredAt: timestamp,
             action: z.enum(['read', 'create', 'update', 'revoke', 'delete']),
             outcome: z.enum(['succeeded', 'denied', 'failed'])

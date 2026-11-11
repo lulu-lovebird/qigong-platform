@@ -5,6 +5,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
+  adminMcpErrorCodes,
   adminMcpLimits,
   adminMcpReadScopes,
   adminMcpScopesFor,
@@ -79,7 +80,17 @@ export type AdminMcpReadContext = Readonly<{
  * Strings in results are untrusted content, never instructions or executable markup.
  */
 export interface AdminMcpReadAdapter {
+  /** Optional for legacy internal mocks; concrete adapters declare their implemented subset. */
+  readonly supportedTools?: readonly AdminMcpReadToolName[];
   execute(call: AdminMcpReadCall, context: AdminMcpReadContext): Promise<unknown>;
+}
+
+/** Only trusted integration code may translate safe service failures into dispatcher codes. */
+export class AdminMcpReadAdapterFailure extends Error {
+  constructor(readonly code: AdminMcpErrorCode) {
+    super(code);
+    Object.freeze(this);
+  }
 }
 
 export interface AdminMcpDispatchDependencies {
@@ -111,9 +122,17 @@ export const createAdminMcpDispatcher = (dependencies: AdminMcpDispatchDependenc
   // Snapshot trusted configuration; fail closed if a JS integrator supplies a write/unknown tool.
   const enabled = new Set<AdminMcpToolName>();
   const configured: readonly string[] = dependencies.enabledTools ?? [];
-  if (configured.every((tool) => isAdminMcpToolName(tool) && tool !== 'admin_get_capabilities')) {
+  const supported: readonly string[] | undefined = dependencies.reads.supportedTools;
+  const validReadTool = (tool: string) =>
+    isAdminMcpToolName(tool) && tool !== 'admin_get_capabilities';
+  if (
+    configured.every(validReadTool) &&
+    (supported === undefined || supported.every(validReadTool))
+  ) {
+    const implemented = supported === undefined ? null : new Set(supported);
     for (const tool of configured) {
-      if (isAdminMcpToolName(tool)) enabled.add(tool);
+      if (isAdminMcpToolName(tool) && (implemented === null || implemented.has(tool)))
+        enabled.add(tool);
     }
   }
   let inFlight = 0;
@@ -205,8 +224,13 @@ export const createAdminMcpDispatcher = (dependencies: AdminMcpDispatchDependenc
         } else {
           try {
             raw = await dependencies.reads.execute(call, context);
-          } catch {
-            return failure('service_unavailable');
+          } catch (error) {
+            if (controller.signal.aborted) return failure('timeout');
+            return failure(
+              error instanceof AdminMcpReadAdapterFailure && adminMcpErrorCodes.includes(error.code)
+                ? error.code
+                : 'service_unavailable'
+            );
           }
         }
         controller.signal.throwIfAborted();
