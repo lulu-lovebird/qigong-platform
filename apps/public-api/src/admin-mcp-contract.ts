@@ -35,7 +35,10 @@ const timezone = z
     } catch {
       return false;
     }
-  });
+  })
+  .overwrite(
+    (value) => new Intl.DateTimeFormat('en', { timeZone: value }).resolvedOptions().timeZone
+  );
 const cursor = z
   .string()
   .min(1)
@@ -152,10 +155,51 @@ export const isAdminMcpToolName = (value: string): value is AdminMcpToolName =>
 export const adminMcpScopesFor = (tool: AdminMcpToolName): readonly AdminMcpReadScope[] =>
   Object.freeze([...requiredScopes[tool]]);
 
+/** Shallow guard for parsed JSON values only: no recursion or arbitrary serialization.
+ * This cannot bound raw bytes, JSON parsing, or hostile Proxy traps. A future transport
+ * MUST enforce its body limit before parsing. All current tool arguments are flat.
+ */
+const boundedRecord = (
+  input: unknown,
+  maximumFields: number,
+  flat: boolean,
+  schemaKeys: readonly string[]
+) => {
+  if (typeof input !== 'object' || input === null || Array.isArray(input))
+    throw new Error('invalid_request');
+  const prototype: unknown = Object.getPrototypeOf(input);
+  if (prototype !== null && prototype !== Object.prototype) throw new Error('invalid_request');
+  // Schema keys are a small trusted list; catch accessors even if non-enumerable.
+  for (const key of schemaKeys) {
+    const descriptor = Object.getOwnPropertyDescriptor(input, key);
+    if (descriptor !== undefined && !('value' in descriptor)) throw new Error('invalid_request');
+  }
+  let fields = 0;
+  for (const key in input) {
+    if (++fields > maximumFields) throw new Error('invalid_request');
+    const descriptor = Object.getOwnPropertyDescriptor(input, key);
+    if (descriptor === undefined || !('value' in descriptor)) throw new Error('invalid_request');
+    const value: unknown = descriptor.value;
+    if (flat && value !== null && !['string', 'number', 'boolean'].includes(typeof value))
+      throw new Error('invalid_request');
+    if (flat && typeof value === 'string' && value.length > adminMcpLimits.maximumInputBytes)
+      throw new Error('invalid_request');
+  }
+};
+/** Envelope only; callers can authorize the known tool BEFORE inspecting selectors. */
+export const parseAdminMcpEnvelope = (input: unknown) => {
+  boundedRecord(input, 2, false, ['tool', 'arguments']);
+  return z
+    .object({ tool: z.string().min(1).max(100), arguments: z.unknown() })
+    .strict()
+    .parse(input);
+};
+
 /** Strict envelope: identity, scopes, phase switches and credentials are never arguments. */
 export const parseAdminMcpCall = (input: unknown): AdminMcpCall => {
-  const envelope = z.object({ tool: z.string(), arguments: z.unknown() }).strict().parse(input);
+  const envelope = parseAdminMcpEnvelope(input);
   if (!isAdminMcpToolName(envelope.tool)) throw new Error('unsupported_tool');
+  boundedRecord(envelope.arguments, 12, true, Object.keys(inputs[envelope.tool].unwrap().shape));
   const args = inputs[envelope.tool].parse(envelope.arguments);
   // Each schema is selected by the matching discriminant, never by the caller's asserted type.
   return Object.freeze({ tool: envelope.tool, arguments: args }) as AdminMcpCall;
@@ -190,16 +234,32 @@ const learner = z
   .strict()
   .readonly();
 const guidance = z
-  .object({ campaignId: uuid, title: text(200), status: guidanceStatus, ...range })
+  .object({
+    campaignId: uuid,
+    title: text(200),
+    status: guidanceStatus,
+    ...range,
+    until: date.describe('Exclusive local ISO campaign end date; must be after from')
+  })
   .strict()
-  .refine(validRange)
+  // Campaign lifespan is not the bounded query window.
+  .refine((value) => value.from < value.until)
   .readonly();
 const venue = z
   .object({ venueId: uuid, regionId: uuid, name: text(120), active: z.boolean() })
   .strict()
   .readonly();
 const guidanceEntry = z
-  .object({ date, content: text(4000) })
+  .object({
+    date,
+    content: z
+      .string()
+      .min(1)
+      // Migration 0063 caps trimmed content at 500 Unicode characters. Keep a
+      // conservative untrimmed DTO cap without rewriting whitespace in the prose.
+      .max(500)
+      .refine((value) => value.trim().length > 0 && !/(?![\r\n\t])\p{Cc}/u.test(value))
+  })
   .strict()
   .readonly();
 /** Shared row schemas for the trusted backend boundary and public result validation. */
@@ -360,9 +420,13 @@ const dateInTimezone = (instant: string, zone: string) => {
     calendar: 'iso8601',
     timeZone: zone,
     year: 'numeric',
+    era: 'short',
     month: '2-digit',
     day: '2-digit'
   }).formatToParts(new Date(instant));
+  // Intl formats ISO year zero as year 1 BC. Never reinterpret it as AD 1.
+  if (parts.find((value) => value.type === 'era')?.value !== 'AD')
+    throw new Error('invalid_result');
   const part = (kind: 'year' | 'month' | 'day') =>
     parts.find((value) => value.type === kind)?.value;
   return `${part('year')?.padStart(4, '0')}-${part('month')}-${part('day')}`;
@@ -449,6 +513,7 @@ export const adminMcpErrorCodes = [
   'rate_limited',
   'service_unavailable',
   'timeout',
+  'cancelled',
   'result_unavailable'
 ] as const;
 export type AdminMcpErrorCode = (typeof adminMcpErrorCodes)[number];

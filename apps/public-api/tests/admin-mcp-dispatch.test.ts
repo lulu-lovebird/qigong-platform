@@ -143,6 +143,144 @@ describe('trusted per-call authorization', () => {
   });
 });
 
+describe('review regressions: authorization ordering and caller cancellation', () => {
+  it('canonicalizes alphabetic principal UUIDs before budget and reads', async () => {
+    const { dispatch, verifyCurrentAuthorization, consumeBudget, execute } = setup();
+    const principalId = 'ABCDEF00-0000-4000-8000-000000000001';
+    verifyCurrentAuthorization.mockResolvedValue({ ...authorization, principalId });
+    expect(code(await dispatch(call, credential))).toBe('success');
+    for (const context of [consumeBudget.mock.calls[0]?.[0], execute.mock.calls[0]?.[1]])
+      expect(context?.authorization.principalId).toBe(principalId.toLowerCase());
+  });
+  it('denies missing scopes before argument validation or feature disclosure', async () => {
+    for (const tools of [[], ['invites_list']] as const) {
+      const { dispatch, execute } = setup(tools);
+      for (const args of [
+        {},
+        { regionId: 'invalid' },
+        null,
+        [],
+        'x'.repeat(adminMcpLimits.maximumInputBytes + 1)
+      ])
+        expect(code(await dispatch({ tool: 'invites_list', arguments: args }, credential))).toBe(
+          'permission_denied'
+        );
+      expect(execute).not.toHaveBeenCalled();
+    }
+  });
+  it('rejects nested/cyclic/accessor parsed values without traversing arbitrary content', async () => {
+    const { dispatch, execute } = setup();
+    let traversed = false;
+    const nested = {
+      get value() {
+        traversed = true;
+        throw new Error('private');
+      }
+    };
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    for (const query of [nested, cyclic, Array<unknown>(10000)])
+      expect(
+        code(
+          await dispatch(
+            { tool: 'learners_search', arguments: { regionId: id, query, cursor: null, limit: 1 } },
+            credential
+          )
+        )
+      ).toBe('invalid_request');
+    const args = {
+      get learnerId() {
+        traversed = true;
+        throw new Error('private');
+      }
+    };
+    expect(code(await dispatch({ tool: 'learners_get', arguments: args }, credential))).toBe(
+      'invalid_request'
+    );
+    expect(traversed).toBe(false);
+    expect(execute).not.toHaveBeenCalled();
+  });
+  it('honors pre-aborted callers without invoking any dependency', async () => {
+    const { dispatch, verifyCurrentAuthorization, consumeBudget, execute } = setup();
+    const controller = new AbortController();
+    controller.abort('private');
+    const response = await dispatch(call, credential, controller.signal);
+    expect(code(response)).toBe('cancelled');
+    expect(JSON.stringify(response)).not.toContain('private');
+    for (const dependency of [verifyCurrentAuthorization, consumeBudget, execute])
+      expect(dependency).not.toHaveBeenCalled();
+  });
+  it.each(['verifier', 'budget', 'read'] as const)(
+    'propagates cancellation during %s, removes listeners and bounds hung work',
+    async (stage) => {
+      const { dispatch, verifyCurrentAuthorization, consumeBudget, execute } = setup();
+      const started: (() => void)[] = [];
+      const signals: AbortSignal[] = [];
+      const releases: (() => void)[] = [];
+      const stall = <T>(signal: AbortSignal, value: T): Promise<T> => {
+        signals.push(signal);
+        started.shift()?.();
+        return new Promise((resolve) => {
+          releases.push(() => resolve(value));
+        });
+      };
+      if (stage === 'verifier')
+        verifyCurrentAuthorization.mockImplementation((ctx) => stall(ctx.signal, authorization));
+      if (stage === 'budget') consumeBudget.mockImplementation((ctx) => stall(ctx.signal, true));
+      if (stage === 'read') execute.mockImplementation((_call, ctx) => stall(ctx.signal, result));
+      for (let index = 0; index < adminMcpMaximumInFlight; index += 1) {
+        const controller = new AbortController();
+        const add = vi.spyOn(controller.signal, 'addEventListener');
+        const remove = vi.spyOn(controller.signal, 'removeEventListener');
+        const entered = new Promise<void>((resolve) => {
+          started.push(resolve);
+        });
+        const pending = dispatch(call, credential, controller.signal);
+        await entered;
+        controller.abort(new Error('private cancellation reason'));
+        const response = await pending;
+        expect(code(response)).toBe('cancelled');
+        expect(JSON.stringify(response)).not.toContain('private');
+        expect(signals[index]?.aborted).toBe(true);
+        const listener = add.mock.calls.find(([event]) => event === 'abort')?.[1];
+        expect(remove).toHaveBeenCalledWith('abort', listener);
+      }
+      expect(code(await dispatch(call, credential))).toBe('rate_limited');
+      releases.forEach((release) => release());
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      verifyCurrentAuthorization.mockResolvedValue(authorization);
+      consumeBudget.mockResolvedValue(true);
+      execute.mockResolvedValue(result);
+      expect(code(await dispatch(call, credential))).toBe('success');
+    }
+  );
+  it('releases the caller listener after normal completion and deadline', async () => {
+    vi.useFakeTimers();
+    for (const hung of [false, true]) {
+      const { dispatch, execute } = setup();
+      let release: (() => void) | undefined;
+      if (hung)
+        execute.mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              release = () => resolve(result);
+            })
+        );
+      const controller = new AbortController();
+      const add = vi.spyOn(controller.signal, 'addEventListener');
+      const remove = vi.spyOn(controller.signal, 'removeEventListener');
+      const pending = dispatch(call, credential, controller.signal);
+      await vi.advanceTimersByTimeAsync(hung ? adminMcpLimits.timeoutMs : 0);
+      expect(code(await pending)).toBe(hung ? 'timeout' : 'success');
+      expect(remove).toHaveBeenCalledWith('abort', add.mock.calls[0]?.[1]);
+      release?.();
+      await vi.advanceTimersByTimeAsync(0);
+    }
+  });
+});
+
 describe('deny-by-default tool discovery and execution', () => {
   it('has no business tools enabled without explicit configuration', async () => {
     const { verifyCurrentAuthorization, execute, consumeBudget } = setup();
@@ -361,13 +499,13 @@ describe('bounded, safe failures', () => {
           until: '2026-11-01',
           timezone: 'UTC'
         },
-        entries: Array.from({ length: 10 }, () => ({
+        entries: Array.from({ length: 50 }, () => ({
           date: '2026-10-01',
-          content: '學'.repeat(4000)
+          content: '學'.repeat(500)
         }))
       }
     });
-    const input = { tool: 'guidance_get', arguments: { campaignId: id, cursor: null, limit: 10 } };
+    const input = { tool: 'guidance_get', arguments: { campaignId: id, cursor: null, limit: 50 } };
     expect(code(await authorizedDispatch(input, credential))).toBe('result_unavailable');
     expect(code(await dispatch(input, credential))).toBe('permission_denied');
   });

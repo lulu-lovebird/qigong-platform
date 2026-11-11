@@ -65,8 +65,14 @@ export const parseAdminMcpReadRequest = (input: unknown): AdminMcpReadRequest =>
 // production wiring needs a reviewed shared signing-key lifecycle before it can be enabled.
 // Never use a cursor as authorization. Every page still needs a fresh authorized backend read.
 const cursorKey = randomBytes(32);
+const cursorTtlMs = 300_000;
 const cursorSchema = z
-  .object({ v: z.literal(1), b: z.string().length(43), a: z.string().min(1).max(36) })
+  .object({
+    v: z.literal(2),
+    b: z.string().length(43),
+    a: z.string().min(1).max(36),
+    e: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)
+  })
   .strict();
 const digest = (payload: Buffer) => createHmac('sha256', cursorKey).update(payload).digest();
 const selectors = (query: AdminMcpReadQuery) => {
@@ -88,7 +94,7 @@ const bindingHash = (query: AdminMcpReadQuery, binding: AdminMcpReadBinding) => 
         query.operation,
         selectors(query),
         query.fetchLimit,
-        binding.principalId,
+        binding.principalId.toLowerCase(),
         binding.clientId
       ])
     )
@@ -128,7 +134,8 @@ export const buildAdminMcpReadQuery = (
       const payload = bytes.subarray(32);
       if (!timingSafeEqual(bytes.subarray(0, 32), digest(payload))) throw new Error();
       const parsed = cursorSchema.parse(JSON.parse(payload.toString('utf8')) as unknown);
-      if (parsed.b !== hash) throw new Error();
+      const now = Date.now();
+      if (parsed.b !== hash || parsed.e <= now || parsed.e > now + cursorTtlMs) throw new Error();
       after = (request.tool === 'guidance_get' ? z.iso.date() : z.uuid()).parse(parsed.a);
     } catch {
       throw new Error('invalid_request');
@@ -138,7 +145,9 @@ export const buildAdminMcpReadQuery = (
 };
 
 const nextCursor = (query: AdminMcpReadQuery, binding: AdminMcpReadBinding, after: string) => {
-  const payload = Buffer.from(JSON.stringify({ v: 1, b: bindingHash(query, binding), a: after }));
+  const payload = Buffer.from(
+    JSON.stringify({ v: 2, b: bindingHash(query, binding), a: after, e: Date.now() + cursorTtlMs })
+  );
   const value = Buffer.concat([digest(payload), payload]).toString('base64url');
   if (value.length > 256) throw new Error();
   return value;

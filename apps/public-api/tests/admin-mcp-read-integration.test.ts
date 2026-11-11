@@ -340,6 +340,66 @@ describe('authenticated cursor isolation through the full internal chain', () =>
     }
     expect(read).toHaveBeenCalledTimes(1);
   });
+  it('accepts refreshed credentials for the same alphabetic UUID/client, but expires cursors independently', async () => {
+    vi.useFakeTimers();
+    const issued = Date.parse('2026-11-01T00:00:00Z');
+    vi.setSystemTime(issued);
+    const { dispatch, read, verifyCurrentAuthorization } = setup();
+    const principalId = 'abcdef00-0000-4000-8000-000000000001';
+    verifyCurrentAuthorization.mockResolvedValue({
+      ...authorization,
+      principalId,
+      expiresAt: '2026-11-01T00:01:00Z'
+    });
+    const first = await dispatch(list, credential);
+    if (!first.ok || first.nextCursor === null) throw new Error('fixture');
+    verifyCurrentAuthorization.mockResolvedValue({
+      ...authorization,
+      principalId: principalId.toUpperCase()
+    });
+    vi.setSystemTime(issued + 299_999);
+    expect(
+      code(await dispatch(withCursor(list, first.nextCursor), 'synthetic-refreshed-credential'))
+    ).toBe('success');
+    expect(read.mock.calls[1]?.[1].authorization.principalId).toBe(principalId);
+    vi.setSystemTime(issued + 300_000);
+    expect(
+      code(await dispatch(withCursor(list, first.nextCursor), 'synthetic-refreshed-credential'))
+    ).toBe('invalid_request');
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+  it('canonicalizes timezone aliases through source selectors, DTOs and cursor binding', async () => {
+    const { call, read } = setup();
+    read.mockResolvedValue({
+      status: 'ok',
+      data: {
+        items: [
+          { ...campaign(), timezone: 'America/New_York' },
+          { ...campaign(secondId), timezone: 'US/Eastern' }
+        ]
+      }
+    });
+    const first = await call({ ...list, arguments: { ...list.arguments, timezone: 'us/eastern' } });
+    expect(first).toMatchObject({
+      ok: true,
+      data: { items: [{ ...campaign(), timezone: 'America/New_York' }] },
+      truncated: true
+    });
+    expect(read.mock.calls[0]?.[0]).toMatchObject({ timezone: 'America/New_York' });
+    if (!first.ok) throw new Error('fixture');
+    read.mockResolvedValue({
+      status: 'ok',
+      data: { items: [{ ...campaign(secondId), timezone: 'US/Eastern' }] }
+    });
+    expect(
+      code(
+        await call({
+          ...list,
+          arguments: { ...list.arguments, timezone: 'america/new_york', cursor: first.nextCursor }
+        })
+      )
+    ).toBe('success');
+  });
   it('rejects signed-payload tampering, unsigned positions and noncanonical encoding', async () => {
     const { call, read } = setup();
     const first = await call(list);
@@ -404,7 +464,7 @@ describe('no privilege bypass, silent filter loss or sensitive failures', () => 
     [get, { campaign: campaign(), entries: [{ date: range.until, content: 'out of range' }] }],
     [get, { campaign: campaign(), entries: [entries[0], entries[0]] }],
     [get, { campaign: campaign(), entries: [entries[1], entries[0]] }],
-    [get, { campaign: campaign(), entries: [{ date: range.from, content: 'x'.repeat(4001) }] }],
+    [get, { campaign: campaign(), entries: [{ date: range.from, content: 'x'.repeat(501) }] }],
     [venues, { items: [venue(id, secondId)] }],
     [venues, { items: [venue(), venue(), venue()] }],
     [list, null]
@@ -458,16 +518,42 @@ describe('no privilege bypass, silent filter loss or sensitive failures', () => 
     read.mockResolvedValue({
       status: 'ok',
       data: {
-        campaign: campaign(),
-        entries: Array.from({ length: 30 }, (_, index) => ({
-          date: `2026-11-${String(index + 1).padStart(2, '0')}`,
-          content: '學'.repeat(4000)
+        campaign: { ...campaign(), until: '2027-01-01' },
+        entries: Array.from({ length: 50 }, (_, index) => ({
+          date: new Date(Date.UTC(2026, 10, index + 1)).toISOString().slice(0, 10),
+          content: '學'.repeat(500)
         }))
       }
     });
     expect(code(await call({ ...get, arguments: { ...get.arguments, limit: 50 } }))).toBe(
       'result_unavailable'
     );
+  });
+  it('propagates caller cancellation to the backend and suppresses late data', async () => {
+    const { dispatch, read } = setup();
+    const controller = new AbortController();
+    let started: (() => void) | undefined;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let release:
+      ((value: Awaited<ReturnType<TrustedAdminMcpReadAdapter['read']>>) => void) | undefined;
+    read.mockImplementation(() => {
+      started?.();
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    });
+    const pending = dispatch(list, credential, controller.signal);
+    await entered;
+    controller.abort('private cancellation');
+    expect(code(await pending)).toBe('cancelled');
+    expect(read.mock.calls[0]?.[1].signal.aborted).toBe(true);
+    release?.({ status: 'ok', data: { items: [campaign()] } });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(code(await pending)).toBe('cancelled');
+    expect(read).toHaveBeenCalledTimes(1);
   });
   it('aborts the trusted backend on deadline and never releases late data', async () => {
     vi.useFakeTimers();

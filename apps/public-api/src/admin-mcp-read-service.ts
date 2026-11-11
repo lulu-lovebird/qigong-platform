@@ -1,14 +1,18 @@
 /** Developed with ❤️ by Bean, Bird & Badminton Tech Consulting */
 import { Buffer } from 'node:buffer';
+import { randomUUID } from 'node:crypto';
 import {
   adminMcpScopesFor,
+  isAdminMcpToolName,
+  parseAdminMcpEnvelope,
   parseAdminMcpReadResult,
   type AdminMcpErrorCode,
   type AdminMcpResponse
 } from './admin-mcp-contract.js';
-import type { AdminMcpReadContext } from './admin-mcp-dispatch.js';
+import { adminMcpReadContextSchema, type AdminMcpReadContext } from './admin-mcp-dispatch.js';
 import {
   adminMcpReadMaximumBytes,
+  adminMcpImplementedReadTools,
   buildAdminMcpReadQuery,
   decodeAdminMcpReadPage,
   parseAdminMcpReadRequest,
@@ -59,13 +63,24 @@ export const createAdminMcpReadService = (
 ): AdminMcpReadService =>
   Object.freeze({
     async read(input: unknown, context: AdminMcpReadContext): Promise<AdminMcpResponse> {
+      // Standalone calls must validate server context before touching any selectors.
+      // Generate a safe ID if the purported context itself is malformed.
+      let trusted: AdminMcpReadContext | undefined;
+      try {
+        trusted = adminMcpReadContextSchema.parse(context);
+      } catch {
+        /* fail closed */
+      }
+      const requestId = trusted?.requestId ?? randomUUID();
       const failure = (code: AdminMcpErrorCode): AdminMcpResponse =>
         Object.freeze({
           ok: false,
           schemaVersion: 1,
-          requestId: context.requestId,
+          requestId,
           error: Object.freeze({ code })
         });
+      if (trusted === undefined) return failure('permission_denied');
+      context = trusted;
       const permitted = () => {
         const auth = context.authorization;
         return (
@@ -80,13 +95,17 @@ export const createAdminMcpReadService = (
       let request: AdminMcpReadRequest;
       let query: AdminMcpReadQuery;
       try {
-        request = parseAdminMcpReadRequest(input);
+        const envelope = parseAdminMcpEnvelope(input);
+        if (!isAdminMcpToolName(envelope.tool)) return failure('tool_unavailable');
         if (
-          !adminMcpScopesFor(request.tool).every((scope) =>
+          !adminMcpScopesFor(envelope.tool).every((scope) =>
             context.authorization.scopes.includes(scope)
           )
         )
           return failure('permission_denied');
+        if (!adminMcpImplementedReadTools.some((tool) => tool === envelope.tool))
+          return failure('tool_unavailable');
+        request = parseAdminMcpReadRequest(input);
         query = buildAdminMcpReadQuery(request, context.authorization);
       } catch {
         return failure('invalid_request');

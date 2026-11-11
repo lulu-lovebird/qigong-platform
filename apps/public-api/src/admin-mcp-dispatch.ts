@@ -12,6 +12,7 @@ import {
   getAdminMcpToolCatalog,
   isAdminMcpToolName,
   parseAdminMcpCall,
+  parseAdminMcpEnvelope,
   parseAdminMcpReadResult,
   type AdminMcpCall,
   type AdminMcpErrorCode,
@@ -21,9 +22,9 @@ import {
   type AdminMcpToolName
 } from './admin-mcp-contract.js';
 
-const authorizationSchema = z
+export const adminMcpAuthorizationSchema = z
   .object({
-    principalId: z.uuid(),
+    principalId: z.uuid().toLowerCase(),
     clientId: z
       .string()
       .min(1)
@@ -46,7 +47,7 @@ const authorizationSchema = z
   })
   .strict()
   .readonly();
-export type AdminMcpVerifiedAuthorization = z.infer<typeof authorizationSchema>;
+export type AdminMcpVerifiedAuthorization = z.infer<typeof adminMcpAuthorizationSchema>;
 
 /**
  * Trusted SERVER dependency, not a browser claims parser. Every invocation MUST verify
@@ -65,11 +66,15 @@ export interface AdminMcpAuthVerifier {
   ): Promise<AdminMcpVerifiedAuthorization | null>;
 }
 
-export type AdminMcpReadContext = Readonly<{
-  authorization: AdminMcpVerifiedAuthorization;
-  requestId: string;
-  signal: AbortSignal;
-}>;
+export const adminMcpReadContextSchema = z
+  .object({
+    authorization: adminMcpAuthorizationSchema,
+    requestId: z.uuid().toLowerCase(),
+    signal: z.instanceof(AbortSignal)
+  })
+  .strict()
+  .readonly();
+export type AdminMcpReadContext = z.infer<typeof adminMcpReadContextSchema>;
 
 /**
  * Narrow integration seam; deliberately no generic SQL, HTTP, browser session or write.
@@ -96,7 +101,9 @@ export class AdminMcpReadAdapterFailure extends Error {
 export interface AdminMcpDispatchDependencies {
   verifier: AdminMcpAuthVerifier;
   reads: AdminMcpReadAdapter;
-  /** Required atomic server-side rate budget keyed by verified principal AND client.
+  /** Required atomic GLOBAL call budget keyed by verified principal AND client, including
+   * malformed/disabled calls. Deliberately before tool parsing: no raw identity/tool keys.
+   * Optional future per-tool quotas cannot replace this or the preauth in-flight cap.
    * Return true only when consumed; unavailable/throwing limiters never permit a read. */
   consumeBudget(context: AdminMcpReadContext): Promise<boolean>;
   /** Trusted server configuration; omission enables NO business tools. */
@@ -104,9 +111,6 @@ export interface AdminMcpDispatchDependencies {
 }
 
 export const adminMcpMaximumInFlight = 16;
-const envelopeSchema = z
-  .object({ tool: z.string().min(1).max(100), arguments: z.unknown() })
-  .strict();
 const credentialSchema = z
   .string()
   .min(1)
@@ -137,7 +141,11 @@ export const createAdminMcpDispatcher = (dependencies: AdminMcpDispatchDependenc
   }
   let inFlight = 0;
 
-  return async (input: unknown, credential: unknown): Promise<AdminMcpResponse> => {
+  return async (
+    input: unknown,
+    credential: unknown,
+    signal?: AbortSignal
+  ): Promise<AdminMcpResponse> => {
     const requestId = randomUUID();
     const failure = (code: AdminMcpErrorCode): AdminMcpResponse =>
       Object.freeze({
@@ -148,14 +156,27 @@ export const createAdminMcpDispatcher = (dependencies: AdminMcpDispatchDependenc
       });
     // Counts timed-out dependencies until they actually settle; ignored aborts cannot
     // create an unbounded backlog. This local bound does not replace the shared budget.
+    if (signal?.aborted) return failure('cancelled');
     if (inFlight >= adminMcpMaximumInFlight) return failure('rate_limited');
     const parsedCredential = credentialSchema.safeParse(credential);
     if (!parsedCredential.success) return failure('unauthenticated');
     const controller = new AbortController();
+    let abortCode: 'timeout' | 'cancelled' = 'timeout';
+    let onAbort: (() => void) | undefined;
+    const cancellation = new Promise<AdminMcpResponse>((resolve) => {
+      onAbort = () => {
+        abortCode = 'cancelled';
+        controller.abort();
+        resolve(failure('cancelled'));
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) onAbort();
+    });
     inFlight += 1;
 
     const run = async (): Promise<AdminMcpResponse> => {
       try {
+        controller.signal.throwIfAborted();
         let verified: AdminMcpVerifiedAuthorization | null;
         try {
           verified = await dependencies.verifier.verifyCurrentAuthorization(
@@ -166,11 +187,11 @@ export const createAdminMcpDispatcher = (dependencies: AdminMcpDispatchDependenc
             })
           );
         } catch {
-          return failure('unauthenticated');
+          return failure(controller.signal.aborted ? abortCode : 'unauthenticated');
         }
         controller.signal.throwIfAborted();
         if (verified === null) return failure('unauthenticated');
-        const parsed = authorizationSchema.safeParse(verified);
+        const parsed = adminMcpAuthorizationSchema.safeParse(verified);
         if (!parsed.success || Date.parse(parsed.data.expiresAt) <= Date.now())
           return failure('permission_denied');
         const authorization = parsed.data;
@@ -179,28 +200,33 @@ export const createAdminMcpDispatcher = (dependencies: AdminMcpDispatchDependenc
         try {
           budget = await dependencies.consumeBudget(context);
         } catch {
-          return failure('service_unavailable');
+          return failure(controller.signal.aborted ? abortCode : 'service_unavailable');
         }
         controller.signal.throwIfAborted();
         if (budget !== true) return failure('rate_limited');
 
-        const envelope = envelopeSchema.safeParse(input);
-        if (!envelope.success) return failure('invalid_request');
-        if (!isAdminMcpToolName(envelope.data.tool)) return failure('tool_unavailable');
+        let envelope: ReturnType<typeof parseAdminMcpEnvelope>;
+        try {
+          envelope = parseAdminMcpEnvelope(input);
+        } catch {
+          return failure('invalid_request');
+        }
+        if (!isAdminMcpToolName(envelope.tool)) return failure('tool_unavailable');
+        const permitted = (tool: AdminMcpToolName) =>
+          adminMcpScopesFor(tool).every((scope) => authorization.scopes.includes(scope));
+        // Missing scopes reveal neither selector validation nor enablement/support state.
+        if (!permitted(envelope.tool)) return failure('permission_denied');
+        if (envelope.tool !== 'admin_get_capabilities' && !enabled.has(envelope.tool))
+          return failure('tool_unavailable');
         let call: AdminMcpCall;
         try {
           call = parseAdminMcpCall(input);
-          // Schema fields are already bounded; never stringify arbitrary adapter/input records.
+          // Parsed DTO cap only, NOT protection against raw HTTP/JSON parser allocation.
           if (Buffer.byteLength(JSON.stringify(call), 'utf8') > adminMcpLimits.maximumInputBytes)
             return failure('invalid_request');
         } catch {
           return failure('invalid_request');
         }
-        if (call.tool !== 'admin_get_capabilities' && !enabled.has(call.tool))
-          return failure('tool_unavailable');
-        const permitted = (tool: AdminMcpToolName) =>
-          adminMcpScopesFor(tool).every((scope) => authorization.scopes.includes(scope));
-        if (!permitted(call.tool)) return failure('permission_denied');
         if (Date.parse(authorization.expiresAt) <= Date.now()) return failure('permission_denied');
 
         let raw: unknown;
@@ -225,7 +251,7 @@ export const createAdminMcpDispatcher = (dependencies: AdminMcpDispatchDependenc
           try {
             raw = await dependencies.reads.execute(call, context);
           } catch (error) {
-            if (controller.signal.aborted) return failure('timeout');
+            if (controller.signal.aborted) return failure(abortCode);
             return failure(
               error instanceof AdminMcpReadAdapterFailure && adminMcpErrorCodes.includes(error.code)
                 ? error.code
@@ -252,7 +278,7 @@ export const createAdminMcpDispatcher = (dependencies: AdminMcpDispatchDependenc
           return failure('result_unavailable');
         }
       } catch {
-        return failure(controller.signal.aborted ? 'timeout' : 'service_unavailable');
+        return failure(controller.signal.aborted ? abortCode : 'service_unavailable');
       }
     };
     const work = run().finally(() => {
@@ -266,8 +292,9 @@ export const createAdminMcpDispatcher = (dependencies: AdminMcpDispatchDependenc
       }, adminMcpLimits.timeoutMs);
     });
     try {
-      return await Promise.race([work, deadline]);
+      return await Promise.race([work, deadline, cancellation]);
     } finally {
+      if (onAbort !== undefined) signal?.removeEventListener('abort', onAbort);
       clearTimeout(timer);
       controller.abort();
     }

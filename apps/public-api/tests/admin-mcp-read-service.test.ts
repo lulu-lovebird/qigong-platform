@@ -135,8 +135,6 @@ describe('canonical adapter-only bounded read service', () => {
     { ...list, arguments: { ...list.arguments, limit: 51 } },
     { ...list, arguments: { ...list.arguments, cursor: 'not-json' } },
     { ...venues, arguments: pagination },
-    { tool: 'attendance_get_summary', arguments: {} },
-    { tool: 'guidance_update', arguments: { campaignId: id, title: 'forbidden' } },
     { operation: 'guidance_list' }
   ])('rejects malformed input before touching the adapter: %j', async (input) => {
     const { read, ctx, call } = mockAdapter();
@@ -147,6 +145,64 @@ describe('canonical adapter-only bounded read service', () => {
       error: { code: 'invalid_request' }
     });
     expect(read).not.toHaveBeenCalled();
+  });
+  it('returns unavailable for known unsupported tools before parsing their arguments', async () => {
+    const { read, call } = mockAdapter();
+    expect(await call({ tool: 'attendance_get_summary', arguments: {} })).toMatchObject({
+      ok: false,
+      error: { code: 'tool_unavailable' }
+    });
+    expect(await call({ tool: 'guidance_update', arguments: {} })).toMatchObject({
+      ok: false,
+      error: { code: 'tool_unavailable' }
+    });
+    expect(read).not.toHaveBeenCalled();
+  });
+  it('rejects missing scopes before validating selectors or disclosing support', async () => {
+    const { read, service, ctx } = mockAdapter();
+    const denied = { ...ctx, authorization: { ...ctx.authorization, scopes: [] } };
+    for (const tool of ['guidance_get', 'attendance_get_summary'])
+      expect(await service.read({ tool, arguments: {} }, denied)).toMatchObject({
+        ok: false,
+        error: { code: 'permission_denied' }
+      });
+    expect(read).not.toHaveBeenCalled();
+  });
+  it.each([
+    null,
+    {},
+    { authorization: null },
+    { ...context(), requestId: 'private-invalid' },
+    { ...context(), signal: {} },
+    { ...context(), authorization: { ...context().authorization, principalId: 'invalid' } },
+    { ...context(), authorization: { ...context().authorization, clientId: '' } },
+    { ...context(), authorization: { ...context().authorization, clientId: 'bad\nclient' } },
+    { ...context(), authorization: { ...context().authorization, scopes: null } },
+    { ...context(), authorization: { ...context().authorization, expiresAt: 'not-a-date' } }
+  ])('fails closed on malformed trusted context before touching input: %j', async (bad) => {
+    const { read, service } = mockAdapter();
+    let touched = false;
+    const input = {
+      get tool() {
+        touched = true;
+        throw new Error('private');
+      }
+    };
+    const result = await service.read(input, bad as unknown as AdminMcpReadContext);
+    expect(result).toMatchObject({ ok: false, error: { code: 'permission_denied' } });
+    expect(result.requestId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(touched).toBe(false);
+    expect(read).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain('private');
+  });
+  it('normalizes trusted principal identity in the standalone service', async () => {
+    const { read, service, ctx } = mockAdapter();
+    read.mockResolvedValue({ status: 'ok', data: { items: [] } });
+    const principalId = 'ABCDEF00-0000-4000-8000-000000000001';
+    expect(
+      await service.read(list, { ...ctx, authorization: { ...ctx.authorization, principalId } })
+    ).toMatchObject({ ok: true });
+    expect(read.mock.calls[0]?.[1].authorization.principalId).toBe(principalId.toLowerCase());
   });
   it('does not cache a successful grant across pages or calls', async () => {
     const { read, call } = mockAdapter();
@@ -213,7 +269,7 @@ describe('canonical adapter-only bounded read service', () => {
     const sourceCampaign = { ...campaign(), from: '2026-10-01' };
     const entries = Array.from({ length: 50 }, (_, index) => ({
       date: new Date(Date.UTC(2026, 9, index + 1)).toISOString().slice(0, 10),
-      content: 'a'.repeat(1000)
+      content: '學'.repeat(400)
     }));
     const input = { ...get, arguments: { ...get.arguments, limit: 50 } };
     const selected = buildAdminMcpReadQuery(parseAdminMcpReadRequest(input), ctx.authorization);
@@ -223,9 +279,11 @@ describe('canonical adapter-only bounded read service', () => {
     );
     let remaining = adminMcpReadMaximumBytes - 150 - initialBytes;
     const adjusted = entries.map((row) => {
-      const extra = Math.min(3000, remaining);
+      const extra = Math.min(300, remaining);
+      const triples = Math.floor(extra / 3);
+      const singles = extra % 3;
       remaining -= extra;
-      return { ...row, content: row.content + 'a'.repeat(extra) };
+      return { ...row, content: row.content + '學'.repeat(triples) + 'a'.repeat(singles) };
     });
     expect(remaining).toBe(0);
     const boundedSource = { campaign: sourceCampaign, entries: adjusted };

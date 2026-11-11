@@ -1,6 +1,6 @@
 /** Developed with ❤️ by Bean, Bird & Badminton Tech Consulting */
 import { Buffer } from 'node:buffer';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   adminMcpReadMaximumLimit,
   buildAdminMcpReadQuery,
@@ -38,6 +38,10 @@ const decode = (input: unknown, selected: AdminMcpReadQuery) =>
 const listQuery = query(list);
 const getQuery = query(get);
 const venueQuery = query(venues);
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 // No secondary defaults/aliases: these are the exact dispatcher calls.
 describe('canonical strict read inputs and authenticated cursors', () => {
@@ -146,6 +150,66 @@ describe('canonical strict read inputs and authenticated cursors', () => {
       })
     ).toThrow();
   });
+  it('expires signed cursors at the boundary, bounds future expiry and authenticates expiry edits', () => {
+    vi.useFakeTimers();
+    const issued = Date.parse('2026-11-01T00:00:00Z');
+    const ttl = 300_000;
+    vi.setSystemTime(issued);
+    const cursor = decode({ items: [campaign(), campaign(secondId)] }, listQuery).nextCursor;
+    if (cursor === null) throw new Error('fixture');
+    const next = { ...list, arguments: { ...list.arguments, cursor } };
+    const bytes = Buffer.from(cursor, 'base64url');
+    const payload = JSON.parse(bytes.subarray(32).toString('utf8')) as Record<string, unknown>;
+    expect(payload.e).toBe(issued + ttl);
+    vi.setSystemTime(issued + ttl - 1);
+    expect(query(next).after).toBe(id);
+    vi.setSystemTime(issued + ttl);
+    expect(() => query(next)).toThrow('invalid_request');
+    vi.setSystemTime(issued - 1);
+    expect(() => query(next)).toThrow('invalid_request');
+    vi.setSystemTime(issued);
+    const tampered = Buffer.concat([
+      bytes.subarray(0, 32),
+      Buffer.from(JSON.stringify({ ...payload, e: issued + ttl + 1 }))
+    ]).toString('base64url');
+    expect(() => query({ ...list, arguments: { ...list.arguments, cursor: tampered } })).toThrow(
+      'invalid_request'
+    );
+  });
+  it('binds refresh-equivalent UUID identities canonically, including alphabetic digits', () => {
+    const principalId = 'abcdef00-0000-4000-8000-000000000001';
+    const original = { ...binding, principalId };
+    const cursor = decodeAdminMcpReadPage(
+      { items: [campaign(), campaign(secondId)] },
+      query(list, original),
+      original
+    ).nextCursor;
+    expect(
+      query(
+        { ...list, arguments: { ...list.arguments, cursor } },
+        { ...original, principalId: principalId.toUpperCase() }
+      ).after
+    ).toBe(id);
+  });
+  it('binds timezone aliases as the same normalized selector', () => {
+    const original = { ...list, arguments: { ...list.arguments, timezone: 'US/Eastern' } };
+    const selected = query(original);
+    const cursor = decode(
+      {
+        items: [
+          { ...campaign(), timezone: 'America/New_York' },
+          { ...campaign(secondId), timezone: 'US/Eastern' }
+        ]
+      },
+      selected
+    ).nextCursor;
+    expect(
+      query({
+        ...original,
+        arguments: { ...original.arguments, timezone: 'america/new_york', cursor }
+      }).after
+    ).toBe(id);
+  });
   it.each(['2026-02-29', '0000-01-01', 'tomorrow'])(
     'rejects invalid business dates: %s',
     (from) => {
@@ -245,13 +309,13 @@ describe('allowlisted read mapping and honest pagination', () => {
     expect(() => decode(source, getQuery)).toThrow('invalid_read_result');
   });
   it('enforces serialized byte cap independently of valid row/string bounds and rejects holes', () => {
-    const entries = Array.from({ length: 30 }, (_, index) => ({
-      date: `2026-11-${String(index + 1).padStart(2, '0')}`,
-      content: '學'.repeat(4000)
+    const entries = Array.from({ length: 50 }, (_, index) => ({
+      date: new Date(Date.UTC(2026, 10, index + 1)).toISOString().slice(0, 10),
+      content: '學'.repeat(500)
     }));
     expect(() =>
       decode(
-        { campaign: campaign(), entries },
+        { campaign: { ...campaign(), until: '2027-01-01' }, entries },
         query({ ...get, arguments: { ...get.arguments, limit: 50 } })
       )
     ).toThrow('invalid_read_result');

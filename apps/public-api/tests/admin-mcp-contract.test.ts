@@ -130,6 +130,175 @@ describe('phase-one internal tool contract', () => {
   });
 });
 
+describe('parsed input structural boundary', () => {
+  it('rejects non-enumerable schema accessors without executing them', () => {
+    let touched = false;
+    const args = Object.defineProperty({}, 'learnerId', {
+      get() {
+        touched = true;
+        return id;
+      }
+    });
+    const envelope = Object.defineProperty({ arguments: {} }, 'tool', {
+      get() {
+        touched = true;
+        return 'admin_get_capabilities';
+      }
+    });
+    expect(() => parseAdminMcpCall({ tool: 'learners_get', arguments: args })).toThrow();
+    expect(() => parseAdminMcpCall(envelope)).toThrow();
+    expect(touched).toBe(false);
+  });
+});
+
+describe('review regressions: guidance, timezone and ancient dates', () => {
+  const campaign = { campaignId: id, title: 'Synthetic', status: 'published', ...range };
+  const get = parseAdminMcpCall({ tool: 'guidance_get', arguments: { campaignId: id, ...page } });
+  it('preserves multiline guidance, allows only textarea controls and caps content at 500', () => {
+    const output = (content: string) => ({
+      data: { campaign, entries: [{ date: range.from, content }] },
+      ...meta
+    });
+    for (const content of ['First\r\nSecond\tline', '學'.repeat(500), '𠀀'.repeat(500)])
+      expect(parseAdminMcpReadResult(get, output(content)).data).toEqual(output(content).data);
+    for (const content of [
+      'x'.repeat(501),
+      '𠀀'.repeat(501),
+      'bad\u0000text',
+      'bad\u000btext',
+      'bad\u0085text'
+    ])
+      expect(() => parseAdminMcpReadResult(get, output(content))).toThrow();
+  });
+  it('keeps campaign output descriptions distinct from bounded query windows', () => {
+    const catalog = getAdminMcpToolCatalog();
+    const list = catalog.find((tool) => tool.name === 'guidance_list');
+    const get = catalog.find((tool) => tool.name === 'guidance_get');
+    expect(list).toBeDefined();
+    expect(get).toBeDefined();
+    expect(JSON.stringify(list?.inputSchema)).toContain('at most 93 days');
+    expect(JSON.stringify(list?.outputSchema)).not.toContain('at most 93 days');
+    expect(JSON.stringify(get?.outputSchema)).not.toContain('at most 93 days');
+    expect(get?.outputSchema).toHaveProperty(
+      'properties.data.properties.entries.items.properties.content.maxLength',
+      500
+    );
+  });
+  it('allows long ordered campaign lifespans without unbounding query ranges', () => {
+    const long = { ...campaign, from: '2026-01-01', until: '2027-01-01' };
+    for (const call of [
+      get,
+      parseAdminMcpCall({ tool: 'guidance_list', arguments: { ...range, ...page } })
+    ]) {
+      const data =
+        call.tool === 'guidance_get' ? { campaign: long, entries: [] } : { items: [long] };
+      expect(parseAdminMcpReadResult(call, { data, ...meta }).data).toEqual(data);
+      const invalid = { ...long, until: long.from };
+      expect(() =>
+        parseAdminMcpReadResult(call, {
+          data:
+            call.tool === 'guidance_get'
+              ? { campaign: invalid, entries: [] }
+              : { items: [invalid] },
+          ...meta
+        })
+      ).toThrow();
+    }
+    expect(() =>
+      parseAdminMcpCall({
+        tool: 'guidance_list',
+        arguments: { ...range, until: '2027-10-01', ...page }
+      })
+    ).toThrow();
+  });
+  it.each(['US/Eastern', 'america/new_york'])(
+    'canonicalizes timezone %s on both boundaries',
+    (timezone) => {
+      const canonical = new Intl.DateTimeFormat('en', { timeZone: timezone }).resolvedOptions()
+        .timeZone;
+      const call = parseAdminMcpCall({
+        tool: 'guidance_list',
+        arguments: { ...range, timezone, ...page }
+      });
+      expect(call.arguments).toMatchObject({ timezone: canonical });
+      for (const zone of [timezone, canonical])
+        expect(
+          parseAdminMcpReadResult(call, {
+            data: { items: [{ ...campaign, timezone: zone }] },
+            ...meta
+          }).data
+        ).toEqual({ items: [{ ...campaign, timezone: canonical }] });
+      const summary = parseAdminMcpCall({
+        tool: 'dashboard_get_summary',
+        arguments: { ...args, timezone }
+      });
+      expect(
+        parseAdminMcpReadResult(summary, {
+          data: {
+            ...args,
+            timezone: canonical,
+            basis: 'all_matching_records',
+            learnerCount: 0,
+            pendingApplicationCount: 0,
+            attendanceCount: 0
+          },
+          ...meta
+        }).data
+      ).toMatchObject({ timezone: canonical });
+    }
+  );
+  it('does not mistake a BC local year for AD near the year-one timezone boundary', () => {
+    const call = parseAdminMcpCall({
+      tool: 'audit_search',
+      arguments: {
+        ...args,
+        from: '0001-01-01',
+        until: '0001-01-02',
+        timezone: 'America/New_York',
+        targetId: null,
+        ...page
+      }
+    });
+    const output = (occurredAt: string) => ({
+      data: {
+        items: [
+          {
+            auditId: id,
+            targetId: id,
+            regionId: id,
+            occurredAt,
+            action: 'read',
+            outcome: 'succeeded'
+          }
+        ]
+      },
+      ...meta
+    });
+    // ISO year zero December 31 in UTC becomes 1 BC December 31 locally, not AD 1.
+    const december = parseAdminMcpCall({
+      tool: 'audit_search',
+      arguments: {
+        ...args,
+        from: '0001-12-31',
+        until: '0002-01-01',
+        timezone: 'America/New_York',
+        targetId: null,
+        ...page
+      }
+    });
+    expect(() => parseAdminMcpReadResult(december, output('0001-01-01T00:00:00Z'))).toThrow();
+    expect(() => parseAdminMcpReadResult(call, output('0001-01-01T00:00:00Z'))).toThrow();
+    expect(() => parseAdminMcpReadResult(call, output('0001-01-01T12:00:00Z'))).not.toThrow();
+    expect(() => parseAdminMcpReadResult(call, output('0000-01-01T12:00:00Z'))).toThrow();
+    const east = parseAdminMcpCall({
+      tool: 'audit_search',
+      arguments: { ...call.arguments, timezone: 'Asia/Taipei' }
+    });
+    // A year-zero UTC instant may legitimately fall in AD 1 in the business zone.
+    expect(() => parseAdminMcpReadResult(east, output('0000-12-31T20:00:00Z'))).not.toThrow();
+  });
+});
+
 describe('minimal output contracts', () => {
   it('clones and freezes explicit name/id fields without returning contact information', () => {
     const parsed = parseAdminMcpReadResult(parseAdminMcpCall(search), result);
