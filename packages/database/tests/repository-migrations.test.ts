@@ -55,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0063_practice_guidance.sql'
+      '0064_admin_mcp_read_facade.sql'
     );
 
     expect(first.applied).toEqual([

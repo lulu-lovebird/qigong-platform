@@ -93,12 +93,12 @@ const setup = async (overrides: Partial<AdminMcpRoutesOptions> = {}) => {
     ...overrides
   });
   const headers = { authorization: `Bearer ${token}`, origin };
-  const post = (payload: unknown = call) =>
+  const post = (payload: object | string | null = call) =>
     app.inject({
       method: 'POST',
       url: '/mcp/admin',
       headers,
-      payload
+      payload: payload ?? {}
     });
   return { app, token, state, headers, post, query, connect, release, resolveCurrentAuthorization };
 };
@@ -154,17 +154,15 @@ describe('/mcp/admin HTTP authorization and dispatch', () => {
       error: { code: 'unauthenticated' }
     });
     expect(response.body).not.toMatch(/private|stack|signature|token/);
-    expect(
-      (
-        await app.inject({
-          method: 'GET',
-          url: '/mcp/admin',
-          headers: { cookie: 'admin=private' }
-        })
-      ).statusCode
-    ).toBe(401);
+    const getRes = await app.inject({
+      method: 'GET',
+      url: '/mcp/admin',
+      headers: { cookie: 'admin=private' }
+    });
+    expect(getRes.statusCode).toBe(401);
     expect(connect).not.toHaveBeenCalled();
-    expect((await post()).statusCode).toBe(200);
+    const okRes = await post();
+    expect(okRes.statusCode).toBe(200);
   });
 
   it.each([
@@ -216,13 +214,13 @@ describe('/mcp/admin HTTP authorization and dispatch', () => {
   it('rejects duplicate authorization/origin headers', async () => {
     const { app, headers, connect } = await setup();
     for (const duplicate of [
-      { ...headers, authorization: [headers.authorization, headers.authorization] },
-      { ...headers, origin: [origin, origin] }
+      { authorization: [headers.authorization, headers.authorization], origin },
+      { origin: [origin, origin], authorization: headers.authorization }
     ]) {
       const response = await app.inject({
         method: 'POST',
         url: '/mcp/admin',
-        headers: duplicate,
+        headers: duplicate as unknown as Record<string, string>,
         payload: call
       });
       expect([401, 403]).toContain(response.statusCode);
@@ -311,7 +309,8 @@ describe('/mcp/admin HTTP authorization and dispatch', () => {
 
   it('enables no business tools without explicit switches', async () => {
     const { post, connect } = await setup({ enabledTools: [] });
-    expect((await post()).statusCode).toBe(404);
+    const res = await post();
+    expect(res.statusCode).toBe(404);
     expect(connect).not.toHaveBeenCalled();
   });
 
@@ -387,7 +386,8 @@ describe('/mcp/admin pre-parse limits and shared atomic budget', () => {
         payload,
         headers: { ...headers, 'content-type': contentType }
       });
-    expect((await inject(raw)).statusCode).toBe(200);
+    const validRes = await inject(raw);
+    expect(validRes.statusCode).toBe(200);
     for (const payload of ['{invalid-secret', '']) {
       const response = await inject(payload);
       expect(response.statusCode).toBe(400);
@@ -396,7 +396,8 @@ describe('/mcp/admin pre-parse limits and shared atomic budget', () => {
       });
       expect(response.body).not.toMatch(/secret|SyntaxError|stack/);
     }
-    expect((await inject('raw', 'application/octet-stream')).statusCode).toBe(415);
+    const mediaRes = await inject('raw', 'application/octet-stream');
+    expect(mediaRes.statusCode).toBe(415);
   });
 
   it('does not alter unrelated routes or their body limits/error handling', async () => {
@@ -426,7 +427,8 @@ describe('/mcp/admin pre-parse limits and shared atomic budget', () => {
   it('shares one quota across GET/POST, and counts malformed/disabled authenticated calls', async () => {
     for (const payload of [{}, { tool: 'operations_commit', arguments: {} }]) {
       const { app, post, headers, connect } = await setup({ budget: { maximumCalls: 1 } });
-      expect([400, 404]).toContain((await post(payload)).statusCode);
+      const badRes = await post(payload);
+      expect([400, 404]).toContain(badRes.statusCode);
       const response = await app.inject({ method: 'GET', url: '/mcp/admin', headers });
       expect(response.statusCode).toBe(429);
       expect(connect).not.toHaveBeenCalled();
@@ -438,10 +440,13 @@ describe('/mcp/admin pre-parse limits and shared atomic budget', () => {
       budget: { maximumCalls: 1 }
     });
     resolveCurrentAuthorization.mockResolvedValueOnce(null);
-    expect((await post()).statusCode).toBe(401);
+    const unauthRes = await post();
+    expect(unauthRes.statusCode).toBe(401);
     resolveCurrentAuthorization.mockResolvedValue(state);
-    expect((await post()).statusCode).toBe(200);
-    expect((await post()).statusCode).toBe(429);
+    const firstRes = await post();
+    expect(firstRes.statusCode).toBe(200);
+    const secondRes = await post();
+    expect(secondRes.statusCode).toBe(429);
   });
 
   it.each([

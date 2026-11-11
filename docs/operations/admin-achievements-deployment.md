@@ -55,6 +55,16 @@ At the pre-open checkpoint: health healthy, LINE/TG pending0/sending0/failed0/ex
 
 API/worker env byte-identical and mode640, existing service units byte-identical, normal production realtime entry has no mock preload. Existing realtime/reminder/reviewer flags and individual choices preserved. WhatsApp still unconfigured, privacy policy draft, **no scheduled alert monitor/sink/recipient activation**, no NTP/clocksource changes. Local12-layout/24-screenshot synthetic browser evidence predates deployment; real admin/IdP/device acceptance is still separate.
 
+## User-reported manual acceptance
+
+Recorded on **2026-10-18 (Asia/Taipei, workstation recording date)**; the actual verification time was not specified. The user reported through Telegram:
+
+> 我已依清單完成 qigong-platform 正式唯讀成就榜人工驗收，結果通過；請記錄此回報，不修改程式、資料或部署。
+
+Status: **user-reported manual acceptance passed** for the readonly achievement page described in this release. The referenced checklist covered three languages, phone usability, authorized scope, recipient counts, applicable pagination, filters and empty/configuration notices. No device/role matrix or screenshots were supplied, so this does not assert independent agent retesting, every possible role/device, or a data set exceeding20 recipients; pagination applicability follows the actual data available to the user.
+
+This acknowledgement does not close the separate test-clock/403 investigation or authorize award/rule/date/role changes, alert activation or deployment. Only this acceptance document was updated; no program, database, production configuration, commit, push or deployment action was performed to record the report.
+
 ## Recovery boundary and evidence
 
 **No binary-only38→37 rollback, no ledger rewriting and no post-resume old-snapshot restore.** For an achievement-only fault, the validated hold variant can isolate that feature while retaining38; for a wider fault, retain full checkin maintenance and fix forward with a reviewed38 build. Recheck current ingress hashes before any operation, preserve all current writes/queues/consents/audit and never invoke an older same37 rollback script on38.
@@ -64,4 +74,4 @@ API/worker env byte-identical and mode640, existing service units byte-identical
 - Off-host ciphertext `~/.local/share/qigong-platform/backups/deployment-a9f6f50`, key separately under `backup-keys/`; durable crypto helper retained in deployment-269555c. Runtime archives include saved ingress variants/original and guard metadata, not public source files.
 - Workstation `/tmp/qigong-admin-achievements-release-{prepare,regression,realtime,activate,resume,public}.log` and `/tmp/qigong-admin-achievements-release-a9f6f50/`; original local failed runs and clock evidence retained separately.
 
-Unrelated permissions-review and legacy repositories remain untouched. Real-user acceptance should verify the scoped readonly page without changing rules or forcing award recalculation.
+Unrelated permissions-review and legacy repositories remain untouched. User-reported readonly acceptance is recorded above; it does not authorize rule changes or forced award recalculation.
