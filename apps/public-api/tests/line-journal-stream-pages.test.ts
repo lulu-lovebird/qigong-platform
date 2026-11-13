@@ -1,7 +1,7 @@
 import vm from 'node:vm';
 import { setImmediate } from 'node:timers/promises';
 import { describe, expect, it, vi } from 'vitest';
-import { lineJournalStreamScript } from '../src/line-journal-stream.js';
+import { lineJournalStreamScript, lineJournalStreamStyles } from '../src/line-journal-stream.js';
 import { journalTexts } from '../src/journal-locale.js';
 import { renderChannelWorkspacePage } from '../src/channel-workspace-pages.js';
 class Node {
@@ -266,7 +266,7 @@ describe('LINE portrait journal stream interaction', () => {
     await f.get('line-feed-more').onclick?.();
     expect(f.get('line-feed-entries').children).toHaveLength(2);
   });
-  it('renders as-of counters, timezone labels, text-only long notes and wrapping method/feeling tags', async () => {
+  it('renders counters beside the practice date without check-in/share times and keeps text-only long notes', async () => {
     const data = batch(['note']);
     data.entries[0]!.practiceNote = '<img src=x onerror=alert(1)>' + '很長的原文😀'.repeat(60);
     const f = fixture(vi.fn().mockResolvedValue(data));
@@ -274,7 +274,18 @@ describe('LINE portrait journal stream interaction', () => {
     const card = f.get('line-feed-entries').children[0]!;
     expect(flatten(card)).toContain('連續練功');
     expect(flatten(card)).toContain('38 天');
-    expect(flatten(card)).toContain('Asia/Taipei');
+    const times = card.children.find((n) => n.className === 'line-feed-time')!;
+    expect(times.children.map((n) => n.tag)).toEqual(['time', 'div', 'div']);
+    expect(times.children[0]!.textContent).toBe('練功日期: 2026-10-13');
+    expect(flatten(times.children[1]!).replace(/\s+/g, ' ').trim()).toBe('🔥 連續練功 7 天');
+    expect(flatten(times.children[2]!).replace(/\s+/g, ' ').trim()).toBe('⭐ 累計練功 38 天');
+    expect(flatten(card)).not.toContain('Asia/Taipei');
+    expect(flatten(card)).not.toContain(journalTexts('zh_TW').checkedInAt);
+    expect(flatten(card)).not.toContain(journalTexts('zh_TW').publishedAt);
+    expect(card.children.some((n) => n.className === 'line-feed-stats')).toBe(false);
+    expect(lineJournalStreamStyles).toContain(
+      '.line-feed-time{display:flex;align-items:center;flex-wrap:wrap;'
+    );
     expect(card.children.some((n) => n.tag === 'details')).toBe(true);
     expect(flatten(card)).toContain(data.entries[0]!.practiceNote);
     expect(card.children.some((n) => n.tag === 'img')).toBe(false);

@@ -240,15 +240,19 @@ const settle = async () => {
 };
 describe('Journal generated pages and unsaved-edit behavior', () => {
   it.each(['zh_TW', 'zh_CN', 'en'] as const)(
-    'discloses verified platform author names in both learner readers without relabeling the external sharing editor in %s',
+    'omits the introductory explanations while preserving the sharing editor in %s',
     (locale) => {
       const t = journalTexts(locale);
       for (const html of [
         renderLearnerJournalPage(locale),
         renderChannelWorkspacePage({ platform: 'line', liffId: '123-profile' }, 'journal', locale)
       ]) {
-        expect(html).toContain('id="author-name-help"');
-        expect(html).toContain(t.authorNameNotice);
+        const markup = html.split('<script>')[0]!;
+        expect(markup).not.toContain('id="sharing-help"');
+        expect(markup).not.toContain('id="author-name-help"');
+        expect(markup).not.toContain(t.authorNameNotice);
+        expect(markup).not.toContain(t.withdrawHelp);
+        expect(html).not.toContain("$('sharing-help')");
         expect(html).toContain(t.alias);
         expect(html).not.toContain('其他渠道作者保留分享暱稱');
         for (const script of html.matchAll(/<script>([\s\S]*?)<\/script>/g))
