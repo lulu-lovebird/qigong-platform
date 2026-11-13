@@ -417,7 +417,9 @@ const resultSchema = (tool: AdminMcpToolName) =>
 
 const dateInTimezone = (instant: string, zone: string) => {
   const parts = new Intl.DateTimeFormat('en', {
-    calendar: 'iso8601',
+    // ISO calendar formatting omits era on Node 24/ICU 78; Gregorian keeps AD/BC explicit.
+    calendar: 'gregory',
+    numberingSystem: 'latn',
     timeZone: zone,
     year: 'numeric',
     era: 'short',

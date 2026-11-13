@@ -1,5 +1,5 @@
 /** Developed with ❤️ by Bean, Bird & Badminton Tech Consulting */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   adminMcpLimits,
   adminMcpScopesFor,
@@ -432,6 +432,47 @@ describe('minimal output contracts', () => {
         parseAdminMcpReadResult(call, { data: { items: [{ ...item, ...changed }] }, ...meta })
       ).toThrow();
     }
+  });
+  it('rejects audit timestamps when the formatter cannot supply an explicit AD era', () => {
+    const call = parseAdminMcpCall({
+      tool: 'audit_search',
+      arguments: { ...args, targetId: id, ...page }
+    });
+    const output = {
+      data: {
+        items: [
+          {
+            auditId: id,
+            targetId: id,
+            regionId: id,
+            occurredAt: '2026-09-30T16:00:00Z',
+            action: 'read',
+            outcome: 'succeeded'
+          }
+        ]
+      },
+      ...meta
+    };
+    const parts = new Intl.DateTimeFormat('en', {
+      calendar: 'gregory',
+      timeZone: 'Asia/Taipei',
+      year: 'numeric',
+      era: 'short',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(new Date(output.data.items[0]!.occurredAt));
+    const formatter = vi.spyOn(Intl.DateTimeFormat.prototype, 'formatToParts');
+    try {
+      formatter.mockReturnValue(parts.filter((part) => part.type !== 'era'));
+      expect(() => parseAdminMcpReadResult(call, output)).toThrow('invalid_result');
+      formatter.mockReturnValue(
+        parts.map((part) => (part.type === 'era' ? { ...part, value: 'unknown' } : part))
+      );
+      expect(() => parseAdminMcpReadResult(call, output)).toThrow('invalid_result');
+    } finally {
+      formatter.mockRestore();
+    }
+    expect(() => parseAdminMcpReadResult(call, output)).not.toThrow();
   });
   it('requires guidance lists to overlap the selected range in the same timezone', () => {
     const call = parseAdminMcpCall({ tool: 'guidance_list', arguments: { ...range, ...page } });
