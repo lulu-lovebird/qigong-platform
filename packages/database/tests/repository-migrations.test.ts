@@ -121,13 +121,14 @@ describeWithDatabase('repository migrations', () => {
       '0060_venue_entry_guidance.sql',
       '0061_venue_attendance_reporting.sql',
       '0062_venue_attendance_badges.sql',
-      '0063_practice_guidance.sql'
+      '0063_practice_guidance.sql',
+      '0064_admin_mcp_read_facade.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0063_practice_guidance.sql',
+      currentVersion: '0064_admin_mcp_read_facade.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0063_practice_guidance.sql',
+      maximumVersion: '0064_admin_mcp_read_facade.sql',
       ready: true
     });
   });
