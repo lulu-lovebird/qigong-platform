@@ -9,6 +9,7 @@ import {
   readVersionedLearnerAchievements,
   type VersionedLearnerRequest
 } from './achievement-version-compat.js';
+import { badgeIcons, fallbackBadgeIcon } from './badge-icons.js';
 import { journalPublishInput } from './journal-routes.js';
 import { isLearnerPrivacyError } from './learner-privacy-routes.js';
 import {
@@ -193,11 +194,85 @@ export const registerChannelWorkspace = (
         }
         if (mode === 'save') {
           const v = saveInput.parse(data);
+          if (provider === 'line') {
+            return await withRequestContext(
+              pool,
+              'qigong_api_runtime',
+              { requestId: request.id },
+              async (c) => {
+                const earnedSet = async () => {
+                  const res = await c.query<{ data: unknown }>(
+                    "SELECT platform.channel_workspace_report('line',$1,'achievements',$2) data",
+                    [cred, data.locale]
+                  );
+                  const report = z.record(z.string(), z.unknown()).parse(res.rows[0]?.data);
+                  const badges = Array.isArray(report.badges)
+                    ? (report.badges as Array<{
+                        code: string;
+                        name: string;
+                        awards?: Array<{ period: string; revoked?: boolean }>;
+                      }>)
+                    : [];
+                  const map = new Map<string, { code: string; name: string; period: string }>();
+                  for (const b of badges) {
+                    for (const a of b.awards ?? []) {
+                      if (!a.revoked)
+                        map.set(`${b.code}:${a.period}`, {
+                          code: b.code,
+                          name: b.name,
+                          period: a.period
+                        });
+                    }
+                  }
+                  return map;
+                };
+                let before = new Map<string, { code: string; name: string; period: string }>();
+                try {
+                  before = await earnedSet();
+                } catch {
+                  // Ignore pre-save read error so save validation handles auth/status
+                }
+                const savedRes = await c.query<{ data: unknown }>(
+                  'SELECT platform.community_workspace_save($1,$2,$3,$4,$5,$6,$7,$8,$9) data',
+                  [
+                    provider,
+                    cred,
+                    v.requestId,
+                    v.date,
+                    v.version,
+                    v.methods,
+                    v.practiceNote ?? null,
+                    v.feelingTagIds ?? null,
+                    v.communityNotice ?? null
+                  ]
+                );
+                const saved = z.record(z.string(), z.unknown()).parse(savedRes.rows[0]?.data);
+                try {
+                  await pool.query('SELECT ops.reconcile_practice_badges(20)');
+                } catch {
+                  // Optional immediate badge reconciliation
+                }
+                try {
+                  const after = await earnedSet();
+                  const unlockedBadges = [...after.entries()]
+                    .filter(([key]) => !before.has(key))
+                    .map(([, item]) => ({
+                      code: item.code,
+                      name: item.name,
+                      emoji: badgeIcons[item.code] ?? fallbackBadgeIcon,
+                      period: item.period
+                    }));
+                  if (unlockedBadges.length > 0) return { ...saved, unlockedBadges };
+                } catch {
+                  // Keep saved result if post-save badge query fails
+                }
+                return saved;
+              }
+            );
+          }
           return await execute(
             request.id,
-            provider === 'line'
-              ? 'SELECT platform.community_workspace_save($1,$2,$3,$4,$5,$6,$7,$8,$9) data'
-              : 'SELECT platform.channel_workspace_save($1,$2,$3,$4,$5,$6,$7,$8) data',
+            'SELECT platform.channel_workspace_save($1,$2,$3,$4,$5,$6,$7,$8) data',
             [
               provider,
               cred,
@@ -206,8 +281,7 @@ export const registerChannelWorkspace = (
               v.version,
               v.methods,
               v.practiceNote ?? null,
-              v.feelingTagIds ?? null,
-              ...(provider === 'line' ? [v.communityNotice ?? null] : [])
+              v.feelingTagIds ?? null
             ]
           );
         }

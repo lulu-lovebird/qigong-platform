@@ -108,15 +108,27 @@ export const renderChannelWorkspacePage = (
         "if($('return-chat')){$('return-chat').hidden=!undefined?.initData;$('return-chat').onclick=()=>{if(mayLeave())closeMiniapp();};}";
       if (!html.includes(previousClose) || !html.includes(previousButton))
         throw new Error('Workspace closing template changed');
+      const unlockedTitle =
+        lang === 'en' ? '🎉 New achievements unlocked:' : uiText(lang, '🎉 新解鎖成就：');
       html = html
         .replace(
           previousClose,
-          "const canCloseLine=()=>{try{return typeof liff!=='undefined'&&typeof liff.isInClient==='function'&&liff.isInClient()&&typeof liff.closeWindow==='function';}catch{return false;}};const closeMiniapp=()=>{if(!canCloseLine())return false;leaving=true;syncClosing();try{liff.closeWindow();return true;}catch{leaving=false;syncClosing();return false;}};"
+          `const canCloseLine=()=>{try{return typeof liff!=='undefined'&&typeof liff.isInClient==='function'&&liff.isInClient()&&typeof liff.closeWindow==='function';}catch{return false;}};const sendLineUnlockedBadges=async result=>{try{if(!result||!Array.isArray(result.unlockedBadges)||!result.unlockedBadges.length||typeof liff==='undefined'||typeof liff.isInClient!=='function'||!liff.isInClient()||typeof liff.sendMessages!=='function')return;const lines=[${JSON.stringify(unlockedTitle)}];for(const b of result.unlockedBadges){const p=b.period&&b.period!=='lifetime'?(locale==='en'?' ('+b.period+')':' ('+b.period+'年)'):'';lines.push((b.emoji||'🏅')+' '+b.name+p);}await liff.sendMessages([{type:'text',text:lines.join('\\n')}]);}catch{}};const closeMiniapp=()=>{if(!canCloseLine())return false;leaving=true;syncClosing();try{liff.closeWindow();return true;}catch{leaving=false;syncClosing();return false;}};`
         )
         .replace(
           previousButton,
           "if($('return-chat')){const button=$('return-chat');button.hidden=true;lineReady.then(()=>{button.hidden=!canCloseLine();}).catch(()=>{button.hidden=true;});button.onclick=()=>{if(mayLeave())closeMiniapp();};}"
         );
+      if (page === 'checkin') {
+        const previousSubmitClose =
+          'writing=false;setBusy(false);if(!preserved&&!dirty()&&closeMiniapp())return;';
+        if (!html.includes(previousSubmitClose))
+          throw new Error('Workspace submit close template changed');
+        html = html.replace(
+          previousSubmitClose,
+          'writing=false;setBusy(false);await sendLineUnlockedBadges(result);if(!preserved&&!dirty()&&closeMiniapp())return;'
+        );
+      }
     }
     if (page === 'leaderboard') {
       const original = telegramWorkspaceTexts(lang),

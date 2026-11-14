@@ -270,11 +270,13 @@ const fixture = (
   const lineClose = vi.fn(() => {
     if (options.lineCloseThrows) throw Error('LIFF bridge unavailable');
   });
+  const lineSendMessages = vi.fn(async () => {});
   const lineSdk = {
     init: options.lineInit ?? (async () => {}),
     isLoggedIn: () => true,
     isInClient: () => options.lineNative === true,
     closeWindow: options.lineCloseAvailable === false ? undefined : lineClose,
+    sendMessages: lineSendMessages,
     getIDToken: () => 'verified-line-token',
     login: vi.fn()
   };
@@ -328,6 +330,7 @@ const fixture = (
     html,
     app,
     lineClose,
+    lineSendMessages,
     texts,
     browserClose,
     completionTimers
@@ -850,6 +853,35 @@ describe('Telegram workspace generated scripts and unsaved private drafts', () =
     const event = { preventDefault: vi.fn() };
     await f.listeners.get('beforeunload')?.(event);
     expect(event.preventDefault).not.toHaveBeenCalled();
+  });
+  it('sends newly unlocked badges via LIFF sendMessages before closing the window', async () => {
+    const f = fixture('checkin', { channel: 'line', lineNative: true });
+    await tick();
+    f.all('[data-method]')[0]!.checked = true;
+    await f.all('[data-method]')[0]!.onchange?.();
+    f.fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          checkinId: randomUUID(),
+          version: 2,
+          receiptQueued: true,
+          unlockedBadges: [
+            { code: 'streak_3', name: '連續練功 3 天', emoji: '🥉', period: 'lifetime' },
+            { code: 'combo_dayan_7', name: '大雁功全套', emoji: '🦢', period: '2026' }
+          ]
+        }),
+        { status: 200 }
+      )
+    );
+    await f.get('submit').onclick?.();
+    expect(f.lineSendMessages).toHaveBeenCalledTimes(1);
+    expect(f.lineSendMessages).toHaveBeenCalledWith([
+      {
+        type: 'text',
+        text: '🎉 新解鎖成就：\n🥉 連續練功 3 天\n🦢 大雁功全套 (2026年)'
+      }
+    ]);
+    expect(f.lineClose).toHaveBeenCalledTimes(1);
   });
   it.each([
     {
