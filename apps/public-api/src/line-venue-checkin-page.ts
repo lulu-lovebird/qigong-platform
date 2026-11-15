@@ -364,7 +364,7 @@ export const formatVenueEntrySession = (
 };
 const guidanceTexts = {
   zh_TW: {
-    title: '團練場入口',
+    title: '團練場打卡',
     open: '目前開放簽到',
     before_open: '尚未開放簽到',
     ended: '本次團練已結束',
@@ -392,7 +392,7 @@ const guidanceTexts = {
     closed: '場地狀態已改變，請重新輕觸 NFC 或掃描 QR 查看最新時段。'
   },
   zh_CN: {
-    title: '团练场入口',
+    title: '团练场打卡',
     open: '目前开放签到',
     before_open: '尚未开放签到',
     ended: '本次团练已结束',
@@ -420,7 +420,7 @@ const guidanceTexts = {
     closed: '场地状态已改变，请重新轻触 NFC 或扫描 QR 查看最新时段。'
   },
   en: {
-    title: 'Venue entry',
+    title: 'Group practice check-in',
     open: 'Check-in is open',
     before_open: 'Check-in has not opened',
     ended: 'This practice has ended',
@@ -459,9 +459,35 @@ export const venueGuidancePresentation = (result: unknown, code: string, locale:
   const t = guidanceTexts[locale];
   const cards = (session: VenueEntrySession, timezone: string): string | null => {
     const time = formatVenueEntrySession(session, timezone, locale);
-    return time
-      ? `<dl><dt>${t.start}</dt><dd>${escapeHtml(time.startsAt)}</dd><dt>${t.end}</dt><dd>${escapeHtml(time.endsAt)}</dd><dt>${t.opens}</dt><dd>${escapeHtml(time.opensAt)}</dd></dl>`
-      : null;
+    if (!time) return null;
+    const formatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone,
+      calendar: 'gregory',
+      numberingSystem: 'latn',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23'
+    });
+    const compact = (stamp: string) => {
+      const parts = formatter.formatToParts(new Date(stamp));
+      const part = (type: Intl.DateTimeFormatPartTypes) =>
+        parts.find((value) => value.type === type)!.value;
+      return {
+        date: `${part('year')}/${part('month')}/${part('day')}`,
+        time: `${part('hour')}:${part('minute')}${part('second') === '00' ? '' : ':' + part('second')}`
+      };
+    };
+    const start = compact(session.startsAt);
+    const end = compact(session.endsAt);
+    const opens = compact(session.opensAt);
+    const range = `${start.date} ${start.time}–${end.date === start.date ? '' : end.date + ' '}${end.time}`;
+    const opening = `${opens.date === start.date ? '' : opens.date + ' '}${opens.time} ${t.opens}`;
+    const full = `${t.start} ${time.startsAt}; ${t.end} ${time.endsAt}; ${t.opens} ${time.opensAt}`;
+    return `<p class="session-summary" aria-label="${escapeHtml(full)}" title="${escapeHtml(full)}"><span>${escapeHtml(range)}</span><span class="opening-time">${escapeHtml(opening)}</span></p>`;
   };
   let details = '';
   if (validated.status !== 503 && validated.status !== 400 && validated.body.venue) {
@@ -472,7 +498,7 @@ export const venueGuidancePresentation = (result: unknown, code: string, locale:
     if (relevant === null || next === null)
       validated = { status: 503, body: { error: 'venue_entry_unavailable' } };
     else
-      details = `<p>${escapeHtml(body.venue!.name)} — <code>${escapeHtml(code)}</code></p><p>${escapeHtml(zone)}</p>${relevant}${next ? `<h2>${t.next}</h2>${next}` : body.availability === 'disabled' ? '' : `<p>${t.unknownNext}</p>`}`;
+      details = `<p class="venue-identity"><span class="venue-name" title="${escapeHtml(body.venue!.name)} — ${escapeHtml(code)}">${escapeHtml(body.venue!.name)}</span><span class="venue-timezone">${escapeHtml(zone)}</span></p>${relevant}${next ? `<h2>${t.next}</h2>${next}` : body.availability === 'disabled' ? '' : `<p>${t.unknownNext}</p>`}`;
   }
   const availability =
     validated.status === 503 || validated.status === 400
@@ -481,11 +507,22 @@ export const venueGuidancePresentation = (result: unknown, code: string, locale:
   return {
     result: validated,
     open: availability === 'open',
-    markup: `<h1>${t.title}</h1><p role="status">${t[availability]}</p>${details}`
+    markup: `<header class="page-header"><h1>${t.title}</h1></header><section class="venue-card"><p role="status"${availability === 'open' ? ' class="schedule-open"' : ['before_open', 'ended', 'not_activity_day'].includes(availability) ? ' class="schedule-warning"' : ''}>${t[availability]}</p>${details}</section>`
   };
 };
+const venueCheckinStyles = `
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.6;margin:0;background:#f6f7fb;color:#1f2937}
+main{max-width:760px;padding:20px;margin:auto}.page-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px}.page-header h1{font-size:24px;margin:0}h2{font-size:18px;margin:0 0 12px}
+h1,p,label,a,summary,dd,code{overflow-wrap:anywhere}.lang-control{display:inline-flex;align-items:center;gap:8px;margin:0}.lang-control select{width:auto;padding:6px 10px}
+.venue-card{padding:20px;border:1px solid #e5e7eb;background:#fff;border-radius:16px;box-shadow:0 8px 24px #0000000d;margin:16px 0}.venue-card p{margin:10px 0}.venue-card p:first-child{margin-top:0}.venue-card p:last-child{margin-bottom:0}.venue-card code{display:block;font-size:13px;color:#6b7280}.venue-identity{display:flex;align-items:baseline;gap:8px}.venue-name{min-width:0;font-weight:600}.venue-timezone{margin-left:auto;flex-shrink:0;font-size:12px;color:#6b7280}dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 16px}dt{color:#6b7280}dd{margin:0}.session-summary{display:flex;flex-wrap:wrap;gap:0 4px;font-size:14px;font-variant-numeric:tabular-nums}.session-summary span{max-width:100%}.session-summary{align-items:center;gap:6px 10px}.opening-time{display:inline-block;padding:4px 10px;border-radius:8px;border:1px solid #86efac;background:#f0fdf4;color:#166534;font-weight:700}
+button,input,select{font:inherit;max-width:100%;min-height:48px}button{display:block;width:100%;padding:11px 15px;background:#0d6efd;border:0;border-radius:10px;color:#fff;cursor:pointer;font-weight:600;overflow-wrap:anywhere}.checkin-primary{min-height:60px;padding:16px 20px;font-size:18px;font-weight:700;box-shadow:0 4px 12px #0d6efd26}button:disabled{opacity:.5;cursor:not-allowed}select,input:not([type=checkbox]){padding:10px;border:1px solid #d1d5db;border-radius:10px;background:#fff;min-inline-size:0}input[type=checkbox]{width:18px;height:18px;min-height:0}label{display:block;margin:10px 0}
+a{color:#1d4ed8;min-height:48px;display:flex;align-items:center;padding:11px 15px;border-radius:10px}.venue-actions{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}.venue-actions a{background:#e5e7eb;color:#1f2937;text-decoration:none}.venue-help{color:#6b7280;font-size:14px}.notice{background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:10px;padding:12px}.notice[data-warning=true],main:has(#preview-debug-enabled:checked) .notice{background:#fffbeb;color:#854d0e;border-color:#fcd34d;font-weight:600}
+[role=status]{padding:14px;border:1px solid #e2e8f0;background:#f8fafc;border-radius:10px;white-space:pre-line;overflow-wrap:anywhere}[role=status].schedule-open{background:#f0fdf4;color:#166534;border-color:#86efac;font-weight:600}[role=status].schedule-warning{background:#fffbeb;color:#854d0e;border-color:#fcd34d;font-weight:600}#guided-retry{margin-top:8px;background:#e5e7eb;color:#1f2937}.checkin-stamp{display:none;width:112px;height:112px;margin:20px auto;border:5px double #15803d;border-radius:50%;background:#f0fdf4;color:#166534;transform:rotate(-10deg);text-align:center;align-content:center;justify-items:center;line-height:1.2;gap:4px}.checkin-stamp span{font-size:42px;font-weight:700}.checkin-stamp strong{font-size:16px}main:has(#guided-receipt:not([hidden])) .checkin-stamp{display:grid}main:has(#guided-receipt:not([hidden])) #guided-status{background:#f0fdf4;border-color:#86efac;color:#166534}details{margin:16px 0;padding:14px;border:1px solid #fcd34d;background:#fffbeb;border-radius:10px}summary{min-height:48px;cursor:pointer}input[type=password]{display:block;width:100%}:focus-visible{outline:3px solid #ad5100;outline-offset:3px}footer{text-align:center;font-size:12px;color:#6b7280;margin:24px 0;overflow-wrap:anywhere}
+@media(max-width:500px){main{padding:14px}.venue-card{padding:16px}.venue-actions a{flex:1 1 auto}.page-header{gap:8px}}
+`;
 const guidanceDocument = (lang: Locale, body: string, script = '') =>
-  `<!doctype html><html lang="${htmlLocale(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><title>${guidanceTexts[lang].title}</title><style>body{font:1.2rem/1.65 system-ui,sans-serif;max-width:36rem;margin:auto;padding:1rem;color:#172b24;background:#f3f7f3}button,a,select{font:inherit;min-height:48px;margin:.5rem 0}button,a{display:block}button{padding:.75rem}dd{margin-bottom:.5rem}p,dd,a{overflow-wrap:anywhere}[hidden]{display:none!important}:focus-visible{outline:3px solid #ad5100}footer{font-size:.8rem;margin-top:2rem}</style></head><body><main>${body}</main><footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer>${script}</body></html>`;
+  `<!doctype html><html lang="${htmlLocale(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><title>${guidanceTexts[lang].title}</title><style>${venueCheckinStyles}</style></head><body><main>${body}<footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer></main>${script}</body></html>`;
 const renderGuidedVenuePreview = (
   liffId: string,
   entry: VenuePreviewEntry | null,
@@ -500,7 +537,10 @@ const renderGuidedVenuePreview = (
     !isLocale(entry.lang) ||
     (entry.source !== undefined && !['nfc', 'qr', 'link'].includes(entry.source))
   )
-    return guidanceDocument(lang, `<h1>${t.title}</h1><p>${texts[lang].invalid}</p>`);
+    return guidanceDocument(
+      lang,
+      `<header class="page-header"><h1>${t.title}</h1></header><section class="venue-card"><p role="status">${texts[lang].invalid}</p></section>`
+    );
   const view = venueGuidancePresentation(guidance.result, entry.venue, lang);
   if (
     view.result.status === 503 ||
@@ -526,7 +566,7 @@ const renderGuidedVenuePreview = (
   };
   return guidanceDocument(
     lang,
-    `<section id="guided-calendar">${view.markup}</section><p>${t.source}</p><p>${t.privacy}</p><p id="guided-status" role="status" aria-live="polite">${t.loading}</p><button id="guided-login" type="button" hidden>${t.login}</button><button id="guided-retry" type="button" hidden>${t.retry}</button><a id="guided-chat" href="https://line.me/R/oaMessage/%40556fjenc" referrerpolicy="no-referrer" hidden>${t.chat}</a><button id="guided-checkin" type="button" disabled aria-busy="false">${ui.button}</button><label id="guided-language-label" for="guided-language">${ui.language}</label><select id="guided-language">${languageOptions(lang)}</select><div id="guided-receipt" hidden>${historyEnabled ? `<a href="/line/venue-history?lang=${lang}">${ui.history}</a>` : ''}<a href="/line/checkin?lang=${lang}">${ui.daily}</a></div>`,
+    `<header class="page-header"><h1>${t.title}</h1><div class="lang-control"><label id="guided-language-label" for="guided-language">${ui.language}</label><select id="guided-language">${languageOptions(lang)}</select></div></header><section id="guided-calendar">${view.markup.replace(`<header class="page-header"><h1>${t.title}</h1></header>`, '')}</section><section class="venue-card"><p>${t.source}</p><p class="venue-help">${t.privacy}</p><div class="checkin-stamp" aria-hidden="true"><span>✓</span><strong>${lang === 'en' ? 'CHECKED IN' : '打卡成功'}</strong></div><p id="guided-status" role="status" aria-live="polite">${t.loading}</p><button id="guided-login" type="button" hidden>${t.login}</button><button id="guided-retry" type="button" hidden>${t.retry}</button><a id="guided-chat" href="https://line.me/R/oaMessage/%40556fjenc" referrerpolicy="no-referrer" hidden>${t.chat}</a><button id="guided-checkin" class="checkin-primary" type="button" disabled aria-busy="false">${ui.button}</button></section><nav id="guided-receipt" class="venue-actions" hidden>${historyEnabled ? `<a href="/line/venue-history?lang=${lang}">${ui.history}</a>` : ''}<a href="/line/checkin?lang=${lang}">${ui.daily}</a></nav>`,
     `${sdk}<script>
 (()=>{
 const ui=${scriptJson(ui)},code=${scriptJson(entry.venue)},canonical=${scriptJson(canonical)},locale=${scriptJson(lang)};
@@ -657,14 +697,14 @@ export const renderVenuePreview = (
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">
 <title>${t.title}</title><style>
-:root{font:125%/1.65 system-ui,sans-serif;color:#172b24;background:#f3f7f3}*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;padding:1rem}main{max-width:36rem;margin:auto}h1{font-size:1.6rem}h1,p,label,a,summary{overflow-wrap:anywhere}.notice{border:3px solid #725000;background:#fff5d6;padding:1rem;font-weight:700}button,a,select{font:inherit;min-height:48px}button,a{display:block;padding:.75rem;margin:1rem 0}button{width:100%;overflow-wrap:anywhere;color:white;background:#195941;border:2px solid #195941;border-radius:.5rem}button:disabled{color:#404040;background:#ddd;border-color:#777}a{color:#164b83}select,input{font:inherit;min-height:48px;min-inline-size:0;max-inline-size:100%}#preview-debug-token{display:block;width:100%}summary{min-height:48px}#preview-status{padding:.75rem;border:2px solid #567365}:focus-visible{outline:3px solid #ad5100;outline-offset:3px}footer{font-size:.8rem;overflow-wrap:anywhere;margin-top:2rem}
-</style></head><body><main><h1>${t.title}</h1><p id="preview-notice" class="notice">${!entry ? t.invalid : testOnly ? d.testOnly : t.notice}</p>
-${entry ? `<p>${t.venue}：<strong>${escapeHtml(entry.venue)}</strong></p><p>${t.unknown}</p><p>${t.privacy}</p><label for="preview-language">${t.language}</label><select id="preview-language" disabled>${languageOptions(lang)}</select>` : ''}
+${venueCheckinStyles}
+</style></head><body><main><header class="page-header"><h1>${t.title}</h1>${entry ? `<div class="lang-control"><label for="preview-language">${t.language}</label><select id="preview-language" disabled>${languageOptions(lang)}</select></div>` : ''}</header><section class="venue-card"><p id="preview-notice" class="notice" data-warning="${!entry || testOnly}">${!entry ? t.invalid : testOnly ? d.testOnly : t.notice}</p>
+${entry ? `<p>${t.venue}：<code>${escapeHtml(entry.venue)}</code></p><p class="venue-help">${t.unknown}</p><p class="venue-help">${t.privacy}</p>` : ''}</section><section class="venue-card">
 ${debugAvailable ? `<details${testOnly ? ' open' : ''}><summary>${d.token}</summary><p>${d.help}</p>${testOnly ? '<input id="preview-debug-enabled" type="checkbox" checked disabled hidden>' : `<label><input id="preview-debug-enabled" type="checkbox">${d.optIn}</label>`}<label for="preview-debug-token">${d.token}</label><input id="preview-debug-token" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="256"></details>` : ''}
-${entry ? `<button id="preview-test" type="button" aria-busy="false" aria-describedby="preview-status" disabled>${testUnavailable ? d.unavailableButton : t.button}</button>` : ''}
-<p id="preview-status" role="status" aria-live="polite" aria-atomic="true">${entry ? (testUnavailable ? d.unavailable : t.loading) : t.invalid}</p>
+${entry ? `<button id="preview-test" class="checkin-primary" type="button" aria-busy="false" aria-describedby="preview-status" disabled>${testUnavailable ? d.unavailableButton : t.button}</button>` : ''}
+<p id="preview-status" role="status" aria-live="polite" aria-atomic="true">${entry ? (testUnavailable ? d.unavailable : t.loading) : t.invalid}</p></section><nav class="venue-actions">
 ${live && entry && historyEnabled ? `<a id="preview-history" href="${escapeHtml(historyHref)}" referrerpolicy="no-referrer" hidden>${t.history}</a>` : ''}
-<a href="/line/checkin?lang=${lang}" referrerpolicy="no-referrer">${t.daily}</a>
+<a href="/line/checkin?lang=${lang}" referrerpolicy="no-referrer">${t.daily}</a></nav>
 <footer>Developed with ❤️ by Bean, Bird &amp; Badminton Tech Consulting</footer></main>
 ${
   entry

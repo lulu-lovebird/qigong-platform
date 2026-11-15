@@ -1886,7 +1886,7 @@ describe('mobile result feedback (real inline controller)', () => {
     );
     const markup = html.split('<script')[0]!;
     expect(markup.match(/role="status"/g)).toHaveLength(1);
-    expect(markup).toContain('h1,p,label,a,summary{overflow-wrap:anywhere}');
+    expect(markup).toContain('h1,p,label,a,summary,dd,code{overflow-wrap:anywhere}');
     expect(markup).not.toMatch(/overflow(?:-x)?:(?:hidden|clip)|user-scalable|maximum-scale/);
     expect(markup).toMatch(
       /<\/details>\s*<button id="preview-test"[^>]*aria-describedby="preview-status"[^>]*>[\s\S]*?<\/button>\s*<p id="preview-status" role="status" aria-live="polite" aria-atomic="true">/

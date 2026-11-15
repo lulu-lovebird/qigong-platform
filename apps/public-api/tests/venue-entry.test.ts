@@ -693,7 +693,9 @@ describe('explicit authoritative public venue guidance (unit HTTP, not NFC/provi
       expect(response.statusCode).toBe(410);
       expect(response.headers.location).toBeUndefined();
       expect(response.body).toContain('Canonical test &amp; name');
-      expect(response.body).toContain('<code>tw-location-test</code>');
+      expect(response.body).toContain(
+        '<span class="venue-name" title="Canonical test &amp; name — tw-location-test">Canonical test &amp; name</span>'
+      );
       expect(response.body).toContain(
         lang === 'en' ? 'Venue disabled' : lang === 'zh_TW' ? '場地已停用' : '场地已停用'
       );
