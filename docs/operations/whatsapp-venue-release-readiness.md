@@ -1,6 +1,6 @@
 # WhatsApp 團練場打卡：部署準備與關卡
 
-**目前結論：功能分支可交付審查，正式啟用／部署仍 BLOCK。** 使用者已核准 commit／push；此次只推預設關閉的功能分支，不合併 main、不操作正式 DB。SQL、本人紀錄、Bot 私人登入回程、可操作頁面與明確通路 NFC dispatch 已接通並有測試；後台自動國家→通路配置及最終跨家族審查仍未完成。下方舊批次段落保留當時狀態，最新實作見本節。
+**目前結論：已取得預設關閉狀態的 main 合併審查核准；正式啟用／部署仍 BLOCK。** 使用者後續已授權合併與部署準備，Gemini 3.8 Flash 完成限定 default-off merge 的跨家族靜態審查，詳見 [合併審查紀錄](whatsapp-venue-merge-review.md)。SQL、本人紀錄、Bot 私人回程、可操作頁面與明確 channel NFC dispatch 已接通並有測試；後台自動國家→通路配置及正式啟用關卡仍未完成。此作業不操作正式 DB、不啟用旗標、不重啟／部署。下方舊批次段落保留當時狀態。
 
 ## 功能分支的最新啟用契約
 
@@ -16,7 +16,7 @@
 - 本人紀錄每頁20筆、月份／場地篩選；已停用場地仍可查，正式／測試與不同人分隔，日期以保存的場地時區為準。不主動發 WhatsApp 打卡收據。
 - **尚未完成的區域自動配置：** `defaultVenueEntryChannel` 已有 TW→LINE／MY、SG、HK→WhatsApp 的純契約，但現有 regions 只有自由 code，沒有已核對的 ISO 國碼來源；後台場地／QR 輸出尚未自動帶預設通路。不得由語言、IP 或 venue code 猜測。現階段只有明確 `channel` 的 URL 可按通路直達，不可宣稱已自動完成所有國家配置。
 
-## 本次功能分支交付驗證
+## 功能分支檢查點驗證記錄（取得合併核准前）
 
 - 最終以 Node24 對全部 TypeScript 原始碼／測試執行 `tsc -p tsconfig.eslint.json --noEmit`，通過。
 - 帶專用 PostgreSQL16、明確 ephemeral role teardown opt-in 的 `pnpm verify` 通過：database 801 項、public-api 4484 項、config 2 項、identity 6 項。仍有 database 27／public-api 62 項專用 runner 測試跳過，不列為通過。
