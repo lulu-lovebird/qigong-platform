@@ -1,4 +1,5 @@
 import { localeSchema, uiText } from './ui-localization.js';
+import { whatsappVenueCommand, whatsappVenuePrivateLink } from './whatsapp-venue-navigation.js';
 import { helpLabel, helpUrl, isHelpCommand } from './learner-help-content.js';
 import {
   beginChannelInvitation,
@@ -135,7 +136,8 @@ export const registerWhatsAppOnboarding = (
   app: FastifyInstance,
   pool: Pool,
   config: WhatsAppConfig,
-  inviteTarget?: string
+  inviteTarget?: string,
+  venueCheckinEnabled = false
 ) => {
   registerChannelInvitePages(app, pool, 'whatsapp', config.appSecret, inviteTarget);
   const sendText = config.sendText ?? createWhatsAppTextSender(config);
@@ -260,7 +262,8 @@ export const registerWhatsAppOnboarding = (
                 "SELECT platform.get_identity_locale('whatsapp',$1) AS locale",
                 [message.from]
               );
-              const locale = learnerLocale(preference.rows[0]?.locale);
+              const venueCommand = venueCheckinEnabled ? whatsappVenueCommand(command) : null;
+              const locale = venueCommand?.locale ?? learnerLocale(preference.rows[0]?.locale);
               const texts = learnerTexts(locale);
               let text = command.trim();
               if (isHelpCommand(text)) {
@@ -340,7 +343,8 @@ export const registerWhatsAppOnboarding = (
                 /^(?:\/)?(menu|選單|stats|統計|leaderboard|排行榜|methods|methodanalysis|功法分析|achievements|成就|history|紀錄|journal|share|心得|心得分享)$/i.test(
                   text
                 );
-              const checkin = workspace || /^(?:\/?checkin|打卡)$/i.test(text);
+              const checkin =
+                venueCommand !== null || workspace || /^(?:\/?checkin|打卡)$/i.test(text);
               const isPrivacy = /^(?:\/?privacy|隱私|\/?terms|條款)$/i.test(text);
               if (!checkin && !isPrivacy && !/^(?:\/?start|join|加入|申請)$/i.test(text)) return;
               const privacyToken = createHmac('sha256', config.appSecret)
@@ -374,6 +378,19 @@ export const registerWhatsAppOnboarding = (
               const status = result.rows[0]?.status;
               let response: string;
               if (status === 'ready') {
+                if (venueCommand) {
+                  await sendText(
+                    message.from,
+                    [
+                      locale === 'en'
+                        ? 'Private venue check-in link. Do not forward.'
+                        : uiText(locale, '團練場私人登入連結，請勿轉傳。'),
+                      whatsappVenuePrivateLink(venueCommand.code, locale, token),
+                      texts.privateLink
+                    ].join('\n')
+                  );
+                  return;
+                }
                 const labels = telegramWorkspaceTexts(locale),
                   shared = journalTexts(locale);
                 const link = (path: string) =>

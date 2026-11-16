@@ -55,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0064_admin_mcp_read_facade.sql'
+      '0065_whatsapp_venue_authority.sql'
     );
 
     expect(first.applied).toEqual([
@@ -122,15 +122,107 @@ describeWithDatabase('repository migrations', () => {
       '0061_venue_attendance_reporting.sql',
       '0062_venue_attendance_badges.sql',
       '0063_practice_guidance.sql',
-      '0064_admin_mcp_read_facade.sql'
+      '0064_admin_mcp_read_facade.sql',
+      '0065_whatsapp_venue_authority.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0064_admin_mcp_read_facade.sql',
+      currentVersion: '0065_whatsapp_venue_authority.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0064_admin_mcp_read_facade.sql',
+      maximumVersion: '0065_whatsapp_venue_authority.sql',
       ready: true
     });
+  });
+
+  it('upgrades schema64 to65 without changing existing identities, Session credentials or LINE writer ACLs', async () => {
+    const oldDirectory = await mkdtemp(path.join(tmpdir(), 'qigong-schema64-upgrade-'));
+    try {
+      for (const name of await readdir(currentMigrationsDirectory))
+        if (/^\d{4}_.+\.sql$/.test(name) && name < '0065_')
+          await copyFile(
+            path.join(currentMigrationsDirectory, name),
+            path.join(oldDirectory, name)
+          );
+      expect((await runMigrations(pool, oldDirectory)).currentVersion).toBe(
+        '0064_admin_mcp_read_facade.sql'
+      );
+      const person = (
+        await pool.query<{ id: string }>(
+          "INSERT INTO identity.people(preferred_name) VALUES('Synthetic upgrade learner') RETURNING id"
+        )
+      ).rows[0]!.id;
+      const identity = (
+        await pool.query<{ id: string }>(
+          "INSERT INTO identity.platform_identities(person_id,platform,external_subject_id) VALUES($1,'whatsapp','60110000999') RETURNING id",
+          [person]
+        )
+      ).rows[0]!.id;
+      await pool.query(
+        "INSERT INTO platform.whatsapp_browser_sessions(token_hash,csrf_hash,identity_id,person_id,remembered,expires_at) VALUES(public.digest('synthetic-upgrade-session','sha256'),public.digest('synthetic-upgrade-csrf','sha256'),$1,$2,TRUE,clock_timestamp()+INTERVAL '1 day')",
+        [identity, person]
+      );
+      const before = {
+        people: (await pool.query('SELECT * FROM identity.people ORDER BY id')).rows,
+        identities: (await pool.query('SELECT * FROM identity.platform_identities ORDER BY id'))
+          .rows,
+        sessions: (await pool.query('SELECT * FROM platform.whatsapp_browser_sessions ORDER BY id'))
+          .rows,
+        ledger: (
+          await pool.query('SELECT version,checksum FROM public.schema_migrations ORDER BY version')
+        ).rows,
+        line: (
+          await pool.query(
+            "SELECT oid::regprocedure::text signature,proacl::text acl,pg_get_functiondef(oid) definition FROM pg_proc WHERE oid IN ('platform.venue_qr_checkin(text,text,double precision,double precision)'::regprocedure,'platform.venue_debug_checkin(text,text,double precision,double precision,bigint,bigint,text)'::regprocedure) ORDER BY 1"
+          )
+        ).rows
+      };
+      expect((await runMigrations(pool, currentMigrationsDirectory)).applied).toEqual([
+        '0065_whatsapp_venue_authority.sql'
+      ]);
+      expect((await runMigrations(pool, currentMigrationsDirectory)).applied).toEqual([]);
+      expect((await pool.query('SELECT * FROM identity.people ORDER BY id')).rows).toEqual(
+        before.people
+      );
+      expect(
+        (await pool.query('SELECT * FROM identity.platform_identities ORDER BY id')).rows
+      ).toEqual(before.identities);
+      expect(
+        (await pool.query('SELECT * FROM platform.whatsapp_browser_sessions ORDER BY id')).rows
+      ).toEqual(before.sessions);
+      expect(
+        (
+          await pool.query(
+            "SELECT version,checksum FROM public.schema_migrations WHERE version<'0065_' ORDER BY version"
+          )
+        ).rows
+      ).toEqual(before.ledger);
+      expect(
+        (
+          await pool.query(
+            "SELECT oid::regprocedure::text signature,proacl::text acl,pg_get_functiondef(oid) definition FROM pg_proc WHERE oid IN ('platform.venue_qr_checkin(text,text,double precision,double precision)'::regprocedure,'platform.venue_debug_checkin(text,text,double precision,double precision,bigint,bigint,text)'::regprocedure) ORDER BY 1"
+          )
+        ).rows
+      ).toEqual(before.line);
+      expect(
+        await getMigrationStatus(
+          pool,
+          '0001_platform_baseline.sql',
+          '0065_whatsapp_venue_authority.sql'
+        )
+      ).toMatchObject({ ready: true });
+      expect(
+        await getMigrationStatus(
+          pool,
+          '0001_platform_baseline.sql',
+          '0064_admin_mcp_read_facade.sql'
+        )
+      ).toMatchObject({ ready: false });
+      expect(
+        (await pool.query('SELECT count(*)::int count FROM core.field_attendance')).rows[0]
+      ).toEqual({ count: 0 });
+    } finally {
+      await rm(oldDirectory, { recursive: true, force: true });
+    }
   });
 
   it('upgrades 0025 to the profile contract without backfilling emails, changing permissions or invalidating sessions', async () => {

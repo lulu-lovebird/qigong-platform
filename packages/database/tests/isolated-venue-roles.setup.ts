@@ -13,7 +13,10 @@ const venueRoles = [
   'qigong_venue_debug_region_guard',
   'qigong_venue_entry_reader',
   'qigong_venue_entry_identity_reader',
-  'qigong_venue_reporting_reader'
+  'qigong_venue_reporting_reader',
+  'qigong_whatsapp_venue_session_reader',
+  'qigong_whatsapp_venue_writer',
+  'qigong_whatsapp_venue_history_reader'
 ] as const;
 const preexistingOids = new Set<number>();
 

@@ -59,7 +59,7 @@ const jsonParameter = (value: unknown): unknown => {
 };
 
 describe('version-bound window catalog SQL (STATIC guards, not PG execution)', () => {
-  it('requires exactly two historical grants or three schema60 grants, never a shared loose allowlist', async () => {
+  it('binds exactly two historical, three schema60–64, or four schema65 grants to their ledgers', async () => {
     const f = catalogFixture();
     expect(await checkVenueWindowReadiness(f.pool)).toEqual({ feature: 'window', ready: true });
     const { sql } = captured(f);
@@ -71,8 +71,14 @@ describe('version-bound window catalog SQL (STATIC guards, not PG execution)', (
     expect(sql).toContain('ELSE 0 END AS expected_grantees');
     expect(sql).toContain('WHERE a.grantee<>h.proowner)=window_ledger.expected_grantees');
     expect(sql).toContain(
-      "rolname='qigong_venue_entry_reader' AND window_ledger.expected_grantees=3"
+      "rolname='qigong_venue_entry_reader' AND window_ledger.expected_grantees IN (3,4)"
     );
+    expect(sql).toContain("count(*)=65 AND max(version)='0065_whatsapp_venue_authority.sql'");
+    expect(sql).toContain("AND bool_or(version='0064_admin_mcp_read_facade.sql') THEN 4");
+    expect(sql).toContain(
+      "rolname='qigong_whatsapp_venue_writer' AND window_ledger.expected_grantees=4"
+    );
+    expect(sql).toContain('window_ledger.expected_grantees<>4 OR');
     expect(sql).toContain('window_ledger.expected_grantees=2 OR');
     expect(sql).toContain("h.proconfig=ARRAY['search_path=pg_catalog']");
     expect(sql).toContain('AND NOT h.prosecdef');
@@ -84,6 +90,7 @@ describe('version-bound window catalog SQL (STATIC guards, not PG execution)', (
       'qigong_venue_qr_writer',
       'qigong_venue_debug',
       'qigong_venue_entry_reader',
+      'qigong_whatsapp_venue_writer',
       'qigong_api_runtime',
       'qigong_worker_runtime'
     ])

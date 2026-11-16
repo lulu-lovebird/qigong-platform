@@ -9,6 +9,7 @@ import {
   minimumMigrationVersion,
   practiceGuidanceMigrationVersion,
   adminMcpMigrationVersion,
+  whatsappVenueAuthorityMigrationVersion,
   maximumMigrationVersion
 } from '../src/app.js';
 import { nfcMigrationVersion, nfcQuarantineMigrationVersion } from '../src/admin-auth.js';
@@ -31,8 +32,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-// Existing venue fixtures stay pinned to the last reviewed capability ledger;
-// schema64 readiness is tested explicitly below, without inventing SQL support.
+// Model the exact historical and current reviewed ledgers, including schema65's
+// fourth input-only window-helper grant. Real PostgreSQL assertions remain separate.
 const createPoolMock = (
   version: string | null = practiceGuidanceMigrationVersion,
   preflightReady = true,
@@ -69,14 +70,19 @@ const createPoolMock = (
           version === '0060_venue_entry_guidance.sql' ||
           version === '0061_venue_attendance_reporting.sql' ||
           version === '0062_venue_attendance_badges.sql' ||
-          version === '0063_practice_guidance.sql';
+          version === '0063_practice_guidance.sql' ||
+          version === adminMcpMigrationVersion ||
+          version === whatsappVenueAuthorityMigrationVersion;
         const historical =
           version === '0058_venue_early_checkin_window.sql' ||
           version === '0059_telegram_learner_review.sql';
         const grantees = [
           'qigong_venue_qr_writer',
           'qigong_venue_debug',
-          ...(modern ? ['qigong_venue_entry_reader'] : [])
+          ...(modern ? ['qigong_venue_entry_reader'] : []),
+          ...(version === whatsappVenueAuthorityMigrationVersion
+            ? ['qigong_whatsapp_venue_writer']
+            : [])
         ];
         const actualGrantees = evidence.windowGrantees ?? grantees;
         const windowReady =
@@ -879,15 +885,103 @@ describe('health endpoints', () => {
     }
   );
 
-  it('keeps the reviewed schema64 maximum explicit without enabling optional features', () => {
+  it('keeps the schema65 maximum explicit while preserving the schema64 MCP boundary', () => {
     expect(adminMcpMigrationVersion).toBe('0064_admin_mcp_read_facade.sql');
-    expect(maximumMigrationVersion).toBe(adminMcpMigrationVersion);
+    expect(whatsappVenueAuthorityMigrationVersion).toBe('0065_whatsapp_venue_authority.sql');
+    expect(maximumMigrationVersion).toBe(whatsappVenueAuthorityMigrationVersion);
+  });
+
+  it.each([adminMcpMigrationVersion, whatsappVenueAuthorityMigrationVersion])(
+    'preserves LINE guidance and startup capability checks on %s',
+    async (version) => {
+      const mock = createPoolMock(version);
+      expect(await checkStartupReadiness(mock.pool, true)).toMatchObject({ ready: true });
+      expect(
+        await createVenueEntryModeResolver(mock.pool)('11111111-1111-4111-8111-111111111111')
+      ).toBe('guided');
+      expectNoNfcAccess(mock);
+    }
+  );
+  it('schema65 stays default-off for WhatsApp venue HTTP routes', async () => {
+    const mock = createPoolMock(whatsappVenueAuthorityMigrationVersion);
+    expect(await checkStartupReadiness(mock.pool)).toMatchObject({ ready: true });
+    const app = buildApp({ pool: mock.pool, logger: false });
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/whatsapp/venue-checkin',
+        payload: {}
+      });
+      expect(response.statusCode).toBe(404);
+    } finally {
+      await app.close();
+    }
+  });
+  it('requires schema65 before enabling the WhatsApp venue feature', async () => {
+    const mock = createPoolMock(adminMcpMigrationVersion);
+    expect(await checkStartupReadiness(mock.pool, false, {}, false, true)).toMatchObject({
+      ready: false,
+      reason: 'whatsapp_venue_schema_not_ready'
+    });
+    expect(capabilityCalls(mock)).toEqual([]);
+  });
+  it('checks WhatsApp authority, window and public guidance with LINE QR off', async () => {
+    const mock = createPoolMock(whatsappVenueAuthorityMigrationVersion);
+    expect(await checkStartupReadiness(mock.pool, false, {}, false, true)).toMatchObject({
+      ready: true
+    });
+    expect(capabilityCalls(mock)).toHaveLength(3);
+    expect(capabilityCalls(mock)[0]).toContain('WITH venue_functions');
+    expectNoNfcAccess(mock);
+  });
+  it('fails WhatsApp enablement closed without reviewed authority metadata', async () => {
+    const mock = createPoolMock(whatsappVenueAuthorityMigrationVersion, true, { feature: false });
+    expect(await checkStartupReadiness(mock.pool, false, {}, false, true)).toMatchObject({
+      ready: false,
+      reason: 'venue_feature_not_ready',
+      capability: { feature: 'whatsappVenue', ready: false }
+    });
+  });
+  it('does not probe WhatsApp authority while the feature is off', async () => {
+    const mock = createPoolMock(whatsappVenueAuthorityMigrationVersion);
+    await checkStartupReadiness(mock.pool);
+    expect(capabilityCalls(mock)).toEqual([]);
+  });
+  it('schema65 fails closed when its fourth helper grantee is missing', async () => {
+    const mock = createPoolMock(whatsappVenueAuthorityMigrationVersion, true, {
+      windowGrantees: ['qigong_venue_qr_writer', 'qigong_venue_debug', 'qigong_venue_entry_reader']
+    });
+    expect(await checkStartupReadiness(mock.pool, true)).toMatchObject({
+      ready: false,
+      reason: 'venue_feature_not_ready'
+    });
+  });
+  it('does not permit the new helper grant on an older schema64 ledger', async () => {
+    const mock = createPoolMock(adminMcpMigrationVersion, true, {
+      windowGrantees: [
+        'qigong_venue_qr_writer',
+        'qigong_venue_debug',
+        'qigong_venue_entry_reader',
+        'qigong_whatsapp_venue_writer'
+      ]
+    });
+    expect(await checkStartupReadiness(mock.pool, true)).toMatchObject({
+      ready: false,
+      reason: 'venue_feature_not_ready'
+    });
+  });
+  it('rejects an unreviewed future schema without probing capabilities', async () => {
+    const mock = createPoolMock('0066_future_unreviewed.sql');
+    expect(await checkStartupReadiness(mock.pool, true)).toMatchObject({
+      ready: false,
+      reason: 'schema_version_mismatch'
+    });
+    expect(capabilityCalls(mock)).toEqual([]);
   });
 
   it('schema64 reaches the unchanged venue capability gate and fails closed without reviewed evidence', async () => {
-    // venue-suite.ts still only admits exact ledgers through 0063; do not teach this mock
-    // that 0064 has reviewed window/entry evidence before those SQL gates are updated.
-    const mock = createPoolMock(adminMcpMigrationVersion);
+    // Version compatibility alone must not bypass missing catalog evidence.
+    const mock = createPoolMock(adminMcpMigrationVersion, true, { window: false });
     expect(await checkStartupReadiness(mock.pool, true)).toMatchObject({
       ready: false,
       reason: 'venue_feature_not_ready',

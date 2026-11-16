@@ -152,6 +152,10 @@ export const runPublicApi = async (
       ...(people ? { people } : {})
     };
     const whatsapp = loadWhatsAppConfig(source);
+    const { loadWhatsAppVenueConfig } = await import('./whatsapp-venue-navigation.js');
+    const whatsappVenue = loadWhatsAppVenueConfig(source);
+    if (whatsappVenue && !whatsapp)
+      throw new Error('WhatsApp venue requires WhatsApp configuration');
     phase = 'api_pool_failed';
     const { attachPoolErrorHandler, createPool } = await import('@qigong/database');
     pool = createPool(environment);
@@ -192,17 +196,20 @@ export const runPublicApi = async (
       ...(venueQr ? { venueQr } : {}),
       ...(Object.keys(venueSuite).length ? { venueSuite } : {}),
       ...(whatsapp ? { whatsapp } : {}),
+      ...(whatsappVenue ? { whatsappVenue } : {}),
       inviteTransports,
       serviceVersion: source.SERVICE_VERSION || 'development'
     });
     process.on('SIGINT', interrupt);
     process.on('SIGTERM', terminate);
     phase = 'api_readiness_failed';
-    const readiness = debug
-      ? await checkStartupReadiness(pool, venueQrEnabled, venueSuite, true)
-      : Object.keys(venueSuite).length
-        ? await checkStartupReadiness(pool, venueQrEnabled, venueSuite)
-        : await checkStartupReadiness(pool, venueQrEnabled);
+    const readiness = whatsappVenue
+      ? await checkStartupReadiness(pool, venueQrEnabled, venueSuite, debug?.enabled === true, true)
+      : debug
+        ? await checkStartupReadiness(pool, venueQrEnabled, venueSuite, true)
+        : Object.keys(venueSuite).length
+          ? await checkStartupReadiness(pool, venueQrEnabled, venueSuite)
+          : await checkStartupReadiness(pool, venueQrEnabled);
     if (!readiness.ready) throw new Error('startup readiness failed');
     if (!stopping) {
       phase = 'api_listen_failed';

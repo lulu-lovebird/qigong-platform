@@ -175,8 +175,21 @@ describeWithDatabase('WhatsApp restricted-role onboarding and practice', () => {
       await maintenance.end();
     }
   });
-  const appFactory = (sendText = replies) =>
-    buildApp({ pool: runtime, logger: false, whatsapp: { ...config, sendText } });
+  const appFactory = (sendText = replies, venue = false) =>
+    buildApp({
+      pool: runtime,
+      logger: false,
+      whatsapp: { ...config, sendText },
+      ...(venue
+        ? {
+            whatsappVenue: {
+              enabled: true,
+              publicOrigin: 'https://checkin.baiyinqigong.org',
+              publicPhoneNumber: '60110000000'
+            }
+          }
+        : {})
+    });
   const decide = (id: string) =>
     withRequestContext(
       runtime,
@@ -765,6 +778,96 @@ describeWithDatabase('WhatsApp restricted-role onboarding and practice', () => {
     } finally {
       await app.close();
       await pool.query("UPDATE platform.learner_privacy_policies SET state='draft'");
+    }
+  });
+  it('returns a private venue login only behind the server gate, with verified sender identity and deduplication', async () => {
+    const user = '601199990001';
+    const send = vi.fn<(recipient: string, text: string) => Promise<void>>(async () => {});
+    const disabled = appFactory(send);
+    try {
+      expect(
+        (
+          await disabled.inject(
+            signed(body('venue-off-' + randomUUID(), 'venue my-demo-hall en', user))
+          )
+        ).statusCode
+      ).toBe(200);
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      await disabled.close();
+    }
+    const app = appFactory(send, true);
+    try {
+      await app.inject(signed(body('venue-join-' + randomUUID(), 'join', user)));
+      const token = /#([A-Za-z0-9_-]{43})/.exec(send.mock.calls.at(-1)?.[1] ?? '')?.[1];
+      if (!token) throw Error('Missing synthetic application link');
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/whatsapp/onboarding/apply',
+            headers: origin,
+            payload: {
+              token,
+              locale: 'en',
+              name: 'Synthetic venue learner',
+              email: 'venue@example.invalid',
+              phone: '+' + user,
+              region: 'tw-general',
+              notificationConsent: true
+            }
+          })
+        ).statusCode
+      ).toBe(200);
+      const application = (
+        await pool.query<{ id: string }>(
+          "SELECT id FROM identity.onboarding_applications WHERE platform='whatsapp' AND external_subject_id=$1",
+          [user]
+        )
+      ).rows[0]!;
+      await decide(application.id);
+      const preference = (
+        await pool.query("SELECT platform.get_identity_locale('whatsapp',$1) locale", [user])
+      ).rows;
+      send.mockClear();
+      await pool.query(
+        'INSERT INTO core.practice_fields(region_id,code,name_zh_tw,latitude,longitude,radius_meters,timezone,active_time_rules) VALUES($1,\'my-demo-hall\',\'Synthetic venue\',3,101,100,\'Asia/Kuala_Lumpur\',\'{"day_of_week":[0,1,2,3,4,5,6],"start_time":"00:00","end_time":"24:00"}\')',
+        [regionId]
+      );
+      const request = signed(body('venue-private-' + randomUUID(), 'venue my-demo-hall en', user));
+      expect((await app.inject(request)).statusCode).toBe(200);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send.mock.calls[0]![0]).toBe(user);
+      const uri = /https:\/\/checkin\.baiyinqigong\.org\/whatsapp\/venue-checkin\?\S+/.exec(
+        send.mock.calls[0]![1]
+      )?.[0];
+      if (!uri) throw Error('Missing synthetic private venue return link');
+      const link = new URL(uri);
+      expect(link.searchParams.get('venue')).toBe('my-demo-hall');
+      expect(link.searchParams.get('lang')).toBe('en');
+      expect(link.hash).toMatch(/^#[A-Za-z0-9_-]{43}$/);
+      const venuePage = await app.inject(link.pathname + link.search);
+      expect(venuePage.statusCode, venuePage.body).toBe(200);
+      expect(venuePage.body).toContain('<html lang="en">');
+      expect(venuePage.body).toContain('id="wa-venue-submit"');
+      expect(venuePage.body).not.toContain(link.hash.slice(1));
+      expect(
+        (await pool.query("SELECT platform.get_identity_locale('whatsapp',$1) locale", [user])).rows
+      ).toEqual(preference);
+      expect((await app.inject(request)).statusCode).toBe(200);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/whatsapp/auth/session',
+            headers: origin,
+            payload: { token: link.hash.slice(1), remember: true }
+          })
+        ).statusCode
+      ).toBe(200);
+    } finally {
+      await app.close();
     }
   });
 });
