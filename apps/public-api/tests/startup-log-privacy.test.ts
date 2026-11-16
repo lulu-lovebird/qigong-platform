@@ -128,6 +128,50 @@ afterEach(() => {
 });
 
 describe('contained startup boundaries', () => {
+  it('enables venue startup only from explicit source, with schema/authority readiness required', async () => {
+    const source = {
+      WHATSAPP_PHONE_NUMBER_ID: '12345',
+      WHATSAPP_BUSINESS_ACCOUNT_ID: '67890',
+      WHATSAPP_APP_SECRET: 'synthetic-app-secret-32-characters',
+      WHATSAPP_VERIFY_TOKEN: 'synthetic-verification-token',
+      WHATSAPP_ACCESS_TOKEN: 'synthetic-access-token',
+      WHATSAPP_GRAPH_VERSION: 'v99.0',
+      WHATSAPP_VENUE_CHECKIN_ENABLED: 'true',
+      WHATSAPP_VENUE_PUBLIC_PHONE: '60110000000'
+    };
+    await runPublicApi(source, exit);
+    expect(mocks.build).toHaveBeenCalledWith(
+      expect.objectContaining({
+        whatsappVenue: {
+          enabled: true,
+          publicOrigin: 'https://checkin.baiyinqigong.org',
+          publicPhoneNumber: '60110000000'
+        }
+      })
+    );
+    expect(mocks.readiness).toHaveBeenCalledWith(
+      mocks.pool.mock.results[0]!.value,
+      false,
+      {},
+      false,
+      true
+    );
+    expect(listen).toHaveBeenCalledTimes(1);
+  });
+  it('rejects venue activation without WhatsApp transport before creating pools', async () => {
+    await runPublicApi(
+      { WHATSAPP_VENUE_CHECKIN_ENABLED: 'true', WHATSAPP_VENUE_PUBLIC_PHONE: '60110000000' },
+      exit
+    );
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(mocks.pool).not.toHaveBeenCalled();
+    expect(listen).not.toHaveBeenCalled();
+  });
+  it('keeps the venue route and extra readiness probes off by default', async () => {
+    await runPublicApi({}, exit);
+    expect(mocks.build.mock.calls[0]![0]).not.toHaveProperty('whatsappVenue');
+    expect(mocks.readiness).toHaveBeenCalledWith(mocks.pool.mock.results[0]!.value, false);
+  });
   it('does not initialize configuration, pools, providers or app on import', () => {
     expect(importEffects).toEqual({ environment: 0, pool: 0, oidc: 0, app: 0 });
   });

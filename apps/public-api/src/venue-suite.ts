@@ -7,7 +7,8 @@ export const venueEntryGuidanceMigrationVersion = '0060_venue_entry_guidance.sql
 const telegramLearnerReviewMigrationVersion = '0059_telegram_learner_review.sql';
 
 // Input-only helper is never executed here. Bind the exact ACL to the ledger:
-// schema58/59 require two nonowner grants, schema60 exactly three. OID overloads
+// schema58/59 require two nonowner grants, schema60–64 three, schema65 four.
+// Only schema65 admits the isolated WhatsApp writer's input-only helper grant. OID overloads
 // are null-safe when the entry role does not exist on a historical schema.
 const windowCapabilityPredicate = `EXISTS(
               SELECT 1 FROM pg_proc h CROSS JOIN (
@@ -40,10 +41,18 @@ const windowCapabilityPredicate = `EXISTS(
                     AND bool_or(version='0061_venue_attendance_reporting.sql')
                     AND bool_or(version='0062_venue_attendance_badges.sql')
                     AND bool_or(version='0063_practice_guidance.sql') THEN 3
+                  WHEN count(*)=65 AND max(version)='0065_whatsapp_venue_authority.sql'
+                    AND bool_or(version='0058_venue_early_checkin_window.sql')
+                    AND bool_or(version='0059_telegram_learner_review.sql')
+                    AND bool_or(version='0060_venue_entry_guidance.sql')
+                    AND bool_or(version='0061_venue_attendance_reporting.sql')
+                    AND bool_or(version='0062_venue_attendance_badges.sql')
+                    AND bool_or(version='0063_practice_guidance.sql')
+                    AND bool_or(version='0064_admin_mcp_read_facade.sql') THEN 4
                   ELSE 0 END AS expected_grantees FROM public.schema_migrations
               ) window_ledger
               WHERE h.oid=to_regprocedure('platform.venue_checkin_window(jsonb,text,timestamptz)')
-                AND window_ledger.expected_grantees IN (2,3)
+                AND window_ledger.expected_grantees IN (2,3,4)
                 AND NOT h.prosecdef AND h.proconfig=ARRAY['search_path=pg_catalog']
                 AND h.provolatile='s' AND h.prokind='f' AND h.prorettype='boolean'::regtype
                 AND h.proowner=(SELECT nspowner FROM pg_namespace WHERE nspname='platform')
@@ -51,6 +60,8 @@ const windowCapabilityPredicate = `EXISTS(
                 AND has_function_privilege(to_regrole('qigong_venue_debug')::oid,h.oid,'EXECUTE')
                 AND (window_ledger.expected_grantees=2 OR
                   has_function_privilege(to_regrole('qigong_venue_entry_reader')::oid,h.oid,'EXECUTE'))
+                AND (window_ledger.expected_grantees<>4 OR
+                  has_function_privilege(to_regrole('qigong_whatsapp_venue_writer')::oid,h.oid,'EXECUTE'))
                 AND NOT has_function_privilege(to_regrole('qigong_api_runtime')::oid,h.oid,'EXECUTE')
                 AND NOT has_function_privilege(to_regrole('qigong_worker_runtime')::oid,h.oid,'EXECUTE')
                 AND (SELECT count(*) FROM aclexplode(coalesce(h.proacl,acldefault('f',h.proowner))) a
@@ -59,7 +70,8 @@ const windowCapabilityPredicate = `EXISTS(
                   WHERE a.grantee<>h.proowner AND (a.grantee=0 OR a.is_grantable
                     OR a.privilege_type<>'EXECUTE' OR a.grantee NOT IN
                     (SELECT oid FROM pg_roles WHERE rolname IN ('qigong_venue_qr_writer','qigong_venue_debug')
-                      OR (rolname='qigong_venue_entry_reader' AND window_ledger.expected_grantees=3)))))`;
+                      OR (rolname='qigong_venue_entry_reader' AND window_ledger.expected_grantees IN (3,4))
+                      OR (rolname='qigong_whatsapp_venue_writer' AND window_ledger.expected_grantees=4)))))`;
 export const checkVenueWindowReadiness = async (pool: Pool) => {
   try {
     const ready = await withRequestContext(
@@ -216,7 +228,8 @@ export const checkVenueEntryGuidanceReadiness = async (pool: Pool) => {
                 OR (count(*)=61 AND max(version)='0061_venue_attendance_reporting.sql')
                 OR (count(*)=62 AND max(version)='0062_venue_attendance_badges.sql')
                 OR (count(*)=63 AND max(version)='0063_practice_guidance.sql')
-                OR (count(*)=64 AND max(version)='0064_admin_mcp_read_facade.sql'))
+                OR (count(*)=64 AND max(version)='0064_admin_mcp_read_facade.sql')
+                OR (count(*)=65 AND max(version)='0065_whatsapp_venue_authority.sql'))
             AND bool_or(version=$7) AND bool_or(version=$8) FROM public.schema_migrations)
           AND ${windowCapabilityPredicate}
           AND (SELECT count(*)=cardinality($2::text[]) AND bool_and(
@@ -373,7 +386,8 @@ export const checkVenueFeatureReadiness = async (
               OR (count(*)=61 AND max(version)='0061_venue_attendance_reporting.sql')
               OR (count(*)=62 AND max(version)='0062_venue_attendance_badges.sql')
               OR (count(*)=63 AND max(version)='0063_practice_guidance.sql')
-              OR (count(*)=64 AND max(version)='0064_admin_mcp_read_facade.sql') FROM public.schema_migrations)
+              OR (count(*)=64 AND max(version)='0064_admin_mcp_read_facade.sql')
+              OR (count(*)=65 AND max(version)='0065_whatsapp_venue_authority.sql') FROM public.schema_migrations)
             AND (NOT EXISTS(SELECT 1 FROM public.schema_migrations WHERE version=$5) OR ${windowCapabilityPredicate})
             AND (NOT $6 OR EXISTS(SELECT 1 FROM pg_proc g
               WHERE g.oid=to_regprocedure('platform.venue_debug_region_active(uuid)')

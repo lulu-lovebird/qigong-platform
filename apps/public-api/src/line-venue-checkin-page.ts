@@ -510,7 +510,7 @@ export const venueGuidancePresentation = (result: unknown, code: string, locale:
     markup: `<header class="page-header"><h1>${t.title}</h1></header><section class="venue-card"><p role="status"${availability === 'open' ? ' class="schedule-open"' : ['before_open', 'ended', 'not_activity_day'].includes(availability) ? ' class="schedule-warning"' : ''}>${t[availability]}</p>${details}</section>`
   };
 };
-const venueCheckinStyles = `
+export const venueCheckinStyles = `
 *{box-sizing:border-box}[hidden]{display:none!important}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.6;margin:0;background:#f6f7fb;color:#1f2937}
 main{max-width:760px;padding:20px;margin:auto}.page-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px}.page-header h1{font-size:24px;margin:0}h2{font-size:18px;margin:0 0 12px}

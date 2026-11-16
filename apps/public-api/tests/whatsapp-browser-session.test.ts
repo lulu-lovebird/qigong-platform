@@ -8,6 +8,7 @@ import { runMigrations, withRequestContext, type Pool } from '@qigong/database';
 import { createIsolatedTestDatabase } from '../../../packages/database/tests/test-database.js';
 import { buildApp } from '../src/app.js';
 import { whatsappCsrfCookie, whatsappSessionCookie } from '../src/whatsapp-browser-session.js';
+import { readWhatsAppVenueSession } from '../src/whatsapp-venue-session.js';
 const base = process.env.TEST_DATABASE_URL,
   suite = base ? describe : describe.skip;
 const directory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../migrations');
@@ -114,6 +115,22 @@ suite('WhatsApp cookie sessions at the HTTP boundary', () => {
         sendWorkspaceMenu
       }
     });
+    // Test-only probe: the production app does not register a venue API yet.
+    app.post('/__test/venue-session', async (request, reply) => {
+      const result = readWhatsAppVenueSession(request, origin);
+      if (!result.ok) return reply.code(result.status).send({ error: result.error });
+      try {
+        await withRequestContext(runtime, 'qigong_api_runtime', { requestId: randomUUID() }, (c) =>
+          c.query('SELECT platform.whatsapp_browser_session_info($1,$2)', [
+            result.credential.session,
+            result.credential.csrf
+          ])
+        );
+        return { sessionValid: true };
+      } catch {
+        return reply.code(401).send({ error: 'venue_session_unavailable' });
+      }
+    });
   });
   afterEach(async () => {
     await app.close();
@@ -121,6 +138,27 @@ suite('WhatsApp cookie sessions at the HTTP boundary', () => {
     await db.pool.query(`DROP OWNED BY ${role}`);
     await db.pool.query(`DROP ROLE ${role}`);
     await db.dispose();
+  });
+  it('validates a venue Session-only transport against real PostgreSQL and rejects revocation', async () => {
+    const browser = await login();
+    const response = await post('/__test/venue-session', {}, browser);
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toEqual({ sessionValid: true });
+    expect(response.body).not.toContain(browser.session);
+    expect(response.body).not.toContain(browser.csrf);
+    expect((await post('/__test/venue-session', {}, browser, false)).statusCode).toBe(403);
+    await db.pool.query(
+      "UPDATE platform.whatsapp_browser_sessions SET revoked_at=clock_timestamp() WHERE token_hash=public.digest($1,'sha256')",
+      [browser.session]
+    );
+    expect((await post('/__test/venue-session', {}, browser)).statusCode).toBe(401);
+  });
+  it('does not accept the existing private link as a venue Session', async () => {
+    const response = await post('/__test/venue-session', { token: link });
+    expect(response.statusCode).toBe(400);
+    const browser = await login();
+    expect((await post('/__test/venue-session', { token: link }, browser)).statusCode).toBe(400);
+    expect((await post('/__test/venue-session', {}, browser)).statusCode).toBe(200);
   });
   it('requires explicit remember choice and emits no credential in JSON while default UI is checked', async () => {
     expect((await post('/whatsapp/auth/session', { token: link })).statusCode).toBe(400);

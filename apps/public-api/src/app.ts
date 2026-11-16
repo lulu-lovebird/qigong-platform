@@ -36,6 +36,15 @@ import {
 } from './venue-entry-guidance.js';
 import { lookupManagedVenue } from './venue-management.js';
 import { registerWhatsAppOnboarding, type WhatsAppConfig } from './whatsapp-onboarding.js';
+import {
+  whatsappVenueConfigSchema,
+  type WhatsAppVenueConfig
+} from './whatsapp-venue-navigation.js';
+import {
+  checkWhatsAppVenueReadiness,
+  registerWhatsAppVenueRoutes
+} from './whatsapp-venue-routes.js';
+import { registerWhatsAppVenuePages } from './whatsapp-venue-pages.js';
 import { registerLearnerHelpPages } from './learner-help-page.js';
 import { registerFieldCheckinRoutes } from './field-checkin-routes.js';
 import {
@@ -85,7 +94,8 @@ export const minimumMigrationVersion = '0042_activity_consecutive_drafts.sql';
 export const venueAttendanceBadgesMigrationVersion = '0062_venue_attendance_badges.sql';
 export const practiceGuidanceMigrationVersion = '0063_practice_guidance.sql';
 export const adminMcpMigrationVersion = '0064_admin_mcp_read_facade.sql';
-export const maximumMigrationVersion = adminMcpMigrationVersion;
+export const whatsappVenueAuthorityMigrationVersion = '0065_whatsapp_venue_authority.sql';
+export const maximumMigrationVersion = whatsappVenueAuthorityMigrationVersion;
 const telegramLearnerReviewMigrationVersion = '0059_telegram_learner_review.sql';
 const defaultOffMigrationVersions = new Set([
   minimumMigrationVersion,
@@ -105,7 +115,8 @@ const defaultOffMigrationVersions = new Set([
   telegramLearnerReviewMigrationVersion,
   venueEntryGuidanceMigrationVersion,
   practiceGuidanceMigrationVersion,
-  adminMcpMigrationVersion
+  adminMcpMigrationVersion,
+  whatsappVenueAuthorityMigrationVersion
 ]);
 // HTTP error classes can inherit status/message data (unlike log diagnostics,
 // which deliberately ignore prototypes). Preserve that compatibility without
@@ -257,6 +268,7 @@ interface AppDependencies {
   telegramLearnerReviewEnabled?: boolean;
   line?: LineConfig;
   whatsapp?: WhatsAppConfig;
+  whatsappVenue?: WhatsAppVenueConfig;
   venueQr?: VenueQrConfig;
   venueSuite?: VenueSuiteConfig;
   inviteTransports?: InviteTransports;
@@ -291,7 +303,8 @@ export const createVenueEntryModeResolver =
         status.currentVersion !== venueEntryGuidanceMigrationVersion &&
         status.currentVersion !== venueReportingMigrationVersion &&
         status.currentVersion !== practiceGuidanceMigrationVersion &&
-        status.currentVersion !== adminMcpMigrationVersion
+        status.currentVersion !== adminMcpMigrationVersion &&
+        status.currentVersion !== whatsappVenueAuthorityMigrationVersion
       )
         return 'unavailable';
       if ((await checkVenueWindowReadiness(pool)).ready !== true) return 'unavailable';
@@ -299,7 +312,8 @@ export const createVenueEntryModeResolver =
         status.currentVersion !== venueEntryGuidanceMigrationVersion &&
         status.currentVersion !== venueReportingMigrationVersion &&
         status.currentVersion !== practiceGuidanceMigrationVersion &&
-        status.currentVersion !== adminMcpMigrationVersion
+        status.currentVersion !== adminMcpMigrationVersion &&
+        status.currentVersion !== whatsappVenueAuthorityMigrationVersion
       )
         return 'legacy';
       return (await checkVenueEntryGuidanceReadiness(pool)).ready === true
@@ -314,7 +328,8 @@ export const checkStartupReadiness = async (
   pool: Pool,
   venueQrEnabled = false,
   venueSuite: VenueSuiteConfig = {},
-  venueDebugEnabled = false
+  venueDebugEnabled = false,
+  whatsappVenueEnabled = false
 ) => {
   const enabledFeatures = (Object.keys(venueSuite) as VenueSuiteFeature[]).filter(
     (feature) => venueSuite[feature]?.enabled === true
@@ -337,7 +352,8 @@ export const checkStartupReadiness = async (
             status.currentVersion === telegramLearnerReviewMigrationVersion ||
             status.currentVersion === venueEntryGuidanceMigrationVersion ||
             status.currentVersion === practiceGuidanceMigrationVersion ||
-            status.currentVersion === adminMcpMigrationVersion)
+            status.currentVersion === adminMcpMigrationVersion ||
+            status.currentVersion === whatsappVenueAuthorityMigrationVersion)
         : enabledFeatures.length > 0
           ? status.currentVersion === venueSuiteMigrationVersion ||
             status.currentVersion === '0055_venue_distance_debug.sql' ||
@@ -347,7 +363,8 @@ export const checkStartupReadiness = async (
             status.currentVersion === telegramLearnerReviewMigrationVersion ||
             status.currentVersion === venueEntryGuidanceMigrationVersion ||
             status.currentVersion === practiceGuidanceMigrationVersion ||
-            status.currentVersion === adminMcpMigrationVersion
+            status.currentVersion === adminMcpMigrationVersion ||
+            status.currentVersion === whatsappVenueAuthorityMigrationVersion
           : venueQrEnabled
             ? status.currentVersion === venueQrMigrationVersion ||
               status.currentVersion === venueSuiteMigrationVersion ||
@@ -358,12 +375,15 @@ export const checkStartupReadiness = async (
               status.currentVersion === telegramLearnerReviewMigrationVersion ||
               status.currentVersion === venueEntryGuidanceMigrationVersion ||
               status.currentVersion === practiceGuidanceMigrationVersion ||
-              status.currentVersion === adminMcpMigrationVersion
+              status.currentVersion === adminMcpMigrationVersion ||
+              status.currentVersion === whatsappVenueAuthorityMigrationVersion
             : status.currentVersion !== null &&
               defaultOffMigrationVersions.has(status.currentVersion))
   };
   if (!migration.ready)
     return { ready: false as const, reason: 'schema_version_mismatch', migration };
+  if (whatsappVenueEnabled && status.currentVersion !== whatsappVenueAuthorityMigrationVersion)
+    return { ready: false as const, reason: 'whatsapp_venue_schema_not_ready', migration };
   const runtime = await checkApiRuntimePreflight(pool);
   if (!runtime.ready)
     return { ready: false as const, reason: 'runtime_role_misconfigured', runtime };
@@ -375,7 +395,8 @@ export const checkStartupReadiness = async (
       status.currentVersion === venueReportingMigrationVersion ||
       status.currentVersion === venueAttendanceBadgesMigrationVersion ||
       status.currentVersion === practiceGuidanceMigrationVersion ||
-      status.currentVersion === adminMcpMigrationVersion)
+      status.currentVersion === adminMcpMigrationVersion ||
+      status.currentVersion === whatsappVenueAuthorityMigrationVersion)
   ) {
     const capability = await checkVenueWindowReadiness(pool);
     if (!capability.ready)
@@ -389,7 +410,8 @@ export const checkStartupReadiness = async (
       status.currentVersion === venueReportingMigrationVersion ||
       status.currentVersion === venueAttendanceBadgesMigrationVersion ||
       status.currentVersion === practiceGuidanceMigrationVersion ||
-      status.currentVersion === adminMcpMigrationVersion)
+      status.currentVersion === adminMcpMigrationVersion ||
+      status.currentVersion === whatsappVenueAuthorityMigrationVersion)
   ) {
     const capability = await checkVenueEntryGuidanceReadiness(pool);
     if (!capability.ready)
@@ -403,6 +425,19 @@ export const checkStartupReadiness = async (
     const capability = await checkVenueFeatureReadiness(pool, feature);
     if (!capability.ready)
       return { ready: false as const, reason: 'venue_feature_not_ready', capability };
+  }
+  if (whatsappVenueEnabled) {
+    const capability = await checkWhatsAppVenueReadiness(pool);
+    if (!capability.ready)
+      return { ready: false as const, reason: 'venue_feature_not_ready', capability };
+    if (!venueQrEnabled) {
+      const window = await checkVenueWindowReadiness(pool);
+      if (!window.ready)
+        return { ready: false as const, reason: 'venue_feature_not_ready', capability: window };
+      const entry = await checkVenueEntryGuidanceReadiness(pool);
+      if (!entry.ready)
+        return { ready: false as const, reason: 'venue_feature_not_ready', capability: entry };
+    }
   }
   if (isNfcEnabled()) {
     const nfc = await checkNfcFeatureReadiness(pool);
@@ -422,22 +457,26 @@ export const buildApp = ({
   telegramLearnerReviewEnabled = false,
   line,
   whatsapp,
+  whatsappVenue,
   venueQr,
   venueSuite = {},
   inviteTransports = {}
 }: AppDependencies) => {
   const qr = venueQr ? validateVenueQrConfig(venueQr) : undefined;
   const suite = validateVenueSuiteConfig(venueSuite);
+  const waVenue = whatsappVenue ? whatsappVenueConfigSchema.parse(whatsappVenue) : undefined;
+  if (waVenue && !whatsapp) throw new Error('WhatsApp venue requires WhatsApp configuration');
   if (qr && !line) throw new Error('venue QR requires LINE configuration');
   if (suite.history && !line) throw new Error('venue history requires LINE configuration');
   if ((suite.management || suite.people) && !adminAuth)
     throw new Error('venue administration requires admin authentication');
-  const guidance = qr
-    ? {
-        resolveMode: createVenueEntryModeResolver(pool),
-        availability: createVenueEntryAvailability(pool)
-      }
-    : undefined;
+  const guidance =
+    qr || waVenue
+      ? {
+          resolveMode: createVenueEntryModeResolver(pool),
+          availability: createVenueEntryAvailability(pool)
+        }
+      : undefined;
   const guidanceLookup: VenueGuidanceLookup | undefined = guidance
     ? async (requestId, code) => {
         const input = venueEntryCodeSchema.safeParse(code);
@@ -503,13 +542,14 @@ export const buildApp = ({
     app.addHook('onClose', async () => {
       await loggerOwner.close();
     });
-  if (Object.keys(suite).length > 0 || qr?.debug)
+  if (Object.keys(suite).length > 0 || qr?.debug || waVenue)
     app.addHook('onReady', async () => {
       const readiness = await checkStartupReadiness(
         pool,
         qr?.enabled === true,
         suite,
-        qr?.debug?.enabled === true
+        qr?.debug?.enabled === true,
+        waVenue?.enabled === true
       );
       if (!readiness.ready) throw new Error('venue suite readiness failed');
     });
@@ -596,7 +636,8 @@ export const buildApp = ({
         pool,
         qr?.enabled === true,
         suite,
-        qr?.debug?.enabled === true
+        qr?.debug?.enabled === true,
+        waVenue?.enabled === true
       );
       if (!readiness.ready) return reply.code(503).send({ ok: false, ...readiness });
       return { ok: true, ...readiness };
@@ -610,7 +651,8 @@ export const buildApp = ({
     app,
     line?.liffId,
     suite.management ? (requestId, code) => lookupManagedVenue(pool, requestId, code) : undefined,
-    guidanceLookup
+    guidanceLookup,
+    waVenue?.enabled === true
   );
   registerLearnerHelpPages(app);
   registerLearnerPrivacyRoutes(app, pool);
@@ -667,7 +709,18 @@ export const buildApp = ({
         });
     }
   }
-  if (whatsapp) registerWhatsAppOnboarding(app, pool, whatsapp, enabledInviteTransports.whatsapp);
+  if (waVenue) {
+    registerWhatsAppVenueRoutes(app, pool, { enabled: true, publicOrigin: waVenue.publicOrigin });
+    registerWhatsAppVenuePages(app, pool, waVenue);
+  }
+  if (whatsapp)
+    registerWhatsAppOnboarding(
+      app,
+      pool,
+      whatsapp,
+      enabledInviteTransports.whatsapp,
+      waVenue?.enabled === true
+    );
 
   return app;
 };
