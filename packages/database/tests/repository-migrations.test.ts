@@ -55,7 +55,7 @@ describeWithDatabase('repository migrations', () => {
     const status = await getMigrationStatus(
       pool,
       '0001_platform_baseline.sql',
-      '0065_whatsapp_venue_authority.sql'
+      '0066_practice_badge_receipts.sql'
     );
 
     expect(first.applied).toEqual([
@@ -123,18 +123,19 @@ describeWithDatabase('repository migrations', () => {
       '0062_venue_attendance_badges.sql',
       '0063_practice_guidance.sql',
       '0064_admin_mcp_read_facade.sql',
-      '0065_whatsapp_venue_authority.sql'
+      '0065_whatsapp_venue_authority.sql',
+      '0066_practice_badge_receipts.sql'
     ]);
     expect(second.applied).toEqual([]);
     expect(status).toEqual({
-      currentVersion: '0065_whatsapp_venue_authority.sql',
+      currentVersion: '0066_practice_badge_receipts.sql',
       minimumVersion: '0001_platform_baseline.sql',
-      maximumVersion: '0065_whatsapp_venue_authority.sql',
+      maximumVersion: '0066_practice_badge_receipts.sql',
       ready: true
     });
   });
 
-  it('upgrades schema64 to65 without changing existing identities, Session credentials or LINE writer ACLs', async () => {
+  it('upgrades schema64 through65 to66 without changing existing identities, Session credentials or LINE venue writer ACLs', async () => {
     const oldDirectory = await mkdtemp(path.join(tmpdir(), 'qigong-schema64-upgrade-'));
     try {
       for (const name of await readdir(currentMigrationsDirectory))
@@ -177,7 +178,8 @@ describeWithDatabase('repository migrations', () => {
         ).rows
       };
       expect((await runMigrations(pool, currentMigrationsDirectory)).applied).toEqual([
-        '0065_whatsapp_venue_authority.sql'
+        '0065_whatsapp_venue_authority.sql',
+        '0066_practice_badge_receipts.sql'
       ]);
       expect((await runMigrations(pool, currentMigrationsDirectory)).applied).toEqual([]);
       expect((await pool.query('SELECT * FROM identity.people ORDER BY id')).rows).toEqual(
@@ -207,7 +209,7 @@ describeWithDatabase('repository migrations', () => {
         await getMigrationStatus(
           pool,
           '0001_platform_baseline.sql',
-          '0065_whatsapp_venue_authority.sql'
+          '0066_practice_badge_receipts.sql'
         )
       ).toMatchObject({ ready: true });
       expect(

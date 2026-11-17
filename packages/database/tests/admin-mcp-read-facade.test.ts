@@ -95,7 +95,7 @@ describe.runIf(Boolean(databaseUrl))('0064 real PostgreSQL restricted read facad
     pool = database.pool;
     dispose = () => database.dispose();
     const first = await runMigrations(pool, directory);
-    expect(first.applied.at(-1)).toBe('0065_whatsapp_venue_authority.sql');
+    expect(first.applied.at(-1)).toBe('0066_practice_badge_receipts.sql');
     expect(first.applied).toContain('0064_admin_mcp_read_facade.sql');
     expect((await runMigrations(pool, directory)).applied).toEqual([]);
     const regions = await pool.query<{ id: string }>(

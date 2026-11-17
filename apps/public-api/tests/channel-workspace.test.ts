@@ -223,6 +223,328 @@ suite('LINE workspace HTTP and private summaries', () => {
     expect(await deliverChannelPracticeReceipts(runtime, 'line', sender, () => {}, 3)).toBe(1);
     expect(sender).toHaveBeenCalledTimes(1);
   });
+  it.each([false, true])(
+    'returns an atomic Zhengyang combo snapshot without LINE Push when LIFF owns delivery (versioned=%s)',
+    async (versioned) => {
+      await root.query('UPDATE ops.versioned_achievement_control SET enabled=$1', [versioned]);
+      try {
+        await confirm();
+        const payload = {
+          requestId: randomUUID(),
+          date: (await profile()).today,
+          version: 0,
+          methods: ['zhengyang_morning', 'zhengyang_night'],
+          practiceNote: 'private-zhengyang-note',
+          feelingTagIds: [],
+          lineReceiptMode: 'liff-summary-v1'
+        };
+        const saved = await post('/line/workspace/save', payload);
+        expect(saved.statusCode, saved.body).toBe(200);
+        const result = saved.json<{
+          version: number;
+          receiptQueued: boolean;
+          receiptDelivery: string;
+          unlockedBadges: { code: string; period: string; ruleVersion: number }[];
+          lineReceipt: { id: string; text: string };
+        }>();
+        expect(result.receiptDelivery).toBe('liff');
+        expect(result.receiptQueued).toBe(false);
+        expect(
+          result.unlockedBadges.some((b) => b.code === 'combo_zhengyang_7' && b.ruleVersion === 1)
+        ).toBe(true);
+        expect(result.lineReceipt.text).toContain('正陽雙照');
+        expect(result.lineReceipt.text).toContain('晨功');
+        expect(result.lineReceipt.text).toContain('夜功');
+        expect(result.lineReceipt.text).not.toContain('private-zhengyang-note');
+        expect(
+          (
+            await root.query(
+              "SELECT status,payload ? '_saveNonce' nonce FROM ops.channel_practice_receipts WHERE id=$1",
+              [result.lineReceipt.id]
+            )
+          ).rows[0]
+        ).toEqual({ status: 'cancelled', nonce: false });
+        const sender = vi.fn(async () => {});
+        expect(await deliverChannelPracticeReceipts(runtime, 'line', sender, () => {}, 3)).toBe(0);
+        expect(sender).not.toHaveBeenCalled();
+        expect((await post('/line/workspace/save', payload)).json()).toEqual(saved.json());
+        expect(
+          (await post('/line/workspace/save', { ...payload, methods: ['dayan_chu'] })).statusCode
+        ).toBe(409);
+        expect(
+          (
+            await root.query(
+              'SELECT count(*)::int count FROM ops.channel_practice_receipts WHERE identity_id=$1',
+              [identity]
+            )
+          ).rows[0]
+        ).toEqual({ count: 1 });
+      } finally {
+        await root.query('UPDATE ops.versioned_achievement_control SET enabled=FALSE');
+      }
+    }
+  );
+  it('includes a newly earned combo on a valid makeup date using the learner timezone', async () => {
+    const zone = (
+      await root.query<{ name: string }>(
+        "SELECT name FROM (VALUES('UTC'),('Etc/GMT+6'),('Etc/GMT+12'),('Etc/GMT-6')) z(name) WHERE (clock_timestamp() AT TIME ZONE name)::time<TIME '12:00' ORDER BY (clock_timestamp() AT TIME ZONE name)::time LIMIT 1"
+      )
+    ).rows[0]!.name;
+    expect((await post('/line/preferences/timezone', { timezone: zone })).statusCode).toBe(200);
+    const today = (await profile()).today;
+    const date = new Date(Date.parse(today + 'T00:00:00Z') - 86400000).toISOString().slice(0, 10);
+    const response = await post('/line/workspace/save', {
+      requestId: randomUUID(),
+      date,
+      version: 0,
+      methods: ['zhengyang_morning', 'zhengyang_night'],
+      lineReceiptMode: 'liff-summary-v1'
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(
+      response
+        .json<{ unlockedBadges: { code: string }[] }>()
+        .unlockedBadges.some((b) => b.code === 'combo_zhengyang_7')
+    ).toBe(true);
+    expect(response.json<{ action: string; lineReceipt: { text: string } }>().action).toBe(
+      'makeup'
+    );
+    expect(response.json<{ lineReceipt: { text: string } }>().lineReceipt.text).toContain(
+      '補登成功'
+    );
+  });
+  it('gives an old open LINE page one Bot summary with badges, without duplicate top-level LIFF data', async () => {
+    await confirm();
+    const saved = await post('/line/workspace/save', {
+      requestId: randomUUID(),
+      date: (await profile()).today,
+      version: 0,
+      methods: ['zhengyang_morning', 'zhengyang_night']
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(saved.json()).not.toHaveProperty('unlockedBadges');
+    expect(saved.json()).not.toHaveProperty('lineReceipt');
+    const sender = vi.fn(async (_recipient: string, text: string) => {
+      expect(text).toContain('正陽雙照');
+    });
+    expect(await deliverChannelPracticeReceipts(runtime, 'line', sender, () => {}, 3)).toBe(1);
+    expect(sender).toHaveBeenCalledTimes(1);
+  });
+  it('preserves the first delivery owner across a requestUUID replay with a different client capability', async () => {
+    await confirm();
+    const request = {
+      requestId: randomUUID(),
+      date: (await profile()).today,
+      version: 0,
+      methods: ['zhengyang_morning', 'zhengyang_night']
+    };
+    const first = await post('/line/workspace/save', request);
+    expect(first.statusCode).toBe(200);
+    const replay = await post('/line/workspace/save', {
+      ...request,
+      lineReceiptMode: 'liff-summary-v1'
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json()).toMatchObject({ receiptDelivery: 'bot', receiptQueued: true });
+    expect(replay.json()).not.toHaveProperty('lineReceipt');
+    expect(
+      (
+        await root.query(
+          'SELECT count(*)::int count FROM ops.channel_practice_receipts WHERE identity_id=$1',
+          [identity]
+        )
+      ).rows[0]
+    ).toEqual({ count: 1 });
+  });
+  it('does not transfer a cached LIFF-owned receipt back to Bot delivery for an old-client replay', async () => {
+    await confirm();
+    const request = {
+      requestId: randomUUID(),
+      date: (await profile()).today,
+      version: 0,
+      methods: ['zhengyang_morning', 'zhengyang_night']
+    };
+    const first = await post('/line/workspace/save', {
+      ...request,
+      lineReceiptMode: 'liff-summary-v1'
+    });
+    expect(first.statusCode, first.body).toBe(200);
+    const replay = await post('/line/workspace/save', request);
+    expect(replay.statusCode, replay.body).toBe(200);
+    expect(replay.json()).toMatchObject({ receiptDelivery: 'liff', receiptQueued: false });
+    expect(replay.json()).not.toHaveProperty('lineReceipt');
+    expect(replay.json()).not.toHaveProperty('unlockedBadges');
+    expect(
+      (
+        await root.query('SELECT status FROM ops.channel_practice_receipts WHERE identity_id=$1', [
+          identity
+        ])
+      ).rows
+    ).toEqual([{ status: 'cancelled' }]);
+  });
+  it('does not announce the same badge on a no-new-award correction and treats restoration as a new active award', async () => {
+    await confirm();
+    const date = (await profile()).today;
+    const save = async (version: number, methods: string[]) =>
+      post('/line/workspace/save', {
+        requestId: randomUUID(),
+        date,
+        version,
+        methods,
+        lineReceiptMode: 'liff-summary-v1'
+      });
+    const first = await save(0, ['zhengyang_morning', 'zhengyang_night']);
+    expect(first.statusCode, first.body).toBe(200);
+    const repeat = await save(first.json<{ version: number }>().version, [
+      'zhengyang_morning',
+      'zhengyang_night'
+    ]);
+    expect(repeat.statusCode, repeat.body).toBe(200);
+    expect(repeat.json<{ unlockedBadges: unknown[] }>().unlockedBadges).toEqual([]);
+    const removed = await save(repeat.json<{ version: number }>().version, ['zhengyang_morning']);
+    expect(removed.statusCode, removed.body).toBe(200);
+    expect(removed.json<{ unlockedBadges: unknown[] }>().unlockedBadges).toEqual([]);
+    const restored = await save(removed.json<{ version: number }>().version, [
+      'zhengyang_morning',
+      'zhengyang_night'
+    ]);
+    expect(restored.statusCode, restored.body).toBe(200);
+    expect(
+      restored
+        .json<{ unlockedBadges: { code: string }[] }>()
+        .unlockedBadges.some((b) => b.code === 'combo_zhengyang_7')
+    ).toBe(true);
+  });
+  it('distinguishes award rule versions and periods in the private delta key', async () => {
+    await root.query(
+      "INSERT INTO core.person_practice_badges(person_id,badge_code,period,rule_version) VALUES($1,'combo_zhengyang_7','2026',1)",
+      [person]
+    );
+    const before = (
+      await root.query<{ data: unknown }>('SELECT core._practice_receipt_badge_keys($1) data', [
+        person
+      ])
+    ).rows[0]!.data;
+    await root.query(
+      "INSERT INTO core.person_practice_badges(person_id,badge_code,period,rule_version) VALUES($1,'combo_zhengyang_7','2025',1),($1,'combo_zhengyang_7','2026',2)",
+      [person]
+    );
+    const after = (
+      await root.query<{ data: { period: string; ruleVersion: number }[] }>(
+        'SELECT core._practice_receipt_new_badges($1,$2,$3) data',
+        [person, JSON.stringify(before), 'zh_TW']
+      )
+    ).rows[0]!.data;
+    expect(after.map((b) => [b.period, b.ruleVersion])).toEqual([
+      ['2025', 1],
+      ['2026', 2]
+    ]);
+  });
+  it('serializes duplicate saveUUID requests into one persisted snapshot and receipt', async () => {
+    await confirm();
+    const payload = {
+      requestId: randomUUID(),
+      date: (await profile()).today,
+      version: 0,
+      methods: ['zhengyang_morning', 'zhengyang_night'],
+      lineReceiptMode: 'liff-summary-v1'
+    };
+    const [a, b] = await Promise.all([
+      post('/line/workspace/save', payload),
+      post('/line/workspace/save', payload)
+    ]);
+    expect(a.statusCode, a.body).toBe(200);
+    expect(b.statusCode, b.body).toBe(200);
+    expect(a.json()).toEqual(b.json());
+    expect(
+      (
+        await root.query(
+          'SELECT count(*)::int count FROM ops.channel_practice_receipts WHERE identity_id=$1',
+          [identity]
+        )
+      ).rows[0]
+    ).toEqual({ count: 1 });
+  });
+  it('restores receipt correlation, community notice and evaluator-cause settings inside a pooled transaction', async () => {
+    await confirm();
+    const date = (await profile()).today;
+    await withRequestContext(
+      runtime,
+      'qigong_api_runtime',
+      { requestId: randomUUID() },
+      async (c) => {
+        await c.query(
+          "SELECT set_config('qigong.community_notice','old-notice',TRUE),set_config('qigong.practice_save_nonce','old-nonce',TRUE),set_config('qigong.achievement_cause','explicit_evaluation',TRUE),set_config('qigong.line_receipt_mode','liff-summary-v1',TRUE)"
+        );
+        await c.query('SELECT platform.community_workspace_save($1,$2,$3,$4,$5,$6,$7,$8,$9)', [
+          'line',
+          subject,
+          randomUUID(),
+          date,
+          0,
+          ['zhengyang_morning', 'zhengyang_night'],
+          null,
+          null,
+          null
+        ]);
+        expect(
+          (
+            await c.query(
+              "SELECT current_setting('qigong.community_notice',TRUE) notice,current_setting('qigong.practice_save_nonce',TRUE) nonce,current_setting('qigong.achievement_cause',TRUE) cause"
+            )
+          ).rows[0]
+        ).toEqual({ notice: 'old-notice', nonce: 'old-nonce', cause: 'explicit_evaluation' });
+      }
+    );
+  });
+  it('rolls back award evaluation and receipt snapshots when the actual save fails', async () => {
+    await confirm();
+    const before = (
+      await root.query(
+        'SELECT count(*)::int count FROM core.person_practice_badges WHERE person_id=$1',
+        [person]
+      )
+    ).rows;
+    const response = await post('/line/workspace/save', {
+      requestId: randomUUID(),
+      date: (await profile()).today,
+      version: 0,
+      methods: ['not_a_method'],
+      lineReceiptMode: 'liff-summary-v1'
+    });
+    expect(response.statusCode).toBe(409);
+    expect(
+      (
+        await root.query(
+          'SELECT count(*)::int count FROM core.person_practice_badges WHERE person_id=$1',
+          [person]
+        )
+      ).rows
+    ).toEqual(before);
+    expect(
+      (
+        await root.query(
+          'SELECT count(*)::int count FROM ops.channel_practice_receipts WHERE identity_id=$1',
+          [identity]
+        )
+      ).rows[0]
+    ).toEqual({ count: 0 });
+    await expect(
+      withRequestContext(runtime, 'qigong_api_runtime', { requestId: randomUUID() }, (c) =>
+        c.query('SELECT ops._evaluate_achievement_person($1,TRUE)', [person])
+      )
+    ).rejects.toMatchObject({ code: '42501' });
+    await expect(
+      withRequestContext(runtime, 'qigong_api_runtime', { requestId: randomUUID() }, (c) =>
+        c.query('SELECT core._practice_receipt_badge_keys($1)', [person])
+      )
+    ).rejects.toMatchObject({ code: '42501' });
+    await expect(
+      withRequestContext(runtime, 'qigong_api_runtime', { requestId: randomUUID() }, (c) =>
+        c.query("SELECT core._practice_receipt_new_badges($1,'[]'::jsonb,'zh_TW')", [person])
+      )
+    ).rejects.toMatchObject({ code: '42501' });
+  });
   it('saves a disclosed LINE reflection atomically into the student stream, with no sharing checkbox or external enablement', async () => {
     await confirm();
     const date = (await profile()).today;

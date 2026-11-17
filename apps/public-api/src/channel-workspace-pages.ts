@@ -1,4 +1,5 @@
 import { lineUiText } from './line-ui-localization.js';
+import { linePracticeReceiptClient } from './line-practice-receipt-client.js';
 import { journalTexts } from './journal-locale.js';
 import { uiText, uiDictionary } from './ui-localization.js';
 import { whatsappBrowserBootstrap, whatsappLoginMarkup } from './whatsapp-browser-bootstrap.js';
@@ -108,25 +109,64 @@ export const renderChannelWorkspacePage = (
         "if($('return-chat')){$('return-chat').hidden=!undefined?.initData;$('return-chat').onclick=()=>{if(mayLeave())closeMiniapp();};}";
       if (!html.includes(previousClose) || !html.includes(previousButton))
         throw new Error('Workspace closing template changed');
-      const unlockedTitle =
-        lang === 'en' ? '🎉 New achievements unlocked:' : uiText(lang, '🎉 新解鎖成就：');
       html = html
-        .replace(
-          previousClose,
-          `const canCloseLine=()=>{try{return typeof liff!=='undefined'&&typeof liff.isInClient==='function'&&liff.isInClient()&&typeof liff.closeWindow==='function';}catch{return false;}};const sendLineUnlockedBadges=async result=>{try{if(!result||!Array.isArray(result.unlockedBadges)||!result.unlockedBadges.length||typeof liff==='undefined'||typeof liff.isInClient!=='function'||!liff.isInClient()||typeof liff.sendMessages!=='function')return;const lines=[${JSON.stringify(unlockedTitle)}];for(const b of result.unlockedBadges){const p=b.period&&b.period!=='lifetime'?(locale==='en'?' ('+b.period+')':' ('+b.period+'年)'):'';lines.push((b.emoji||'🏅')+' '+b.name+p);}await liff.sendMessages([{type:'text',text:lines.join('\\n')}]);}catch{}};const closeMiniapp=()=>{if(!canCloseLine())return false;leaving=true;syncClosing();try{liff.closeWindow();return true;}catch{leaving=false;syncClosing();return false;}};`
-        )
+        .replace(previousClose, linePracticeReceiptClient(lang))
         .replace(
           previousButton,
-          "if($('return-chat')){const button=$('return-chat');button.hidden=true;lineReady.then(()=>{button.hidden=!canCloseLine();}).catch(()=>{button.hidden=true;});button.onclick=()=>{if(mayLeave())closeMiniapp();};}"
+          "if($('return-chat')){const button=$('return-chat');button.hidden=true;lineReady.then(()=>{button.hidden=!canCloseLine();}).catch(()=>{button.hidden=true;});button.onclick=()=>{if(!lineDeliveryBusy&&mayLeave())closeMiniapp();};}"
         );
       if (page === 'checkin') {
+        const savePayload = 'requestId:draft.requestId,date:selectedDate,';
+        const saveGuard = 'if(!draft.methods.length){status(t.choose,true);return;}';
+        const saveReturn = 'return body;';
+        const apiError = 'error.status=response.status; throw error;';
+        const oldShowError =
+          'const showError = error => status(error.status===401||error.status===403?t.expired:error.status===409?t.conflict:t.failed,true);';
+        const uncertain = JSON.stringify(
+          lang === 'en'
+            ? 'Check-in result not confirmed. Check history or retry the same action; do not create another check-in.'
+            : uiText(lang, '打卡結果尚未確認，請查看紀錄或重試原操作，不要另外重複新增打卡。')
+        );
+        if (![saveReturn, apiError, oldShowError].every((value) => html.includes(value)))
+          throw new Error('LINE response template changed');
+        html = html
+          .replace(
+            saveReturn,
+            "if(path==='/line/workspace/save'&&!lineSaveResponseValid(body)){const error=new Error('line_save_unconfirmed');error.lineOutcomeUnconfirmed=true;throw error;}" +
+              saveReturn
+          )
+          .replace(
+            apiError,
+            "error.status=response.status;if(path==='/line/workspace/save'&&response.status>=500)error.lineOutcomeUnconfirmed=true;throw error;"
+          )
+          .replace(
+            oldShowError,
+            `const showError = error => status(error.lineOutcomeUnconfirmed?${uncertain}:error.status===401||error.status===403?t.expired:error.status===409?t.conflict:t.failed,true);`
+          );
+        if (!html.includes(savePayload) || !html.includes(saveGuard))
+          throw new Error('LINE save template changed');
+        html = html
+          .replace(savePayload, "lineReceiptMode:'liff-summary-v1'," + savePayload)
+          .replace(
+            saveGuard,
+            'if(lineSavedDates.has(selectedDate)&&signature(draft)===baselines.get(selectedDate))return;' +
+              saveGuard
+          );
+        const profileRefresh =
+          "try{const data=await api('/line/workspace/profile');profile=data;metrics(data);zones(data);const savedDate=selectedDate;";
+        if (!html.includes(profileRefresh))
+          throw new Error('LINE profile refresh template changed');
+        html = html.replace(
+          profileRefresh,
+          "try{const data=await api('/line/workspace/profile'),lineZoneValue=$('zone').value,lineZoneDirty=profile&&lineZoneValue!==profile.timezone;profile=data;metrics(data);zones(data);if(lineZoneDirty)$('zone').value=lineZoneValue;const savedDate=selectedDate;"
+        );
         const previousSubmitClose =
           'writing=false;setBusy(false);if(!preserved&&!dirty()&&closeMiniapp())return;';
         if (!html.includes(previousSubmitClose))
           throw new Error('Workspace submit close template changed');
         html = html.replace(
           previousSubmitClose,
-          'writing=false;setBusy(false);await sendLineUnlockedBadges(result);if(!preserved&&!dirty()&&closeMiniapp())return;'
+          'const lineDelivered=await sendLineSavedReceipt(result);writing=false;setBusy(false);if(!lineDelivered)return;if(!preserved&&!dirty()&&closeMiniapp())return;'
         );
       }
     }

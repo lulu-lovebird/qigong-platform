@@ -59,7 +59,7 @@ const jsonParameter = (value: unknown): unknown => {
 };
 
 describe('version-bound window catalog SQL (STATIC guards, not PG execution)', () => {
-  it('binds exactly two historical, three schema60–64, or four schema65 grants to their ledgers', async () => {
+  it('binds exactly two historical, three schema60–64, or four schema65/66 grants to their ledgers', async () => {
     const f = catalogFixture();
     expect(await checkVenueWindowReadiness(f.pool)).toEqual({ feature: 'window', ready: true });
     const { sql } = captured(f);
@@ -75,6 +75,8 @@ describe('version-bound window catalog SQL (STATIC guards, not PG execution)', (
     );
     expect(sql).toContain("count(*)=65 AND max(version)='0065_whatsapp_venue_authority.sql'");
     expect(sql).toContain("AND bool_or(version='0064_admin_mcp_read_facade.sql') THEN 4");
+    expect(sql).toContain("count(*)=66 AND max(version)='0066_practice_badge_receipts.sql'");
+    expect(sql).toContain("AND bool_or(version='0065_whatsapp_venue_authority.sql') THEN 4");
     expect(sql).toContain(
       "rolname='qigong_whatsapp_venue_writer' AND window_ledger.expected_grantees=4"
     );

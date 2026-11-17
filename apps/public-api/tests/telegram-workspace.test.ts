@@ -378,6 +378,70 @@ suite('Telegram workspace HTTP, bot menu and durable delivery integration', () =
       /Private reflection|feeling|private@example|phone|token/i
     );
   });
+  it('never exposes an unfinished badge snapshot to the Telegram delivery worker before commit', async () => {
+    await confirm();
+    const date = (await profile()).today;
+    const sender = vi.fn(async (_recipient: string, text: string) => {
+      expect(text).toContain('正陽雙照');
+      expect(text).not.toContain('private-transaction-note');
+    });
+    await withRequestContext(
+      runtime,
+      'qigong_api_runtime',
+      { requestId: randomUUID() },
+      async (client) => {
+        await client.query('SELECT platform.community_workspace_save($1,$2,$3,$4,$5,$6,$7,$8,$9)', [
+          'telegram',
+          token,
+          randomUUID(),
+          date,
+          0,
+          ['zhengyang_morning', 'zhengyang_night'],
+          'private-transaction-note',
+          [],
+          null
+        ]);
+        expect(await deliverTelegramPracticeReceipts(runtime, sender, () => {}, 3)).toBe(0);
+        expect(sender).not.toHaveBeenCalled();
+      }
+    );
+    expect(await deliverTelegramPracticeReceipts(runtime, sender, () => {}, 3)).toBe(1);
+    expect(sender).toHaveBeenCalledTimes(1);
+  });
+  it.each([false, true])(
+    'includes a just-unlocked Zhengyang combo in the committed Telegram chat receipt (versioned=%s)',
+    async (versioned) => {
+      await root.query('UPDATE ops.versioned_achievement_control SET enabled=$1', [versioned]);
+      await confirm();
+      const requestId = randomUUID();
+      const first = await save({ requestId, methods: ['zhengyang_morning', 'zhengyang_night'] });
+      expect(first.statusCode, first.body).toBe(200);
+      expect(
+        first
+          .json<{ unlockedBadges: { code: string }[] }>()
+          .unlockedBadges.some((b) => b.code === 'combo_zhengyang_7')
+      ).toBe(true);
+      expect(
+        (await save({ requestId, methods: ['zhengyang_morning', 'zhengyang_night'] })).json()
+      ).toEqual(first.json());
+      const sender = vi.fn(async (recipient: string, text: string) => {
+        expect(recipient).toBe(subject);
+        expect(text).toContain('正陽雙照');
+        expect(text).not.toContain('Private reflection');
+      });
+      expect(await deliverTelegramPracticeReceipts(runtime, sender, () => {}, 3)).toBe(1);
+      expect(sender).toHaveBeenCalledTimes(1);
+      expect(
+        (
+          await root.query(
+            "SELECT count(*)::int count FROM ops.telegram_practice_receipts WHERE identity_id=$1 AND payload?'_saveNonce'",
+            [identity]
+          )
+        ).rows[0]
+      ).toEqual({ count: 0 });
+      expect(await deliverTelegramPracticeReceipts(runtime, sender, () => {}, 3)).toBe(0);
+    }
+  );
   it('publishes a disclosed Telegram note to the learner feed with separate external sharing off', async () => {
     await confirm();
     const result = await save({

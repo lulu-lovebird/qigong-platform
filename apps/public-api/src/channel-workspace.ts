@@ -9,7 +9,7 @@ import {
   readVersionedLearnerAchievements,
   type VersionedLearnerRequest
 } from './achievement-version-compat.js';
-import { badgeIcons, fallbackBadgeIcon } from './badge-icons.js';
+import { buildTelegramPracticeSummary } from './telegram-practice-receipts.js';
 import { journalPublishInput } from './journal-routes.js';
 import { isLearnerPrivacyError } from './learner-privacy-routes.js';
 import {
@@ -45,6 +45,8 @@ export const registerChannelWorkspace = (
     .extend(practiceNoteSchema.shape)
     .extend({
       communityNotice: provider === 'line' ? communityNoticeSchema : z.never().optional(),
+      lineReceiptMode:
+        provider === 'line' ? z.literal('liff-summary-v1').optional() : z.never().optional(),
       requestId: z.uuid(),
       date: z.iso.date(),
       version: z.number().int().min(0).max(2147483647),
@@ -200,39 +202,10 @@ export const registerChannelWorkspace = (
               'qigong_api_runtime',
               { requestId: request.id },
               async (c) => {
-                const earnedSet = async () => {
-                  const res = await c.query<{ data: unknown }>(
-                    "SELECT platform.channel_workspace_report('line',$1,'achievements',$2) data",
-                    [cred, data.locale]
-                  );
-                  const report = z.record(z.string(), z.unknown()).parse(res.rows[0]?.data);
-                  const badges = Array.isArray(report.badges)
-                    ? (report.badges as Array<{
-                        code: string;
-                        name: string;
-                        awards?: Array<{ period: string; revoked?: boolean }>;
-                      }>)
-                    : [];
-                  const map = new Map<string, { code: string; name: string; period: string }>();
-                  for (const b of badges) {
-                    for (const a of b.awards ?? []) {
-                      if (!a.revoked)
-                        map.set(`${b.code}:${a.period}`, {
-                          code: b.code,
-                          name: b.name,
-                          period: a.period
-                        });
-                    }
-                  }
-                  return map;
-                };
-                let before = new Map<string, { code: string; name: string; period: string }>();
-                try {
-                  before = await earnedSet();
-                } catch {
-                  // Ignore pre-save read error so save validation handles auth/status
-                }
-                const savedRes = await c.query<{ data: unknown }>(
+                await c.query("SELECT set_config('qigong.line_receipt_mode',$1,TRUE)", [
+                  v.lineReceiptMode ?? ''
+                ]);
+                const response = await c.query<{ data: unknown }>(
                   'SELECT platform.community_workspace_save($1,$2,$3,$4,$5,$6,$7,$8,$9) data',
                   [
                     provider,
@@ -246,27 +219,26 @@ export const registerChannelWorkspace = (
                     v.communityNotice ?? null
                   ]
                 );
-                const saved = z.record(z.string(), z.unknown()).parse(savedRes.rows[0]?.data);
-                try {
-                  await pool.query('SELECT ops.reconcile_practice_badges(20)');
-                } catch {
-                  // Optional immediate badge reconciliation
+                const saved = z.record(z.string(), z.unknown()).parse(response.rows[0]?.data);
+                // An old open LIFF page still sends badge-only messages: leave the Bot
+                // as owner, and hide new top-level badge data to prevent duplicate sends.
+                if (v.lineReceiptMode !== 'liff-summary-v1') {
+                  delete saved.unlockedBadges;
+                  delete saved.lineReceipt;
+                  return saved;
                 }
-                try {
-                  const after = await earnedSet();
-                  const unlockedBadges = [...after.entries()]
-                    .filter(([key]) => !before.has(key))
-                    .map(([, item]) => ({
-                      code: item.code,
-                      name: item.name,
-                      emoji: badgeIcons[item.code] ?? fallbackBadgeIcon,
-                      period: item.period
-                    }));
-                  if (unlockedBadges.length > 0) return { ...saved, unlockedBadges };
-                } catch {
-                  // Keep saved result if post-save badge query fails
-                }
-                return saved;
+                // Before migration66, the unchanged old save still queues its Bot receipt.
+                if (saved.lineReceipt === undefined) return saved;
+                const receipt = z
+                  .strictObject({ id: z.uuid(), payload: z.unknown() })
+                  .parse(saved.lineReceipt);
+                return {
+                  ...saved,
+                  lineReceipt: {
+                    id: receipt.id,
+                    text: buildTelegramPracticeSummary(receipt.payload)
+                  }
+                };
               }
             );
           }

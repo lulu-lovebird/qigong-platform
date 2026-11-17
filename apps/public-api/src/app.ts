@@ -95,7 +95,8 @@ export const venueAttendanceBadgesMigrationVersion = '0062_venue_attendance_badg
 export const practiceGuidanceMigrationVersion = '0063_practice_guidance.sql';
 export const adminMcpMigrationVersion = '0064_admin_mcp_read_facade.sql';
 export const whatsappVenueAuthorityMigrationVersion = '0065_whatsapp_venue_authority.sql';
-export const maximumMigrationVersion = whatsappVenueAuthorityMigrationVersion;
+export const practiceBadgeReceiptsMigrationVersion = '0066_practice_badge_receipts.sql';
+export const maximumMigrationVersion = practiceBadgeReceiptsMigrationVersion;
 const telegramLearnerReviewMigrationVersion = '0059_telegram_learner_review.sql';
 const defaultOffMigrationVersions = new Set([
   minimumMigrationVersion,
@@ -116,7 +117,8 @@ const defaultOffMigrationVersions = new Set([
   venueEntryGuidanceMigrationVersion,
   practiceGuidanceMigrationVersion,
   adminMcpMigrationVersion,
-  whatsappVenueAuthorityMigrationVersion
+  whatsappVenueAuthorityMigrationVersion,
+  practiceBadgeReceiptsMigrationVersion
 ]);
 // HTTP error classes can inherit status/message data (unlike log diagnostics,
 // which deliberately ignore prototypes). Preserve that compatibility without
@@ -304,7 +306,8 @@ export const createVenueEntryModeResolver =
         status.currentVersion !== venueReportingMigrationVersion &&
         status.currentVersion !== practiceGuidanceMigrationVersion &&
         status.currentVersion !== adminMcpMigrationVersion &&
-        status.currentVersion !== whatsappVenueAuthorityMigrationVersion
+        status.currentVersion !== whatsappVenueAuthorityMigrationVersion &&
+        status.currentVersion !== practiceBadgeReceiptsMigrationVersion
       )
         return 'unavailable';
       if ((await checkVenueWindowReadiness(pool)).ready !== true) return 'unavailable';
@@ -313,7 +316,8 @@ export const createVenueEntryModeResolver =
         status.currentVersion !== venueReportingMigrationVersion &&
         status.currentVersion !== practiceGuidanceMigrationVersion &&
         status.currentVersion !== adminMcpMigrationVersion &&
-        status.currentVersion !== whatsappVenueAuthorityMigrationVersion
+        status.currentVersion !== whatsappVenueAuthorityMigrationVersion &&
+        status.currentVersion !== practiceBadgeReceiptsMigrationVersion
       )
         return 'legacy';
       return (await checkVenueEntryGuidanceReadiness(pool)).ready === true
@@ -353,7 +357,8 @@ export const checkStartupReadiness = async (
             status.currentVersion === venueEntryGuidanceMigrationVersion ||
             status.currentVersion === practiceGuidanceMigrationVersion ||
             status.currentVersion === adminMcpMigrationVersion ||
-            status.currentVersion === whatsappVenueAuthorityMigrationVersion)
+            status.currentVersion === whatsappVenueAuthorityMigrationVersion ||
+            status.currentVersion === practiceBadgeReceiptsMigrationVersion)
         : enabledFeatures.length > 0
           ? status.currentVersion === venueSuiteMigrationVersion ||
             status.currentVersion === '0055_venue_distance_debug.sql' ||
@@ -364,7 +369,8 @@ export const checkStartupReadiness = async (
             status.currentVersion === venueEntryGuidanceMigrationVersion ||
             status.currentVersion === practiceGuidanceMigrationVersion ||
             status.currentVersion === adminMcpMigrationVersion ||
-            status.currentVersion === whatsappVenueAuthorityMigrationVersion
+            status.currentVersion === whatsappVenueAuthorityMigrationVersion ||
+            status.currentVersion === practiceBadgeReceiptsMigrationVersion
           : venueQrEnabled
             ? status.currentVersion === venueQrMigrationVersion ||
               status.currentVersion === venueSuiteMigrationVersion ||
@@ -376,13 +382,18 @@ export const checkStartupReadiness = async (
               status.currentVersion === venueEntryGuidanceMigrationVersion ||
               status.currentVersion === practiceGuidanceMigrationVersion ||
               status.currentVersion === adminMcpMigrationVersion ||
-              status.currentVersion === whatsappVenueAuthorityMigrationVersion
+              status.currentVersion === whatsappVenueAuthorityMigrationVersion ||
+              status.currentVersion === practiceBadgeReceiptsMigrationVersion
             : status.currentVersion !== null &&
               defaultOffMigrationVersions.has(status.currentVersion))
   };
   if (!migration.ready)
     return { ready: false as const, reason: 'schema_version_mismatch', migration };
-  if (whatsappVenueEnabled && status.currentVersion !== whatsappVenueAuthorityMigrationVersion)
+  if (
+    whatsappVenueEnabled &&
+    status.currentVersion !== whatsappVenueAuthorityMigrationVersion &&
+    status.currentVersion !== practiceBadgeReceiptsMigrationVersion
+  )
     return { ready: false as const, reason: 'whatsapp_venue_schema_not_ready', migration };
   const runtime = await checkApiRuntimePreflight(pool);
   if (!runtime.ready)
@@ -396,7 +407,8 @@ export const checkStartupReadiness = async (
       status.currentVersion === venueAttendanceBadgesMigrationVersion ||
       status.currentVersion === practiceGuidanceMigrationVersion ||
       status.currentVersion === adminMcpMigrationVersion ||
-      status.currentVersion === whatsappVenueAuthorityMigrationVersion)
+      status.currentVersion === whatsappVenueAuthorityMigrationVersion ||
+      status.currentVersion === practiceBadgeReceiptsMigrationVersion)
   ) {
     const capability = await checkVenueWindowReadiness(pool);
     if (!capability.ready)
@@ -411,7 +423,8 @@ export const checkStartupReadiness = async (
       status.currentVersion === venueAttendanceBadgesMigrationVersion ||
       status.currentVersion === practiceGuidanceMigrationVersion ||
       status.currentVersion === adminMcpMigrationVersion ||
-      status.currentVersion === whatsappVenueAuthorityMigrationVersion)
+      status.currentVersion === whatsappVenueAuthorityMigrationVersion ||
+      status.currentVersion === practiceBadgeReceiptsMigrationVersion)
   ) {
     const capability = await checkVenueEntryGuidanceReadiness(pool);
     if (!capability.ready)

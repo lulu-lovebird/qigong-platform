@@ -854,34 +854,123 @@ describe('Telegram workspace generated scripts and unsaved private drafts', () =
     await f.listeners.get('beforeunload')?.(event);
     expect(event.preventDefault).not.toHaveBeenCalled();
   });
-  it('sends newly unlocked badges via LIFF sendMessages before closing the window', async () => {
+  const lineReceiptResult = () => ({
+    checkinId: randomUUID(),
+    version: 2,
+    receiptQueued: false,
+    receiptDelivery: 'liff',
+    lineReceipt: {
+      id: randomUUID(),
+      text: '✅ 打卡成功\n練習功法：正陽功 晨功、夜功\n🎉 新解鎖成就：\n☀️ 正陽雙照 (2026年)'
+    }
+  });
+  it('awaits one complete LIFF summary including new badges before closing', async () => {
     const f = fixture('checkin', { channel: 'line', lineNative: true });
     await tick();
     f.all('[data-method]')[0]!.checked = true;
     await f.all('[data-method]')[0]!.onchange?.();
+    const result = lineReceiptResult();
+    let finish: (() => void) | undefined;
+    f.lineSendMessages.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        })
+    );
+    f.fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(result), { status: 200 }));
+    const saving = f.get('submit').onclick?.();
+    await tick();
+    expect(f.lineSendMessages).toHaveBeenCalledWith([
+      { type: 'text', text: result.lineReceipt.text }
+    ]);
+    expect(f.lineClose).not.toHaveBeenCalled();
+    await f.get('return-chat').onclick?.();
+    expect(f.lineClose).not.toHaveBeenCalled();
+    expect(f.get('editor').disabled).toBe(true);
+    await f.get('submit').onclick?.();
+    expect(f.fetchMock.mock.calls.filter(([path]) => path === '/line/workspace/save')).toHaveLength(
+      1
+    );
+    finish?.();
+    await saving;
+    expect(f.lineClose).toHaveBeenCalledTimes(1);
+    const call = f.fetchMock.mock.calls.find(([path]) => path === '/line/workspace/save');
+    const body = call?.[1]?.body;
+    if (typeof body !== 'string') throw Error('Expected save JSON');
+    expect(JSON.parse(body)).toMatchObject({ lineReceiptMode: 'liff-summary-v1' });
+  });
+  it('sends the confirmed receipt but preserves another LINE date draft instead of auto-closing', async () => {
+    const f = fixture('checkin', { channel: 'line', lineNative: true });
+    await tick();
+    f.get('note').value = 'Unsaved today note';
+    f.get('note').oninput?.();
+    await f.get('yesterdayTab').onclick?.();
+    f.all('[data-method]')[0]!.checked = true;
+    await f.all('[data-method]')[0]!.onchange?.();
     f.fetchMock.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          checkinId: randomUUID(),
-          version: 2,
-          receiptQueued: true,
-          unlockedBadges: [
-            { code: 'streak_3', name: '連續練功 3 天', emoji: '🥉', period: 'lifetime' },
-            { code: 'combo_dayan_7', name: '大雁功全套', emoji: '🦢', period: '2026' }
-          ]
-        }),
-        { status: 200 }
-      )
+      new Response(JSON.stringify(lineReceiptResult()), { status: 200 })
     );
     await f.get('submit').onclick?.();
     expect(f.lineSendMessages).toHaveBeenCalledTimes(1);
-    expect(f.lineSendMessages).toHaveBeenCalledWith([
-      {
-        type: 'text',
-        text: '🎉 新解鎖成就：\n🥉 連續練功 3 天\n🦢 大雁功全套 (2026年)'
-      }
-    ]);
+    expect(f.lineClose).not.toHaveBeenCalled();
+    await f.get('todayTab').onclick?.();
+    expect(f.get('note').value).toBe('Unsaved today note');
+  });
+  it('keeps the saved LINE page open on SDK rejection without resaving unchanged practice', async () => {
+    const f = fixture('checkin', { channel: 'line', lineNative: true });
+    await tick();
+    f.all('[data-method]')[0]!.checked = true;
+    await f.all('[data-method]')[0]!.onchange?.();
+    f.lineSendMessages.mockRejectedValueOnce(Error('SDK failure'));
+    f.fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(lineReceiptResult()), { status: 200 })
+    );
+    await f.get('submit').onclick?.();
+    expect(f.lineClose).not.toHaveBeenCalled();
+    expect(f.get('status').textContent).toContain('打卡已儲存');
+    expect(f.get('status').textContent).toContain('未確認送達');
+    await f.get('submit').onclick?.();
+    expect(f.fetchMock.mock.calls.filter(([path]) => path === '/line/workspace/save')).toHaveLength(
+      1
+    );
+    expect(f.lineSendMessages).toHaveBeenCalledTimes(1);
+  });
+  it('retains the requestUUID on a malformed success response and retries without a false close', async () => {
+    const f = fixture('checkin', { channel: 'line', lineNative: true });
+    await tick();
+    f.all('[data-method]')[0]!.checked = true;
+    await f.all('[data-method]')[0]!.onchange?.();
+    f.fetchMock.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    await f.get('submit').onclick?.();
+    expect(f.lineClose).not.toHaveBeenCalled();
+    expect(f.lineSendMessages).not.toHaveBeenCalled();
+    expect(f.get('status').textContent).toContain('打卡結果尚未確認');
+    f.fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(lineReceiptResult()), { status: 200 })
+    );
+    await f.get('submit').onclick?.();
+    const calls = f.fetchMock.mock.calls.filter(([path]) => path === '/line/workspace/save');
+    expect(calls).toHaveLength(2);
+    const ids = calls.map(([, init]) => {
+      if (typeof init?.body !== 'string') throw Error('Missing JSON body');
+      return (JSON.parse(init.body) as { requestId: string }).requestId;
+    });
+    expect(ids[0]).toBe(ids[1]);
+    expect(f.lineSendMessages).toHaveBeenCalledTimes(1);
     expect(f.lineClose).toHaveBeenCalledTimes(1);
+  });
+  it('does not claim chat delivery or close in an external browser for a modern LIFF receipt', async () => {
+    const f = fixture('checkin', { channel: 'line', lineNative: false });
+    await tick();
+    f.all('[data-method]')[0]!.checked = true;
+    await f.all('[data-method]')[0]!.onchange?.();
+    f.fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(lineReceiptResult()), { status: 200 })
+    );
+    await f.get('submit').onclick?.();
+    expect(f.lineClose).not.toHaveBeenCalled();
+    expect(f.lineSendMessages).not.toHaveBeenCalled();
+    expect(f.get('status').textContent).toContain('未確認送達');
   });
   it.each([
     {
@@ -971,6 +1060,10 @@ describe('Telegram workspace generated scripts and unsaved private drafts', () =
     await f.all('[data-method]')[0]!.onchange?.();
     await f.get('submit').onclick?.();
     expect(f.lineClose).not.toHaveBeenCalled();
+    expect(f.get('zone').value).toBe('Asia/Taipei');
+    const event = { preventDefault: vi.fn() };
+    await f.listeners.get('beforeunload')?.(event);
+    expect(event.preventDefault).toHaveBeenCalled();
   });
   it.each(['checkin', 'leaderboard', 'methods', 'achievements'] as const)(
     'renders a bilingual, syntax-valid %s page with safe dynamic DOM writes',
