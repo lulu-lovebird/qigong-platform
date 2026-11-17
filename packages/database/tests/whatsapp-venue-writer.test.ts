@@ -92,7 +92,7 @@ suite('migrated WhatsApp venue writer (real isolated PostgreSQL)', () => {
       path.join(root, 'migrations'),
       'vitest-wa-writer'
     );
-    expect(migration.currentVersion).toBe('0065_whatsapp_venue_authority.sql');
+    expect(migration.currentVersion).toBe('0066_practice_badge_receipts.sql');
     expect((await runMigrations(owner(), path.join(root, 'migrations'))).applied).toEqual([]);
     const password = randomBytes(24).toString('hex');
     await owner().query(
@@ -196,7 +196,7 @@ suite('migrated WhatsApp venue writer (real isolated PostgreSQL)', () => {
       expect(health.statusCode, health.body).toBe(200);
       expect(health.json()).toMatchObject({
         ready: true,
-        migration: { currentVersion: '0065_whatsapp_venue_authority.sql' }
+        migration: { currentVersion: '0066_practice_badge_receipts.sql' }
       });
       expect(
         (await plain.inject({ method: 'POST', url: '/api/whatsapp/venue-checkin', payload: {} }))

@@ -1,5 +1,9 @@
 # LINE圖文選單與打卡後返回聊天
 
+> 以下 schema25／舊版 close 修復與部署數據是歷史記錄。migration66 的新方案會在新版 client await `liff.sendMessages` 後才自動關閉，與下方舊版「不等待／不呼叫 sendMessages」不同；66 尚未發布。最新交付協商與測試見 [成就聊天收據修正](practice-badge-chat-receipts.md)。
+>
+> 發布66前請在 LINE Developers Console → 正確的 LINE Login channel → LIFF → 此 app，確認 `chat_message.write` scope 與實際 client 的訊息權限；`openid` 仍保留用於 ID token。若選項隱藏，檢查 View all／帳號可用權限。匿名檢查未能確認權限，不應假定已授權；不要貼 token／Cookie／私人 fragment 作為證據。SDK 發送失敗僅提示已儲存但送達未確認，不自動改用額外 Push。
+
 ## 新官方帳號六格選單
 
 使用者確認自行製作／設定圖文選單；本批不透過API發布／變更任何rich menu，不動舊官方帳號。品牌以白雁氣功／氣功打卡小幫手為主。可用三欄兩列大尺寸模板，聊天選單名稱「功能選單」。

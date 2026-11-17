@@ -10,6 +10,7 @@ import {
   practiceGuidanceMigrationVersion,
   adminMcpMigrationVersion,
   whatsappVenueAuthorityMigrationVersion,
+  practiceBadgeReceiptsMigrationVersion,
   maximumMigrationVersion
 } from '../src/app.js';
 import { nfcMigrationVersion, nfcQuarantineMigrationVersion } from '../src/admin-auth.js';
@@ -72,7 +73,8 @@ const createPoolMock = (
           version === '0062_venue_attendance_badges.sql' ||
           version === '0063_practice_guidance.sql' ||
           version === adminMcpMigrationVersion ||
-          version === whatsappVenueAuthorityMigrationVersion;
+          version === whatsappVenueAuthorityMigrationVersion ||
+          version === practiceBadgeReceiptsMigrationVersion;
         const historical =
           version === '0058_venue_early_checkin_window.sql' ||
           version === '0059_telegram_learner_review.sql';
@@ -80,7 +82,8 @@ const createPoolMock = (
           'qigong_venue_qr_writer',
           'qigong_venue_debug',
           ...(modern ? ['qigong_venue_entry_reader'] : []),
-          ...(version === whatsappVenueAuthorityMigrationVersion
+          ...(version === whatsappVenueAuthorityMigrationVersion ||
+          version === practiceBadgeReceiptsMigrationVersion
             ? ['qigong_whatsapp_venue_writer']
             : [])
         ];
@@ -885,23 +888,25 @@ describe('health endpoints', () => {
     }
   );
 
-  it('keeps the schema65 maximum explicit while preserving the schema64 MCP boundary', () => {
+  it('keeps the schema66 maximum explicit while preserving the schema64/65 boundaries', () => {
     expect(adminMcpMigrationVersion).toBe('0064_admin_mcp_read_facade.sql');
     expect(whatsappVenueAuthorityMigrationVersion).toBe('0065_whatsapp_venue_authority.sql');
-    expect(maximumMigrationVersion).toBe(whatsappVenueAuthorityMigrationVersion);
+    expect(practiceBadgeReceiptsMigrationVersion).toBe('0066_practice_badge_receipts.sql');
+    expect(maximumMigrationVersion).toBe(practiceBadgeReceiptsMigrationVersion);
   });
 
-  it.each([adminMcpMigrationVersion, whatsappVenueAuthorityMigrationVersion])(
-    'preserves LINE guidance and startup capability checks on %s',
-    async (version) => {
-      const mock = createPoolMock(version);
-      expect(await checkStartupReadiness(mock.pool, true)).toMatchObject({ ready: true });
-      expect(
-        await createVenueEntryModeResolver(mock.pool)('11111111-1111-4111-8111-111111111111')
-      ).toBe('guided');
-      expectNoNfcAccess(mock);
-    }
-  );
+  it.each([
+    adminMcpMigrationVersion,
+    whatsappVenueAuthorityMigrationVersion,
+    practiceBadgeReceiptsMigrationVersion
+  ])('preserves LINE guidance and startup capability checks on %s', async (version) => {
+    const mock = createPoolMock(version);
+    expect(await checkStartupReadiness(mock.pool, true)).toMatchObject({ ready: true });
+    expect(
+      await createVenueEntryModeResolver(mock.pool)('11111111-1111-4111-8111-111111111111')
+    ).toBe('guided');
+    expectNoNfcAccess(mock);
+  });
   it('schema65 stays default-off for WhatsApp venue HTTP routes', async () => {
     const mock = createPoolMock(whatsappVenueAuthorityMigrationVersion);
     expect(await checkStartupReadiness(mock.pool)).toMatchObject({ ready: true });
@@ -917,7 +922,17 @@ describe('health endpoints', () => {
       await app.close();
     }
   });
-  it('requires schema65 before enabling the WhatsApp venue feature', async () => {
+  it('schema66 retains WhatsApp default-off behavior and permits its unchanged authority when explicitly enabled', async () => {
+    const off = createPoolMock(practiceBadgeReceiptsMigrationVersion);
+    expect(await checkStartupReadiness(off.pool)).toMatchObject({ ready: true });
+    expect(capabilityCalls(off)).toEqual([]);
+    const on = createPoolMock(practiceBadgeReceiptsMigrationVersion);
+    expect(await checkStartupReadiness(on.pool, false, {}, false, true)).toMatchObject({
+      ready: true
+    });
+    expectNoNfcAccess(on);
+  });
+  it('requires schema65/66 before enabling the WhatsApp venue feature', async () => {
     const mock = createPoolMock(adminMcpMigrationVersion);
     expect(await checkStartupReadiness(mock.pool, false, {}, false, true)).toMatchObject({
       ready: false,
@@ -970,7 +985,7 @@ describe('health endpoints', () => {
       reason: 'venue_feature_not_ready'
     });
   });
-  it('rejects an unreviewed future schema without probing capabilities', async () => {
+  it('rejects an unreviewed schema artifact without probing capabilities', async () => {
     const mock = createPoolMock('0066_future_unreviewed.sql');
     expect(await checkStartupReadiness(mock.pool, true)).toMatchObject({
       ready: false,

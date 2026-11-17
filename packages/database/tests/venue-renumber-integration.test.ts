@@ -13,7 +13,7 @@ const venueFiles = [
 describe('unpublished venue renumber integration (static, not deployment evidence)', () => {
   it('keeps one artifact per number, including the published invitation migration', () => {
     const files = readdirSync(directory).filter((file) => /^\d{4}_[a-z0-9_]+\.sql$/.test(file));
-    expect(files).toHaveLength(65);
+    expect(files).toHaveLength(66);
     expect(new Set(files.map((file) => file.slice(0, 4))).size).toBe(files.length);
     expect(files.sort().slice(46, 51)).toEqual(['0047_channel_invitations.sql', ...venueFiles]);
     expect(files.slice(51)).toEqual([
@@ -30,7 +30,8 @@ describe('unpublished venue renumber integration (static, not deployment evidenc
       '0062_venue_attendance_badges.sql',
       '0063_practice_guidance.sql',
       '0064_admin_mcp_read_facade.sql',
-      '0065_whatsapp_venue_authority.sql'
+      '0065_whatsapp_venue_authority.sql',
+      '0066_practice_badge_receipts.sql'
     ]);
   });
 

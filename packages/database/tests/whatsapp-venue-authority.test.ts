@@ -46,7 +46,7 @@ suite('migrated WhatsApp venue Session-only SQL authority (isolated PostgreSQL)'
       path.join(root, 'migrations'),
       'vitest-wa-venue-migrated'
     );
-    expect(migration.currentVersion).toBe('0065_whatsapp_venue_authority.sql');
+    expect(migration.currentVersion).toBe('0066_practice_badge_receipts.sql');
     expect((await runMigrations(owner(), path.join(root, 'migrations'))).applied).toEqual([]);
     const password = randomBytes(24).toString('hex');
     await owner().query(
